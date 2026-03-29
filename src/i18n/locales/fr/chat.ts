@@ -1,0 +1,42 @@
+export default {
+  title: "Chat IA",
+  new_chat: "Nouvelle conversation",
+  input_placeholder: "Tapez un message...",
+  send: "Envoyer",
+  stop: "Arrêter",
+  attach_document: "Joindre un document",
+  no_conversations: "Aucune conversation",
+  no_conversations_desc: "Démarrer une nouvelle conversation",
+  no_messages: "Commencer à discuter",
+  no_messages_desc: "Envoyez un message pour commencer une conversation avec l'assistant IA",
+  no_provider: {
+    title: "Aucun fournisseur de chat configuré",
+    description: "Veuillez configurer un canal de chat actif dans les paramètres",
+  },
+  error: {
+    stream_failed: "Échec de la requête de chat",
+    empty_message: "Le message ne peut pas être vide",
+  },
+  picker: {
+    title: "Sélectionner des documents",
+    description: "Choisir dans votre bibliothèque ou télécharger des fichiers locaux",
+    search_placeholder: "Rechercher des documents...",
+    library_tab: "Bibliothèque",
+    upload_tab: "Télécharger",
+    upload_hint: "Cliquez ou glissez des fichiers ici pour télécharger",
+    upload_btn: "Choisir un fichier",
+    uploading: "Téléchargement...",
+    selected: "{{count}} document(s) sélectionné(s)",
+    confirm: "Confirmer",
+    no_documents: "La bibliothèque est vide",
+  },
+  preview: {
+    title: "Aperçu du document",
+    close: "Fermer l'aperçu",
+    no_content: "Aucun contenu analysé disponible",
+  },
+  role: {
+    user: "Vous",
+    assistant: "IA",
+  },
+}

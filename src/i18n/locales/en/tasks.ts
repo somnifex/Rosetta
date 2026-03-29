@@ -1,0 +1,57 @@
+export default {
+  title: "Task Center",
+  subtitle: "Monitor parsing and translation jobs",
+  tabs: {
+    all: "All Tasks",
+    parsing: "Parsing",
+    translation: "Translation",
+    indexing: "Indexing",
+  },
+  columns: {
+    document: "Document",
+    type: "Type",
+    status: "Status",
+    progress: "Progress",
+    created: "Created",
+    duration: "Duration",
+    error: "Error",
+  },
+  status: {
+    pending: "Pending",
+    parsing: "Parsing",
+    translating: "Translating",
+    indexing: "Indexing",
+    completed: "Completed",
+    failed: "Failed",
+    partial: "Partial",
+  },
+  type: {
+    parse: "Parse",
+    translation: "Translation",
+    index: "Index",
+  },
+  actions: {
+    viewDocument: "View Document",
+    retry: "Retry",
+    cancelTask: "Stop Task",
+    deleteTask: "Delete Task",
+  },
+  empty: {
+    all: {
+      title: "No active tasks",
+      description: "Tasks will appear here when you start processing documents",
+    },
+    parsing: {
+      title: "No parsing tasks",
+      description: "Import a PDF to start parsing",
+    },
+    translation: {
+      title: "No translation tasks",
+      description: "Start a translation job to see tasks here",
+    },
+    indexing: {
+      title: "No indexing tasks",
+      description: "Enable indexing to see tasks here",
+    },
+  },
+}

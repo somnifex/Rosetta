@@ -1,0 +1,57 @@
+export default {
+  title: "مركز المهام",
+  subtitle: "مراقبة مهام التحليل والترجمة",
+  tabs: {
+    all: "جميع المهام",
+    parsing: "التحليل",
+    translation: "الترجمة",
+    indexing: "الفهرسة",
+  },
+  columns: {
+    document: "المستند",
+    type: "النوع",
+    status: "الحالة",
+    progress: "التقدم",
+    created: "تاريخ الإنشاء",
+    duration: "المدة",
+    error: "الخطأ",
+  },
+  status: {
+    pending: "قيد الانتظار",
+    parsing: "جاري التحليل",
+    translating: "جاري الترجمة",
+    indexing: "جاري الفهرسة",
+    completed: "مكتمل",
+    failed: "فشل",
+    partial: "جزئي",
+  },
+  type: {
+    parse: "تحليل",
+    translation: "ترجمة",
+    index: "فهرسة",
+  },
+  actions: {
+    viewDocument: "عرض المستند",
+    retry: "إعادة المحاولة",
+    cancelTask: "إيقاف المهمة",
+    deleteTask: "حذف المهمة",
+  },
+  empty: {
+    all: {
+      title: "لا توجد مهام نشطة",
+      description: "ستظهر المهام هنا عند بدء معالجة المستندات",
+    },
+    parsing: {
+      title: "لا توجد مهام تحليل",
+      description: "قم باستيراد ملف PDF لبدء التحليل",
+    },
+    translation: {
+      title: "لا توجد مهام ترجمة",
+      description: "ابدأ مهمة ترجمة لرؤية المهام هنا",
+    },
+    indexing: {
+      title: "لا توجد مهام فهرسة",
+      description: "قم بتفعيل الفهرسة لرؤية المهام هنا",
+    },
+  },
+}

@@ -1,0 +1,42 @@
+export default {
+  title: "Чат с ИИ",
+  new_chat: "Новый чат",
+  input_placeholder: "Введите сообщение...",
+  send: "Отправить",
+  stop: "Остановить",
+  attach_document: "Прикрепить документ",
+  no_conversations: "Нет бесед",
+  no_conversations_desc: "Начните новую беседу",
+  no_messages: "Начать чат",
+  no_messages_desc: "Отправьте сообщение, чтобы начать беседу с ИИ-ассистентом",
+  no_provider: {
+    title: "Провайдер чата не настроен",
+    description: "Настройте активный канал чата в настройках",
+  },
+  error: {
+    stream_failed: "Ошибка запроса чата",
+    empty_message: "Сообщение не может быть пустым",
+  },
+  picker: {
+    title: "Выбрать документы",
+    description: "Выберите из библиотеки или загрузите локальные файлы",
+    search_placeholder: "Поиск документов...",
+    library_tab: "Библиотека",
+    upload_tab: "Загрузить",
+    upload_hint: "Нажмите или перетащите файлы сюда для загрузки",
+    upload_btn: "Выбрать файл",
+    uploading: "Загрузка...",
+    selected: "Выбрано документов: {{count}}",
+    confirm: "Подтвердить",
+    no_documents: "Библиотека пуста",
+  },
+  preview: {
+    title: "Предпросмотр документа",
+    close: "Закрыть предпросмотр",
+    no_content: "Нет доступного разобранного содержимого",
+  },
+  role: {
+    user: "Вы",
+    assistant: "ИИ",
+  },
+}

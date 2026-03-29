@@ -1,0 +1,422 @@
+import { useTranslation } from "react-i18next"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
+import { useToast } from "@/hooks/use-toast"
+import {
+  Clock,
+  FileText,
+  Languages,
+  Database,
+  ExternalLink,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Square,
+  Trash2,
+} from "lucide-react"
+import { api } from "@/lib/api"
+
+interface UnifiedTask {
+  id: string
+  documentId: string
+  documentTitle: string
+  type: "parse" | "translation" | "index"
+  status: string
+  progress: number
+  errorMessage: string | null
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string
+}
+
+function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "completed":
+      return "default"
+    case "failed":
+      return "destructive"
+    case "parsing":
+    case "translating":
+    case "indexing":
+      return "secondary"
+    default:
+      return "outline"
+  }
+}
+
+function StatusIcon({ status }: { status: string }) {
+  switch (status) {
+    case "completed":
+      return <CheckCircle2 className="h-4 w-4 text-green-500" />
+    case "failed":
+      return <XCircle className="h-4 w-4 text-destructive" />
+    case "parsing":
+    case "translating":
+    case "indexing":
+      return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+    case "partial":
+      return <AlertCircle className="h-4 w-4 text-yellow-500" />
+    default:
+      return <Clock className="h-4 w-4 text-muted-foreground" />
+  }
+}
+
+function TypeIcon({ type }: { type: "parse" | "translation" | "index" }) {
+  switch (type) {
+    case "parse":
+      return <FileText className="h-4 w-4" />
+    case "translation":
+      return <Languages className="h-4 w-4" />
+    case "index":
+      return <Database className="h-4 w-4" />
+  }
+}
+
+function formatDuration(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt) return "-"
+  const start = new Date(startedAt).getTime()
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now()
+  const seconds = Math.floor((end - start) / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString()
+}
+
+export default function Tasks() {
+  const { t } = useTranslation("tasks")
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+
+  const invalidateTaskQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["parseJobs"] })
+    queryClient.invalidateQueries({ queryKey: ["translationJobs"] })
+    queryClient.invalidateQueries({ queryKey: ["documents"] })
+  }
+
+  const cancelTaskMutation = useMutation<void, Error, UnifiedTask>({
+    mutationFn: async (task) => {
+      if (task.type === "parse") {
+        await api.cancelParseJob(task.id)
+        return
+      }
+      if (task.type === "translation") {
+        await api.cancelTranslationJob(task.id)
+        return
+      }
+      await api.cancelIndexJob(task.documentId)
+    },
+    onSuccess: (_data, task) => {
+      invalidateTaskQueries()
+      queryClient.invalidateQueries({ queryKey: ["document", task.documentId] })
+    },
+    onError: (error) => {
+      toast({ title: t("actions.cancelTask"), description: error.message, variant: "destructive" })
+    },
+  })
+
+  const deleteTaskMutation = useMutation<void, Error, UnifiedTask>({
+    mutationFn: async (task) => {
+      if (task.type === "parse") {
+        await api.deleteParseJob(task.id)
+        return
+      }
+      await api.deleteTranslationJob(task.id)
+    },
+    onSuccess: (_data, task) => {
+      invalidateTaskQueries()
+      queryClient.invalidateQueries({ queryKey: ["document", task.documentId] })
+    },
+    onError: (error) => {
+      toast({ title: t("actions.deleteTask"), description: error.message, variant: "destructive" })
+    },
+  })
+
+  const { data: parseJobs = [] } = useQuery({
+    queryKey: ["parseJobs"],
+    queryFn: () => api.getAllParseJobs(),
+    refetchInterval: 3000,
+  })
+
+  const { data: translationJobs = [] } = useQuery({
+    queryKey: ["translationJobs"],
+    queryFn: () => api.getAllTranslationJobs(),
+    refetchInterval: 3000,
+  })
+
+  const { data: documents = [] } = useQuery({
+    queryKey: ["documents"],
+    queryFn: () => api.getDocuments(),
+    refetchInterval: 5000,
+  })
+
+  // Build unified task list
+  const parseTasks: UnifiedTask[] = parseJobs.map((j) => ({
+    id: j.id,
+    documentId: j.document_id,
+    documentTitle: j.document_title,
+    type: "parse" as const,
+    status: j.status,
+    progress: j.progress,
+    errorMessage: j.error_message,
+    startedAt: j.started_at,
+    completedAt: j.completed_at,
+    createdAt: j.created_at,
+  }))
+
+  const translationTasks: UnifiedTask[] = translationJobs.map((j) => ({
+    id: j.id,
+    documentId: j.document_id,
+    documentTitle: j.document_title,
+    type: "translation" as const,
+    status: j.status,
+    progress: j.progress,
+    errorMessage: j.error_message,
+    startedAt: j.started_at,
+    completedAt: j.completed_at,
+    createdAt: j.created_at,
+  }))
+
+  // Indexing tasks derived from documents with active index status
+  const indexTasks: UnifiedTask[] = documents
+    .filter((d) => d.index_status && d.index_status !== "pending")
+    .map((d) => ({
+      id: `index-${d.id}`,
+      documentId: d.id,
+      documentTitle: d.title,
+      type: "index" as const,
+      status: d.index_status,
+      progress: d.index_status === "completed" ? 100 : d.index_status === "indexing" ? 50 : 0,
+      errorMessage: null,
+      startedAt: d.updated_at,
+      completedAt: d.index_status === "completed" || d.index_status === "failed" ? d.updated_at : null,
+      createdAt: d.updated_at,
+    }))
+
+  const allTasks = [...parseTasks, ...translationTasks, ...indexTasks].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
+
+  const hasActiveJobs = allTasks.some((t) =>
+    ["pending", "parsing", "translating", "indexing"].includes(t.status)
+  )
+
+  const activeCount = allTasks.filter((t) =>
+    ["pending", "parsing", "translating", "indexing"].includes(t.status)
+  ).length
+
+  function renderTaskList(tasks: UnifiedTask[]) {
+    if (tasks.length === 0) return null
+
+    return (
+      <div className="space-y-3">
+        {tasks.map((task) => {
+          const isActive = ["pending", "parsing", "translating", "indexing"].includes(task.status)
+          const canCancel = task.type === "index"
+            ? task.status === "indexing"
+            : isActive
+          const canDelete = task.type !== "index" && !isActive
+          const isCancelling = cancelTaskMutation.isPending && cancelTaskMutation.variables?.id === task.id
+          const isDeleting = deleteTaskMutation.isPending && deleteTaskMutation.variables?.id === task.id
+          const actionsDisabled = isCancelling || isDeleting
+
+          return (
+          <div
+            key={task.id}
+            className="flex items-center gap-4 rounded-lg border p-4 transition-colors hover:bg-accent/50"
+          >
+            <div className="flex items-center gap-2 shrink-0">
+              <TypeIcon type={task.type} />
+              <StatusIcon status={task.status} />
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-medium truncate">{task.documentTitle}</span>
+                <Badge variant={statusVariant(task.status)} className="shrink-0">
+                  {t(`status.${task.status}`, task.status)}
+                </Badge>
+                <Badge variant="outline" className="shrink-0">
+                  {t(`type.${task.type}`)}
+                </Badge>
+              </div>
+
+              {(task.status === "parsing" || task.status === "translating" || task.status === "indexing") && (
+                <div className="flex items-center gap-2">
+                  <Progress value={task.progress} className="flex-1 h-1.5" />
+                  <span className="text-xs text-muted-foreground shrink-0">{Math.round(task.progress)}%</span>
+                </div>
+              )}
+
+              {task.errorMessage && (
+                <p className="text-xs text-destructive mt-1 truncate" title={task.errorMessage}>
+                  {task.errorMessage}
+                </p>
+              )}
+
+              <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                <span>{formatTime(task.createdAt)}</span>
+                <span>{t("columns.duration")}: {formatDuration(task.startedAt, task.completedAt)}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {canCancel && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => cancelTaskMutation.mutate(task)}
+                  title={t("actions.cancelTask")}
+                  disabled={actionsDisabled}
+                >
+                  {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                </Button>
+              )}
+
+              {canDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteTaskMutation.mutate(task)}
+                  title={t("actions.deleteTask")}
+                  disabled={actionsDisabled}
+                >
+                  {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                </Button>
+              )}
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(`/document/${task.documentId}`)}
+                title={t("actions.viewDocument")}
+                disabled={actionsDisabled}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  function renderEmpty(section: "all" | "parsing" | "translation" | "indexing") {
+    const titleKey = `empty.${section}.title` as const
+    const descKey = `empty.${section}.description` as const
+    return (
+      <div className="flex flex-col items-center justify-center py-12">
+        <Clock className="h-12 w-12 text-muted-foreground mb-4" />
+        <h3 className="text-lg font-semibold mb-2">{t(titleKey)}</h3>
+        <p className="text-sm text-muted-foreground">
+          {t(descKey)}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">{t("title")}</h1>
+          <p className="text-muted-foreground">{t("subtitle")}</p>
+        </div>
+        {hasActiveJobs && (
+          <Badge variant="secondary" className="gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {activeCount}
+          </Badge>
+        )}
+      </div>
+
+      <Tabs defaultValue="all" className="w-full">
+        <TabsList>
+          <TabsTrigger value="all">
+            {t("tabs.all")}
+            {allTasks.length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground">({allTasks.length})</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="parsing">
+            {t("tabs.parsing")}
+            {parseTasks.length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground">({parseTasks.length})</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="translation">
+            {t("tabs.translation")}
+            {translationTasks.length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground">({translationTasks.length})</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="indexing">
+            {t("tabs.indexing")}
+            {indexTasks.length > 0 && (
+              <span className="ml-1.5 text-xs text-muted-foreground">({indexTasks.length})</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="all">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("tabs.all")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {allTasks.length > 0 ? renderTaskList(allTasks) : renderEmpty("all")}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="parsing">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("tabs.parsing")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {parseTasks.length > 0 ? renderTaskList(parseTasks) : renderEmpty("parsing")}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="translation">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("tabs.translation")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {translationTasks.length > 0 ? renderTaskList(translationTasks) : renderEmpty("translation")}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="indexing">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("tabs.indexing")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {indexTasks.length > 0 ? renderTaskList(indexTasks) : renderEmpty("indexing")}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}

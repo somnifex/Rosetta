@@ -1,0 +1,51 @@
+export default {
+  title: "AI 对话",
+  new_chat: "新对话",
+  input_placeholder: "输入消息...",
+  send: "发送",
+  stop: "停止",
+  attach_document: "附加文档",
+  no_conversations: "暂无对话",
+  no_conversations_desc: "开始一段新的对话",
+  no_messages: "开始对话",
+  no_messages_desc: "发送一条消息开始与 AI 助手对话",
+  no_provider: {
+    title: "未配置聊天服务商",
+    description: "请在设置中配置一个活跃的聊天渠道",
+  },
+  no_embed_provider: {
+    title: "未配置嵌入服务商",
+    description: "请在设置中配置一个活跃的 embedding 渠道",
+  },
+  attachment_default_prompt: "请总结这些附加文档，并提炼其中的关键要点。",
+  error: {
+    stream_failed: "对话请求失败",
+    empty_message: "消息不能为空",
+  },
+  picker: {
+    title: "选择文档",
+    description: "从文档库中选择或上传本地文件",
+    search_placeholder: "搜索文档...",
+    library_tab: "文档库",
+    upload_tab: "上传文件",
+    upload_hint: "点击或拖拽文件到此处上传",
+    upload_btn: "选择文件",
+    uploading: "上传中...",
+    selected: "已选择 {{count}} 个文档",
+    confirm: "确认",
+    no_documents: "文档库为空",
+  },
+  preview: {
+    title: "文档预览",
+    close: "关闭预览",
+    no_content: "暂无已解析内容",
+  },
+  role: {
+    user: "你",
+    assistant: "AI",
+  },
+  sources: {
+    label: "来源",
+    chunk: "分块 {{index}}",
+  },
+}

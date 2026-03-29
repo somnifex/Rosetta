@@ -1,0 +1,51 @@
+export default {
+  title: "AI Chat",
+  new_chat: "New Chat",
+  input_placeholder: "Type a message...",
+  send: "Send",
+  stop: "Stop",
+  attach_document: "Attach Document",
+  no_conversations: "No conversations",
+  no_conversations_desc: "Start a new conversation",
+  no_messages: "Start chatting",
+  no_messages_desc: "Send a message to begin a conversation with the AI assistant",
+  no_provider: {
+    title: "No chat provider configured",
+    description: "Please configure an active chat channel in Settings",
+  },
+  no_embed_provider: {
+    title: "No embedding provider configured",
+    description: "Please configure an active embedding channel in Settings",
+  },
+  attachment_default_prompt: "Summarize the attached documents and highlight the key points.",
+  error: {
+    stream_failed: "Chat request failed",
+    empty_message: "Message cannot be empty",
+  },
+  picker: {
+    title: "Select Documents",
+    description: "Choose from your library or upload local files",
+    search_placeholder: "Search documents...",
+    library_tab: "Library",
+    upload_tab: "Upload",
+    upload_hint: "Click or drag files here to upload",
+    upload_btn: "Choose File",
+    uploading: "Uploading...",
+    selected: "{{count}} document(s) selected",
+    confirm: "Confirm",
+    no_documents: "Library is empty",
+  },
+  preview: {
+    title: "Document Preview",
+    close: "Close Preview",
+    no_content: "No parsed content available",
+  },
+  role: {
+    user: "You",
+    assistant: "AI",
+  },
+  sources: {
+    label: "Sources",
+    chunk: "Chunk {{index}}",
+  },
+}

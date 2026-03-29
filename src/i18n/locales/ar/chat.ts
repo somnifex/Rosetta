@@ -1,0 +1,42 @@
+export default {
+  title: "محادثة الذكاء الاصطناعي",
+  new_chat: "محادثة جديدة",
+  input_placeholder: "اكتب رسالة...",
+  send: "إرسال",
+  stop: "إيقاف",
+  attach_document: "إرفاق مستند",
+  no_conversations: "لا توجد محادثات",
+  no_conversations_desc: "ابدأ محادثة جديدة",
+  no_messages: "ابدأ المحادثة",
+  no_messages_desc: "أرسل رسالة لبدء محادثة مع مساعد الذكاء الاصطناعي",
+  no_provider: {
+    title: "لم يتم تكوين مزود محادثة",
+    description: "يرجى تكوين قناة محادثة نشطة في الإعدادات",
+  },
+  error: {
+    stream_failed: "فشل طلب المحادثة",
+    empty_message: "لا يمكن أن تكون الرسالة فارغة",
+  },
+  picker: {
+    title: "اختيار المستندات",
+    description: "اختر من مكتبتك أو ارفع ملفات محلية",
+    search_placeholder: "البحث في المستندات...",
+    library_tab: "المكتبة",
+    upload_tab: "رفع",
+    upload_hint: "انقر أو اسحب الملفات هنا للرفع",
+    upload_btn: "اختيار ملف",
+    uploading: "جارٍ الرفع...",
+    selected: "تم اختيار {{count}} مستند(ات)",
+    confirm: "تأكيد",
+    no_documents: "المكتبة فارغة",
+  },
+  preview: {
+    title: "معاينة المستند",
+    close: "إغلاق المعاينة",
+    no_content: "لا يوجد محتوى محلل متاح",
+  },
+  role: {
+    user: "أنت",
+    assistant: "الذكاء الاصطناعي",
+  },
+}

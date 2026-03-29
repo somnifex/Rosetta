@@ -1,0 +1,13 @@
+# Runtime data should live outside the workspace, but keep a guard here so
+# accidental regressions do not trigger tauri dev restarts again.
+src-tauri/output/
+src-tauri/target/
+
+# Local workspace metadata should not affect packaging or dev restarts.
+.claude/
+.history/
+.vscode/
+
+# Belt-and-suspenders rule for the Windows roaming app data location used by
+# this app identifier.
+**/AppData/Roaming/com.howiewu.rosetta/

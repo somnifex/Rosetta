@@ -1,0 +1,55 @@
+import { Suspense, useEffect } from "react"
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { useTranslation } from "react-i18next"
+import { SUPPORTED_LOCALES } from "@/i18n"
+import { Toaster } from "@/components/ui/toaster"
+import Layout from "@/components/Layout"
+import Dashboard from "@/pages/Dashboard"
+import Library from "@/pages/Library"
+import DocumentDetail from "@/pages/DocumentDetail"
+import Search from "@/pages/Search"
+import Tasks from "@/pages/Tasks"
+import Settings from "@/pages/Settings"
+import Chat from "@/pages/Chat"
+
+const queryClient = new QueryClient()
+
+function DirectionSetter() {
+  const { i18n, t } = useTranslation()
+
+  useEffect(() => {
+    const locale = SUPPORTED_LOCALES.find((l) => l.code === i18n.language)
+    document.documentElement.dir = locale?.dir ?? "ltr"
+    document.documentElement.lang = i18n.language
+    document.title = t("app_title")
+  }, [i18n.language, t])
+
+  return null
+}
+
+function App() {
+  return (
+    <Suspense fallback={null}>
+      <QueryClientProvider client={queryClient}>
+        <DirectionSetter />
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/chat" element={<Chat />} />
+              <Route path="/library" element={<Library />} />
+              <Route path="/document/:id" element={<DocumentDetail />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/tasks" element={<Tasks />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </Layout>
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </Suspense>
+  )
+}
+
+export default App
