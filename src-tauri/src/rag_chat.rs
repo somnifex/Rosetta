@@ -46,6 +46,7 @@ pub struct RagChatRequest {
     pub request_id: String,
     pub chat_channel: OpenAiChannelConfig,
     pub embed_channel: OpenAiChannelConfig,
+    pub rerank_channel: Option<OpenAiChannelConfig>,
     pub messages: Vec<RagChatMessageInput>,
     #[serde(default)]
     pub attachments: Vec<RagChatAttachment>,
@@ -443,6 +444,26 @@ fn search_zvec_chunks(
     Ok(results)
 }
 
+fn apply_rerank_scores(
+    sources: Vec<RagChatSource>,
+    reranked: &[(String, f32)],
+    limit: usize,
+) -> Vec<RagChatSource> {
+    let score_map: HashMap<String, f32> = reranked.iter().cloned().collect();
+    let mut results: Vec<RagChatSource> = sources
+        .into_iter()
+        .filter_map(|mut source| {
+            score_map.get(&source.chunk_id).map(|&score| {
+                source.score = score;
+                source
+            })
+        })
+        .collect();
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.truncate(limit);
+    results
+}
+
 async fn retrieve_context(
     state: &AppState,
     app_dir: &Path,
@@ -461,7 +482,7 @@ async fn retrieve_context(
         provider.api_key.clone(),
         provider.embedding_model.clone(),
     );
-    let query_embeddings = embedder.embed(vec![query]).await?;
+    let query_embeddings = embedder.embed(vec![query.clone()]).await?;
     let query_embedding = query_embeddings
         .first()
         .ok_or_else(|| "Embedding provider returned no vectors".to_string())?;
@@ -497,6 +518,15 @@ async fn retrieve_context(
         );
     }
 
+    let reranker_mode = rag_settings.reranker_mode.clone();
+    let reranker_top_n = rag_settings.reranker_top_n;
+
+    let fetch_limit = if reranker_mode != "disabled" {
+        top_k.saturating_mul(4).max(top_k)
+    } else {
+        top_k
+    };
+
     if !document_ids.is_empty() {
         ensure_documents_indexed(
             state,
@@ -508,28 +538,80 @@ async fn retrieve_context(
         .await?;
     }
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.get_connection();
+    let mut sources = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
 
-    if crate::zvec::vector_backend_is_zvec(&rag_settings) {
-        search_zvec_chunks(
-            conn,
+        if crate::zvec::vector_backend_is_zvec(&rag_settings) {
+            search_zvec_chunks(
+                conn,
+                app_dir,
+                &zvec_settings,
+                query_embedding,
+                &provider.embedding_model,
+                &document_filter,
+                fetch_limit,
+            )
+        } else {
+            search_sqlite_chunks(
+                conn,
+                query_embedding,
+                &provider.embedding_model,
+                &document_filter,
+                fetch_limit,
+            )
+        }
+    }?;
+
+    if sources.is_empty() {
+        return Ok(sources);
+    }
+
+    if reranker_mode == "local" {
+        let docs: Vec<(String, String)> = sources
+            .iter()
+            .map(|s| (s.chunk_id.clone(), s.content.clone()))
+            .collect();
+        let reranked = crate::zvec::rerank_via_bridge(
             app_dir,
             &zvec_settings,
-            query_embedding,
-            &provider.embedding_model,
-            &document_filter,
-            top_k,
-        )
-    } else {
-        search_sqlite_chunks(
-            conn,
-            query_embedding,
-            &provider.embedding_model,
-            &document_filter,
-            top_k,
-        )
+            &query,
+            &docs,
+            reranker_top_n.min(top_k),
+        )?;
+        let scored: Vec<(String, f32)> = reranked
+            .into_iter()
+            .map(|hit| (hit.id, hit.score.unwrap_or(0.0)))
+            .collect();
+        sources = apply_rerank_scores(sources, &scored, top_k);
+    } else if reranker_mode == "remote" {
+        if let Some(ref rerank_channel) = request.rerank_channel {
+            let docs: Vec<crate::reranker::RerankDocument> = sources
+                .iter()
+                .map(|s| crate::reranker::RerankDocument {
+                    id: s.chunk_id.clone(),
+                    content: s.content.clone(),
+                })
+                .collect();
+            let reranked = crate::reranker::rerank_remote(
+                &rerank_channel.base_url,
+                &rerank_channel.api_key,
+                &rerank_channel.model,
+                &query,
+                &docs,
+                reranker_top_n.min(top_k),
+            )
+            .await?;
+            let scored: Vec<(String, f32)> = reranked
+                .into_iter()
+                .map(|r| (r.id, r.score))
+                .collect();
+            sources = apply_rerank_scores(sources, &scored, top_k);
+        }
     }
+
+    sources.truncate(top_k);
+    Ok(sources)
 }
 
 fn build_system_prompt(request: &RagChatRequest, sources: &[RagChatSource]) -> String {

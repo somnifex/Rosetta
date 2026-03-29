@@ -10,7 +10,7 @@ use tauri::{AppHandle, State};
 
 const DEFAULT_CHUNK_OVERLAP: usize = 50;
 const DEFAULT_CHUNK_SIZE: usize = 512;
-const DEFAULT_VECTOR_BACKEND: &str = "sqlite";
+const DEFAULT_VECTOR_BACKEND: &str = "zvec";
 const VECTOR_INDEX_BACKEND_ZVEC: &str = "zvec";
 const ZVEC_BRIDGE_FILENAME: &str = "zvec_bridge.py";
 const ZVEC_BRIDGE_SOURCE: &str = include_str!("../scripts/zvec_bridge.py");
@@ -32,6 +32,8 @@ pub struct RagSettings {
     pub chunk_size: usize,
     pub chunk_overlap: usize,
     pub vector_backend: String,
+    pub reranker_mode: String,
+    pub reranker_top_n: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +69,14 @@ struct ProbeResponse {
     available: bool,
     version: Option<String>,
     message: String,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct ProbeRerankerResponse {
+    pub available: bool,
+    pub message: String,
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -119,16 +129,40 @@ pub fn load_rag_settings(conn: &Connection) -> Result<RagSettings, String> {
     let vector_backend =
         get_setting(conn, "rag.vector_backend")?.unwrap_or_else(|| DEFAULT_VECTOR_BACKEND.to_string());
 
+    let reranker_mode =
+        get_setting(conn, "rag.reranker_mode")?.unwrap_or_else(|| "disabled".to_string());
+
+    let reranker_top_n = get_setting(conn, "rag.reranker_top_n")?
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(5);
+
     Ok(RagSettings {
         chunk_size,
         chunk_overlap,
         vector_backend,
+        reranker_mode,
+        reranker_top_n,
     })
 }
 
 pub fn load_zvec_settings(conn: &Connection, app_dir: &Path) -> Result<ZvecSettings, String> {
-    let python_path =
-        get_setting(conn, "rag.zvec_python_path")?.unwrap_or_else(default_python_path);
+    let use_venv = get_setting(conn, "rag.zvec_use_venv")?
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    let python_path = if use_venv {
+        let venv_dir = zvec_venv_dir(app_dir);
+        let venv_python = zvec_venv_python_path(&venv_dir);
+        if venv_python.exists() {
+            venv_python.to_str().unwrap_or("python").to_string()
+        } else {
+            log::warn!("zvec use_venv is true but venv python not found, falling back to configured path");
+            get_setting(conn, "rag.zvec_python_path")?.unwrap_or_else(default_python_path)
+        }
+    } else {
+        get_setting(conn, "rag.zvec_python_path")?.unwrap_or_else(default_python_path)
+    };
 
     let collections_dir = get_setting(conn, "rag.zvec_collections_dir")?
         .map(PathBuf::from)
@@ -345,6 +379,35 @@ fn run_bridge<T: for<'de> Deserialize<'de>>(
     Ok(parsed.data)
 }
 
+pub fn rerank_via_bridge(
+    app_dir: &Path,
+    settings: &ZvecSettings,
+    query: &str,
+    documents: &[(String, String)],
+    top_n: usize,
+) -> Result<Vec<SearchHit>, String> {
+    if documents.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let docs: Vec<serde_json::Value> = documents
+        .iter()
+        .map(|(id, content)| json!({ "id": id, "content": content }))
+        .collect();
+
+    let payload = json!({
+        "query": query,
+        "documents": docs,
+        "top_n": top_n,
+        "rerank_field": "content",
+    });
+
+    let response: SearchBridgeResponse =
+        run_bridge(app_dir, &settings.python_path, "rerank", Some(payload))?;
+
+    Ok(response.hits)
+}
+
 pub fn probe_status(
     conn: &Connection,
     app_dir: &Path,
@@ -457,6 +520,18 @@ pub fn search_embeddings(
     Ok(response.hits)
 }
 
+/// Resolve the Python path for dependency operations (probe, install, download).
+/// Always prefers the zvec venv when it exists, regardless of the `use_venv` toggle.
+fn resolve_python_for_deps(app_dir: &Path, conn: &Connection) -> Result<String, String> {
+    let venv_dir = zvec_venv_dir(app_dir);
+    let venv_python = zvec_venv_python_path(&venv_dir);
+    if venv_python.exists() {
+        return Ok(venv_python.to_str().unwrap_or("python").to_string());
+    }
+    let zvec_settings = load_zvec_settings(conn, app_dir)?;
+    Ok(zvec_settings.python_path)
+}
+
 #[tauri::command]
 pub fn get_zvec_status(
     app: AppHandle,
@@ -465,4 +540,511 @@ pub fn get_zvec_status(
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
     probe_status(db.get_connection(), &app_dir)
+}
+
+#[tauri::command]
+pub fn probe_reranker_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ProbeRerankerResponse, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let python_path = resolve_python_for_deps(&app_dir, db.get_connection())?;
+
+    match run_bridge::<ProbeRerankerResponse>(
+        &app_dir,
+        &python_path,
+        "probe_reranker",
+        None,
+    ) {
+        Ok(resp) => Ok(resp),
+        Err(error) => Ok(ProbeRerankerResponse {
+            available: false,
+            message: error,
+            hint: Some("pip install sentence-transformers".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn install_reranker_deps(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let python_path = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        resolve_python_for_deps(&app_dir, db.get_connection())?
+    };
+
+    let output = tokio::process::Command::new(&python_path)
+        .args(["-m", "pip", "install", "sentence-transformers"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run pip: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("pip install failed: {stderr}"));
+    }
+
+    Ok("sentence-transformers installed successfully".to_string())
+}
+
+// --- Reranker Model Manager ---
+
+use std::sync::Mutex;
+
+pub struct RerankerModelManager {
+    status: Mutex<String>,
+    message: Mutex<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RerankerModelStatusResponse {
+    pub status: String,
+    pub message: String,
+}
+
+impl RerankerModelManager {
+    pub fn new() -> Self {
+        Self {
+            status: Mutex::new("idle".to_string()),
+            message: Mutex::new(String::new()),
+        }
+    }
+
+    pub fn get_status(&self) -> Result<RerankerModelStatusResponse, String> {
+        let status = self.status.lock().map_err(|e| e.to_string())?;
+        let message = self.message.lock().map_err(|e| e.to_string())?;
+        Ok(RerankerModelStatusResponse {
+            status: status.clone(),
+            message: message.clone(),
+        })
+    }
+
+    pub fn set_status(&self, status: &str, message: &str) {
+        if let Ok(mut s) = self.status.lock() {
+            *s = status.to_string();
+        }
+        if let Ok(mut m) = self.message.lock() {
+            *m = message.to_string();
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn download_reranker_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let status = state
+            .reranker_model_manager
+            .status
+            .lock()
+            .map_err(|e| e.to_string())?;
+        if *status == "downloading" {
+            return Err("Reranker model download already in progress".to_string());
+        }
+    }
+
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let python_path = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        resolve_python_for_deps(&app_dir, db.get_connection())?
+    };
+
+    state
+        .reranker_model_manager
+        .set_status("downloading", "Starting reranker model download...");
+
+    let manager = std::sync::Arc::clone(&state.reranker_model_manager);
+    let app_dir_clone = app_dir.clone();
+
+    tauri::async_runtime::spawn(async move {
+        manager.set_status("downloading", "Downloading reranker model (~80 MB)...");
+
+        let script_path = match ensure_bridge_script(&app_dir_clone) {
+            Ok(p) => p,
+            Err(e) => {
+                manager.set_status("failed", &format!("Failed to prepare bridge script: {e}"));
+                return;
+            }
+        };
+
+        let payload = json!({
+            "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+        });
+
+        let mut child = tokio::process::Command::new(&python_path);
+        child
+            .arg(&script_path)
+            .arg("download_reranker_model")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            child.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let mut child = match child.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                manager.set_status("failed", &format!("Failed to start Python: {e}"));
+                return;
+            }
+        };
+
+        // Write payload to stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt;
+            let body = serde_json::to_vec(&payload).unwrap_or_default();
+            let _ = stdin.write_all(&body).await;
+            drop(stdin);
+        }
+
+        // Read stderr for progress messages
+        let mm_stderr = std::sync::Arc::clone(&manager);
+        let stderr_handle = if let Some(stderr) = child.stderr.take() {
+            Some(tauri::async_runtime::spawn(async move {
+                use tokio::io::{AsyncBufReadExt, BufReader};
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let trimmed = line.trim().to_string();
+                    if !trimmed.is_empty() {
+                        mm_stderr.set_status("downloading", &trimmed);
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
+        let status = child.wait().await;
+
+        if let Some(h) = stderr_handle {
+            let _ = h.await;
+        }
+
+        match status {
+            Ok(exit) if exit.success() => {
+                manager.set_status("completed", "Reranker model downloaded successfully");
+            }
+            Ok(exit) => {
+                let code = exit.code().unwrap_or(-1);
+                manager.set_status(
+                    "failed",
+                    &format!("Model download failed (exit code: {})", code),
+                );
+            }
+            Err(e) => {
+                manager.set_status("failed", &format!("Model download error: {e}"));
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_reranker_model_status(
+    state: State<'_, AppState>,
+) -> Result<RerankerModelStatusResponse, String> {
+    state.reranker_model_manager.get_status()
+}
+
+// --- Zvec Venv Manager ---
+
+pub struct ZvecVenvManager {
+    status: Mutex<String>,
+    message: Mutex<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ZvecVenvStatusResponse {
+    pub status: String,
+    pub message: String,
+}
+
+impl ZvecVenvManager {
+    pub fn new() -> Self {
+        Self {
+            status: Mutex::new("not_created".to_string()),
+            message: Mutex::new(String::new()),
+        }
+    }
+
+    pub fn get_status(&self) -> Result<ZvecVenvStatusResponse, String> {
+        let status = self.status.lock().map_err(|e| e.to_string())?;
+        let message = self.message.lock().map_err(|e| e.to_string())?;
+        Ok(ZvecVenvStatusResponse {
+            status: status.clone(),
+            message: message.clone(),
+        })
+    }
+
+    pub fn set_status(&self, status: &str, message: &str) {
+        if let Ok(mut s) = self.status.lock() {
+            *s = status.to_string();
+        }
+        if let Ok(mut m) = self.message.lock() {
+            *m = message.to_string();
+        }
+    }
+}
+
+fn zvec_venv_python_path(venv_dir: &Path) -> PathBuf {
+    if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    }
+}
+
+fn zvec_venv_dir(app_dir: &Path) -> PathBuf {
+    app_dir.join("zvec_venv")
+}
+
+/// Run a pip command in the zvec venv. Returns Ok on success, Err with message on failure.
+async fn run_venv_pip(
+    python: &str,
+    args: &[&str],
+    pip_index_url: &str,
+) -> Result<(), String> {
+    let mut cmd_args = vec!["-m", "pip", "install"];
+    cmd_args.extend_from_slice(args);
+    if !pip_index_url.is_empty() {
+        cmd_args.push("--index-url");
+        cmd_args.push(pip_index_url);
+    }
+
+    let mut command = tokio::process::Command::new(python);
+    command.args(&cmd_args);
+    // Isolate from user pip config
+    command.env("PIP_CONFIG_FILE", if cfg!(windows) { "NUL" } else { "/dev/null" });
+    command.env_remove("PIP_INDEX_URL");
+    command.env_remove("PIP_EXTRA_INDEX_URL");
+
+    let output = command
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run pip: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let msg = if !stderr.is_empty() {
+            stderr.to_string()
+        } else if !stdout.is_empty() {
+            stdout.to_string()
+        } else {
+            "pip install failed with no output".to_string()
+        };
+        // Truncate long messages
+        let truncated = if msg.len() > 1500 { &msg[msg.len() - 1500..] } else { &msg };
+        return Err(truncated.to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn setup_zvec_venv(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let status = state
+            .zvec_venv_manager
+            .status
+            .lock()
+            .map_err(|e| e.to_string())?;
+        if *status == "creating" {
+            return Err("Setup already in progress".to_string());
+        }
+    }
+
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let venv_dir = zvec_venv_dir(&app_dir);
+
+    let (system_python, pip_index_url) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let python = get_setting(conn, "rag.zvec_system_python")?
+            .unwrap_or_else(default_python_path);
+        let pip_url = get_setting(conn, "rag.zvec_pip_index_url")?
+            .unwrap_or_else(|| "https://pypi.org/simple".to_string());
+        (python, pip_url)
+    };
+
+    state
+        .zvec_venv_manager
+        .set_status("creating", "Creating virtual environment...");
+
+    let manager = std::sync::Arc::clone(&state.zvec_venv_manager);
+
+    tauri::async_runtime::spawn(async move {
+        // Validate system Python
+        manager.set_status("creating", "Checking Python version...");
+        let output = tokio::process::Command::new(&system_python)
+            .args(["--version"])
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => {
+                let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                log::info!("System Python for zvec venv: {}", version);
+            }
+            Ok(o) => {
+                let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                manager.set_status("failed", &format!("Python version check failed: {msg}"));
+                return;
+            }
+            Err(e) => {
+                manager.set_status("failed", &format!("Failed to run Python: {e}"));
+                return;
+            }
+        }
+
+        // Remove old venv if exists
+        if venv_dir.exists() {
+            manager.set_status("creating", "Removing previous virtual environment...");
+            if let Err(e) = std::fs::remove_dir_all(&venv_dir) {
+                manager.set_status(
+                    "failed",
+                    &format!("Failed to remove previous venv: {e}"),
+                );
+                return;
+            }
+        }
+
+        // Step 1: Create venv
+        manager.set_status("creating", "Creating virtual environment...");
+        let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
+        let output = tokio::process::Command::new(&system_python)
+            .args(["-m", "venv", &venv_dir_str])
+            .output()
+            .await;
+
+        match output {
+            Ok(o) if !o.status.success() => {
+                let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                manager.set_status("failed", &format!("Failed to create venv: {msg}"));
+                return;
+            }
+            Err(e) => {
+                manager.set_status("failed", &format!("Failed to run Python: {e}"));
+                return;
+            }
+            _ => {}
+        }
+
+        let venv_python = zvec_venv_python_path(&venv_dir);
+        let venv_python_str = venv_python.to_str().unwrap_or_default().to_string();
+
+        // Step 2: Upgrade pip
+        manager.set_status("creating", "Upgrading pip...");
+        if let Err(e) = run_venv_pip(
+            &venv_python_str,
+            &["--upgrade", "pip", "setuptools", "wheel"],
+            &pip_index_url,
+        )
+        .await
+        {
+            log::warn!("pip upgrade warning (continuing): {e}");
+        }
+
+        // Step 3: Install zvec
+        manager.set_status("creating", "Installing zvec...");
+        if let Err(e) = run_venv_pip(&venv_python_str, &["zvec"], &pip_index_url).await {
+            manager.set_status("failed", &format!("Failed to install zvec: {e}"));
+            return;
+        }
+
+        // Step 4: Install sentence-transformers (for local reranker)
+        manager.set_status("creating", "Installing sentence-transformers...");
+        if let Err(e) =
+            run_venv_pip(&venv_python_str, &["sentence-transformers"], &pip_index_url).await
+        {
+            manager.set_status("failed", &format!("Failed to install sentence-transformers: {e}"));
+            return;
+        }
+
+        // Verify
+        let verify = tokio::process::Command::new(&venv_python_str)
+            .args(["-c", "import zvec; print(zvec.__version__)"])
+            .output()
+            .await;
+
+        match verify {
+            Ok(o) if o.status.success() => {
+                let ver = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                manager.set_status(
+                    "ready",
+                    &format!("Environment ready. zvec {ver}"),
+                );
+            }
+            _ => {
+                manager.set_status(
+                    "failed",
+                    "Virtual environment created, but zvec could not be imported. Please run Setup again.",
+                );
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_zvec_venv_status(
+    state: State<'_, AppState>,
+) -> Result<ZvecVenvStatusResponse, String> {
+    state.zvec_venv_manager.get_status()
+}
+
+#[tauri::command]
+pub fn check_zvec_venv_exists(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let venv_dir = zvec_venv_dir(&app_dir);
+    let python_exe = zvec_venv_python_path(&venv_dir);
+    let exists = python_exe.exists();
+
+    if exists {
+        let python_cmd = python_exe.to_string_lossy().to_string();
+
+        // Check if zvec can be imported
+        let ok = std::process::Command::new(&python_cmd)
+            .args(["-c", "import zvec"])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if ok {
+            state
+                .zvec_venv_manager
+                .set_status("ready", "Environment is ready");
+        } else {
+            state.zvec_venv_manager.set_status(
+                "failed",
+                "Virtual environment exists, but zvec is not installed correctly. Run Setup to repair.",
+            );
+            return Ok(false);
+        }
+
+        return Ok(true);
+    }
+
+    state.zvec_venv_manager.set_status("not_created", "");
+    Ok(false)
 }

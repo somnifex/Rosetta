@@ -91,11 +91,11 @@ It is useful when you need to:
 
 Prebuilt binaries for Windows, macOS, and Linux are published on the [Releases](https://github.com/somnifex/Rosetta/releases) page.
 
-| Platform | Package formats |
-| --- | --- |
-| Windows | `.msi`, `.exe` |
-| macOS | `.dmg` |
-| Linux | `.deb`, `.AppImage` |
+| Platform | Package formats     |
+| -------- | ------------------- |
+| Windows  | `.msi`, `.exe`      |
+| macOS    | `.dmg`              |
+| Linux    | `.deb`, `.AppImage` |
 
 ### First Run
 
@@ -119,6 +119,7 @@ Import -> Parse -> Translate -> Index -> Search / Chat -> Back up
 - [Rust](https://rustup.rs/) stable
 - [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Python 3.x
+
   Only required when using built-in MinerU or the optional `zvec` backend
 
 ### Development

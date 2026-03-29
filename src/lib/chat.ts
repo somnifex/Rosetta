@@ -74,6 +74,10 @@ export function getActiveEmbedChannel() {
   return getActiveChannel(channelStore.getEmbedChannels())
 }
 
+export function getActiveRerankChannel() {
+  return getActiveChannel(channelStore.getRerankChannels())
+}
+
 interface StreamRagChatArgs {
   messages: { role: string; content: string }[]
   attachments?: ChatAttachment[]
@@ -97,6 +101,8 @@ export async function* streamRagChat(
   if (!embedChannel) {
     throw new Error("NO_ACTIVE_EMBED_CHANNEL")
   }
+
+  const rerankChannel = getActiveRerankChannel()
 
   const requestId = genId()
   const { invoke } = await import("@tauri-apps/api/core")
@@ -164,6 +170,7 @@ export async function* streamRagChat(
         requestId,
         chatChannel: chatChannel,
         embedChannel: embedChannel,
+        rerankChannel: rerankChannel || null,
         messages: args.messages,
         attachments: args.attachments ?? [],
         topK: args.topK,

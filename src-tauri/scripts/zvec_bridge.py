@@ -51,6 +51,35 @@ def cmd_probe():
     emit({"available": True, "version": version, "message": "zvec import succeeded"}, ok=True)
 
 
+def cmd_probe_reranker():
+    try:
+        import_zvec()
+        from zvec.extension import DefaultLocalReRanker  # type: ignore  # noqa: F401
+    except ImportError as exc:
+        emit(
+            {
+                "available": False,
+                "message": str(exc),
+                "hint": "pip install sentence-transformers",
+            },
+            ok=True,
+        )
+
+    try:
+        import sentence_transformers  # type: ignore  # noqa: F401
+    except ImportError:
+        emit(
+            {
+                "available": False,
+                "message": "sentence-transformers not installed",
+                "hint": "pip install sentence-transformers",
+            },
+            ok=True,
+        )
+
+    emit({"available": True, "message": "reranker dependencies available"}, ok=True)
+
+
 def cmd_upsert(payload):
     zvec = import_zvec()
     docs = payload.get("docs", [])
@@ -97,6 +126,64 @@ def cmd_delete(payload):
     emit({"deleted": len(ids), "missing_collection": False}, ok=True)
 
 
+def cmd_rerank(payload):
+    zvec = import_zvec()
+    from zvec.extension import DefaultLocalReRanker  # type: ignore
+
+    query = payload["query"]
+    documents = payload.get("documents", [])
+    top_n = int(payload.get("top_n", 5))
+    rerank_field = payload.get("rerank_field", "content")
+
+    if not documents:
+        emit({"hits": []}, ok=True)
+
+    docs_dict = {
+        "default": [
+            zvec.Doc(id=doc["id"], fields={rerank_field: doc["content"]})
+            for doc in documents
+        ]
+    }
+
+    reranker = DefaultLocalReRanker(
+        query=query, topn=top_n, rerank_field=rerank_field
+    )
+    reranked = reranker.rerank(docs_dict)
+
+    hits = []
+    for doc in reranked:
+        hits.append(
+            {"id": doc.id, "score": getattr(doc, "rerank_score", getattr(doc, "score", None))}
+        )
+
+    emit({"hits": hits}, ok=True)
+
+
+def cmd_download_reranker_model(payload):
+    model_name = payload.get("model", "cross-encoder/ms-marco-MiniLM-L6-v2")
+
+    try:
+        import sentence_transformers  # type: ignore  # noqa: F401
+    except ImportError:
+        emit(
+            {"success": False, "message": "sentence-transformers not installed"},
+            ok=False,
+            code=1,
+        )
+
+    sys.stderr.write(f"Downloading reranker model: {model_name}\n")
+    sys.stderr.flush()
+
+    from sentence_transformers import CrossEncoder  # type: ignore
+
+    CrossEncoder(model_name)
+
+    sys.stderr.write("Model download complete\n")
+    sys.stderr.flush()
+
+    emit({"success": True, "model": model_name}, ok=True)
+
+
 def cmd_search(payload):
     collection_path = Path(payload["collection_path"])
     if not collection_path.exists():
@@ -128,6 +215,8 @@ def main():
     try:
         if command == "probe":
             cmd_probe()
+        elif command == "probe_reranker":
+            cmd_probe_reranker()
 
         payload = load_payload()
 
@@ -135,6 +224,10 @@ def main():
             cmd_upsert(payload)
         elif command == "delete":
             cmd_delete(payload)
+        elif command == "rerank":
+            cmd_rerank(payload)
+        elif command == "download_reranker_model":
+            cmd_download_reranker_model(payload)
         elif command == "search":
             cmd_search(payload)
         else:

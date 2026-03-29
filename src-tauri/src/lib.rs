@@ -7,6 +7,7 @@ mod mineru;
 mod mineru_process;
 mod models;
 mod rag_chat;
+mod reranker;
 mod sync_backup;
 mod translator;
 mod webdav;
@@ -24,6 +25,8 @@ pub struct AppState {
     pub mineru_manager: Arc<MinerUProcessManager>,
     pub venv_manager: Arc<MinerUVenvManager>,
     pub model_manager: Arc<MinerUModelManager>,
+    pub reranker_model_manager: Arc<zvec::RerankerModelManager>,
+    pub zvec_venv_manager: Arc<zvec::ZvecVenvManager>,
     pub parse_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub translation_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub index_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
@@ -37,6 +40,8 @@ impl Clone for AppState {
             mineru_manager: Arc::clone(&self.mineru_manager),
             venv_manager: Arc::clone(&self.venv_manager),
             model_manager: Arc::clone(&self.model_manager),
+            reranker_model_manager: Arc::clone(&self.reranker_model_manager),
+            zvec_venv_manager: Arc::clone(&self.zvec_venv_manager),
             parse_job_handles: Arc::clone(&self.parse_job_handles),
             translation_job_handles: Arc::clone(&self.translation_job_handles),
             index_job_handles: Arc::clone(&self.index_job_handles),
@@ -79,6 +84,8 @@ pub fn run() {
             let mineru_manager = Arc::new(MinerUProcessManager::new());
             let venv_manager = Arc::new(MinerUVenvManager::new());
             let model_manager = Arc::new(MinerUModelManager::new());
+            let reranker_model_manager = Arc::new(zvec::RerankerModelManager::new());
+            let zvec_venv_manager = Arc::new(zvec::ZvecVenvManager::new());
 
             let db_arc = Arc::new(Mutex::new(db));
 
@@ -95,6 +102,8 @@ pub fn run() {
                 mineru_manager: Arc::clone(&mineru_manager),
                 venv_manager: Arc::clone(&venv_manager),
                 model_manager: Arc::clone(&model_manager),
+                reranker_model_manager: Arc::clone(&reranker_model_manager),
+                zvec_venv_manager: Arc::clone(&zvec_venv_manager),
                 parse_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 translation_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 index_job_handles: Arc::new(Mutex::new(HashMap::new())),
@@ -234,6 +243,13 @@ pub fn run() {
             commands::get_document_file_path,
             commands::get_document_chunks,
             zvec::get_zvec_status,
+            zvec::probe_reranker_status,
+            zvec::install_reranker_deps,
+            zvec::download_reranker_model,
+            zvec::get_reranker_model_status,
+            zvec::setup_zvec_venv,
+            zvec::get_zvec_venv_status,
+            zvec::check_zvec_venv_exists,
             mineru_process::get_app_setting,
             mineru_process::set_app_setting,
             mineru_process::get_all_app_settings,

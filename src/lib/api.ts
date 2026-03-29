@@ -182,6 +182,22 @@ export const api = {
       version: string | null
       message: string
     }>("get_zvec_status"),
+  probeRerankerStatus: () =>
+    safeInvoke<{
+      available: boolean
+      message: string
+      hint: string | null
+    }>("probe_reranker_status"),
+  installRerankerDeps: () =>
+    safeInvoke<string>("install_reranker_deps"),
+  downloadRerankerModel: () =>
+    safeInvoke<void>("download_reranker_model"),
+  getRerankerModelStatus: () =>
+    safeInvoke<{ status: string; message: string }>("get_reranker_model_status"),
+  setupZvecVenv: () => safeInvoke<void>("setup_zvec_venv"),
+  getZvecVenvStatus: () =>
+    safeInvoke<{ status: string; message: string }>("get_zvec_venv_status"),
+  checkZvecVenvExists: () => safeInvoke<boolean>("check_zvec_venv_exists"),
 
   // WebDAV Sync
   testWebdavConnection: (data: { baseUrl: string; username: string; password: string }) =>
