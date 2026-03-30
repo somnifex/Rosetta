@@ -59,7 +59,6 @@ import {
   Settings2,
   Sparkles,
   Square,
-  User,
   X,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
@@ -767,6 +766,7 @@ export default function Chat() {
   const previewCodeRenderKind = previewCodeBlock
     ? getCodeRenderKind(previewCodeBlock.language, previewCodeBlock.code)
     : "none"
+  const isPreviewOpen = Boolean(previewDocId || previewCodeBlock)
   const mindmapNodes =
     previewCodeRenderKind === "mindmap" && previewCodeBlock
       ? parseMindmap(previewCodeBlock.code)
@@ -791,14 +791,15 @@ export default function Chat() {
 
   return (
     <>
-      <div className="app-page-surface relative flex h-full min-h-0 overflow-hidden">
-        <aside className="relative z-10 flex w-[300px] shrink-0 flex-col border-r border-border bg-background/95">
-          <div className="border-b border-border px-4 py-4">
+      <div className="chat-claude-surface relative flex h-full min-h-0 overflow-hidden">
+        <aside className="chat-claude-sidebar relative z-10 flex w-[84px] shrink-0 flex-col border-r border-border/70 sm:w-[290px]">
+          <div className="border-b border-border/70 px-3 py-4 sm:px-4">
             <div className="flex items-center justify-between gap-3">
-              <h1 className="text-lg font-semibold tracking-tight">{t("title")}</h1>
+              <h1 className="hidden text-base font-semibold tracking-tight text-foreground/90 sm:block">{t("title")}</h1>
               <Button
                 size="icon"
-                className="h-8 w-8 rounded-md"
+                variant="ghost"
+                className="h-8 w-8 rounded-full"
                 onClick={handleCreateConversation}
                 title={t("new_chat")}
               >
@@ -806,13 +807,13 @@ export default function Chat() {
               </Button>
             </div>
 
-            <div className="relative mt-3">
+            <div className="relative mt-3 hidden sm:block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={historyQuery}
                 onChange={(event) => setHistoryQuery(event.target.value)}
                 placeholder={t("history.search_placeholder")}
-                className="h-10 rounded-full border-border/70 bg-background pl-10 shadow-none"
+                className="h-10 rounded-2xl border-border/60 bg-background/85 pl-10 shadow-none"
               />
             </div>
           </div>
@@ -829,28 +830,28 @@ export default function Chat() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {filteredConversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     type="button"
                     onClick={() => openConversation(conversation.id)}
                     className={cn(
-                      "group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition duration-200 motion-safe:hover:translate-x-0.5",
+                      "group flex w-full items-center justify-center gap-2.5 rounded-xl px-2 py-2.5 text-left text-sm transition sm:justify-start sm:px-3",
                       activeId === conversation.id
-                        ? "bg-primary text-primary-foreground"
-                        : "text-foreground hover:bg-muted"
+                        ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                        : "text-foreground/90 hover:bg-background/70"
                     )}
                     title={conversation.title}
                   >
                     <span
                       className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
                         activeId === conversation.id
-                          ? "bg-primary-foreground/15 text-primary-foreground"
+                          ? "bg-muted text-foreground"
                           : conversation.scope === "document"
                             ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                            : "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground"
                       )}
                     >
                       {conversation.scope === "document" ? (
@@ -859,14 +860,14 @@ export default function Chat() {
                         <MessageSquare className="h-3.5 w-3.5" />
                       )}
                     </span>
-                    <span className="min-w-0 flex-1 truncate font-medium">
+                    <span className="hidden min-w-0 flex-1 truncate font-medium sm:block">
                       {conversation.title}
                     </span>
                     {titleGeneratingId === conversation.id ? (
                       <Loader2
                         className={cn(
                           "h-3.5 w-3.5 animate-spin",
-                          activeId === conversation.id ? "text-primary-foreground" : "text-primary"
+                          activeId === conversation.id ? "text-foreground" : "text-muted-foreground"
                         )}
                       />
                     ) : null}
@@ -877,9 +878,9 @@ export default function Chat() {
                         handleDeleteConversation(conversation.id)
                       }}
                       className={cn(
-                        "rounded-md p-1.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100",
+                        "hidden rounded-md p-1.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 sm:block",
                         activeId === conversation.id
-                          ? "hover:bg-primary-foreground/20"
+                          ? "hover:bg-muted"
                           : "hover:bg-destructive/10 hover:text-destructive"
                       )}
                       title={t("history.delete")}
@@ -894,7 +895,7 @@ export default function Chat() {
         </aside>
 
         <section className="relative z-10 flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-border/70 bg-background/90 px-5 py-3">
+          <header className="border-b border-border/70 bg-background/75 px-5 py-3 backdrop-blur-sm">
             <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold tracking-tight">
@@ -916,7 +917,7 @@ export default function Chat() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 rounded-md bg-background"
+                  className="h-8 w-8 rounded-full bg-background/80"
                   onClick={() => setPickerOpen(true)}
                   disabled={activeConversation?.scope === "document"}
                   title={t("attach_document")}
@@ -926,7 +927,7 @@ export default function Chat() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 rounded-md bg-background"
+                  className="h-8 w-8 rounded-full bg-background/80"
                   onClick={() => setSettingsOpen(true)}
                   disabled={!activeConversation}
                   title={t("settings.title")}
@@ -942,7 +943,7 @@ export default function Chat() {
                   <Badge
                     key={attachment.documentId}
                     variant="outline"
-                    className="gap-2 rounded-full bg-background px-3 py-1"
+                    className="gap-2 rounded-full bg-background/90 px-3 py-1"
                   >
                     <FileText className="h-3.5 w-3.5" />
                     <span className="max-w-[220px] truncate">{attachment.title}</span>
@@ -957,8 +958,8 @@ export default function Chat() {
               <div className="flex-1 overflow-auto px-4">
                 {activeMessages.length === 0 ? (
                   <div className="mx-auto flex h-full w-full max-w-4xl flex-col items-center justify-center py-10 text-center">
-                    <div className="w-full rounded-3xl border border-border bg-background/85 px-6 py-10">
-                      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <div className="w-full rounded-3xl border border-border/70 bg-background/80 px-6 py-10 shadow-sm">
+                      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-foreground">
                         <Bot className="h-7 w-7" />
                       </div>
                       <h3 className="text-xl font-semibold tracking-tight">{t("empty.title")}</h3>
@@ -985,10 +986,10 @@ export default function Chat() {
                             key={suggestion}
                             type="button"
                             onClick={() => setInput(suggestion)}
-                            className="rounded-xl border border-border/80 bg-background px-4 py-3 text-sm transition hover:bg-muted"
+                            className="rounded-xl border border-border/70 bg-background/85 px-4 py-3 text-sm transition hover:bg-muted"
                           >
                             <div className="flex items-start gap-2.5">
-                              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                               <span>{suggestion}</span>
                             </div>
                           </button>
@@ -997,97 +998,47 @@ export default function Chat() {
                     </div>
                   </div>
                 ) : (
-                  <div className="mx-auto w-full max-w-4xl divide-y divide-border/55 pb-6">
+                  <div className="mx-auto w-full max-w-5xl pb-10 pt-3">
                     {activeMessages.map((message, index) => (
                       <article
                         key={message.id}
-                        className="group chat-fade-in flex gap-3 px-2 py-6 sm:px-4"
+                        className={cn(
+                          "group chat-fade-in px-1 py-5 sm:px-4",
+                          message.role === "user" ? "flex justify-end" : "flex justify-start"
+                        )}
                         style={{ animationDelay: `${Math.min(index * 36, 260)}ms` }}
                       >
                         <div
                           className={cn(
-                            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
+                            "min-w-0",
                             message.role === "user"
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : message.role === "system"
-                                ? "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                                : "border-border bg-background text-primary"
+                              ? "w-full max-w-[78%] sm:max-w-[70%]"
+                              : "w-full max-w-3xl"
                           )}
                         >
-                          {message.role === "user" ? (
-                            <User className="h-3.5 w-3.5" />
-                          ) : (
-                            <Bot className="h-3.5 w-3.5" />
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium text-foreground">
-                                {message.role === "user"
-                                  ? t("role.user")
-                                  : message.role === "system"
-                                    ? t("role.system")
-                                    : t("role.assistant")}
-                              </p>
-                              <span>{formatConversationTime(message.timestamp)}</span>
-                            </div>
-
-                            <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
-                              {message.role === "user" ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                                    title={t("message.edit_and_retry")}
-                                    onClick={() => startEditMessage(message)}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                                    title={t("message.retry")}
-                                    onClick={() => void handleRetryFromUserMessage(message.id)}
-                                    disabled={isStreaming}
-                                  >
-                                    <RotateCcw className="h-3.5 w-3.5" />
-                                  </button>
-                                </>
-                              ) : null}
-                              {message.role === "assistant" ? (
-                                <button
-                                  type="button"
-                                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-                                  title={t("message.retry")}
-                                  disabled={
-                                    isStreaming ||
-                                    !activeMessages
-                                      .slice(0, index)
-                                      .reverse()
-                                      .find((item) => item.role === "user")
-                                  }
-                                  onClick={() => {
-                                    const previousUser = activeMessages
-                                      .slice(0, index)
-                                      .reverse()
-                                      .find((item) => item.role === "user")
-                                    if (!previousUser) return
-                                    void handleRetryFromUserMessage(previousUser.id)
-                                  }}
-                                >
-                                  <RotateCcw className="h-3.5 w-3.5" />
-                                </button>
-                              ) : null}
-                            </div>
+                          <div
+                            className={cn(
+                              "mb-2 flex items-center gap-2 text-[11px] text-muted-foreground",
+                              message.role === "user" ? "justify-end" : "justify-start"
+                            )}
+                          >
+                            <p className="font-medium text-foreground/80">
+                              {message.role === "user"
+                                ? t("role.user")
+                                : message.role === "system"
+                                  ? t("role.system")
+                                  : t("role.assistant")}
+                            </p>
+                            <span>{formatConversationTime(message.timestamp)}</span>
                           </div>
 
                           <div
                             className={cn(
                               "min-w-0",
                               message.role === "user" &&
-                                "rounded-2xl border border-border bg-muted/45 px-4 py-3"
+                                "rounded-3xl border border-border/70 bg-muted/65 px-4 py-3",
+                              message.role === "system" &&
+                                "rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3"
                             )}
                           >
                             {message.role === "user" && editingMessageId === message.id ? (
@@ -1135,19 +1086,81 @@ export default function Chat() {
                                 }
                                 onCodeBlockOpen={openCodePreview}
                                 openCodeLabel={t("preview.open_code_panel")}
+                                className={cn(
+                                  message.role === "assistant" &&
+                                    "leading-8 [&_p]:my-0 [&_p+*]:mt-4"
+                                )}
                               />
                             )}
                           </div>
 
+                          <div
+                            className={cn(
+                              "mt-2 flex items-center gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100",
+                              message.role === "user" ? "justify-end" : "justify-start"
+                            )}
+                          >
+                            {message.role === "user" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                  title={t("message.edit_and_retry")}
+                                  onClick={() => startEditMessage(message)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                  title={t("message.retry")}
+                                  onClick={() => void handleRetryFromUserMessage(message.id)}
+                                  disabled={isStreaming}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            ) : null}
+                            {message.role === "assistant" ? (
+                              <button
+                                type="button"
+                                className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+                                title={t("message.retry")}
+                                disabled={
+                                  isStreaming ||
+                                  !activeMessages
+                                    .slice(0, index)
+                                    .reverse()
+                                    .find((item) => item.role === "user")
+                                }
+                                onClick={() => {
+                                  const previousUser = activeMessages
+                                    .slice(0, index)
+                                    .reverse()
+                                    .find((item) => item.role === "user")
+                                  if (!previousUser) return
+                                  void handleRetryFromUserMessage(previousUser.id)
+                                }}
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+
                           {message.attachments?.length ? (
-                            <div className="mt-3 flex flex-wrap gap-2">
+                            <div
+                              className={cn(
+                                "mt-3 flex flex-wrap gap-2",
+                                message.role === "user" ? "justify-end" : "justify-start"
+                              )}
+                            >
                               {message.attachments.map((attachment) => (
                                 <button
                                   key={attachment.documentId}
                                   type="button"
                                   onClick={() => togglePreviewDocument(attachment.documentId)}
                                   className={cn(
-                                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition duration-200 motion-safe:hover:-translate-y-0.5",
+                                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
                                     previewDocId === attachment.documentId
                                       ? "border-primary/30 bg-primary/10 text-primary"
                                       : "border-border bg-background hover:bg-muted"
@@ -1171,7 +1184,7 @@ export default function Chat() {
                                     key={source.chunkId}
                                     type="button"
                                     onClick={() => togglePreviewDocument(source.documentId)}
-                                    className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium transition duration-200 motion-safe:hover:-translate-y-0.5 hover:bg-muted"
+                                    className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
                                   >
                                     <FileText className="h-3.5 w-3.5" />
                                     <span>{source.documentTitle}</span>
@@ -1194,7 +1207,7 @@ export default function Chat() {
                 )}
               </div>
 
-              <div className="border-t border-border/70 bg-background/92 px-4 py-3">
+              <div className="border-t border-border/70 bg-background/80 px-4 py-3 backdrop-blur-sm">
                 <div className="mx-auto w-full max-w-4xl">
                   {attachments.length ? (
                     <div className="mb-2 flex flex-wrap gap-2">
@@ -1218,7 +1231,7 @@ export default function Chat() {
                     </div>
                   ) : null}
 
-                  <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[11px] text-muted-foreground">
                     <span>{t("composer.shortcut")}</span>
                     <div className="flex items-center gap-2">
                       <Button
@@ -1242,17 +1255,17 @@ export default function Chat() {
 
                   <div
                     className={cn(
-                      "flex items-end gap-1 rounded-3xl border bg-background p-1.5 shadow-sm transition-all duration-200",
+                      "chat-claude-composer flex items-end gap-1 rounded-[1.6rem] border p-1.5 transition-all duration-200",
                       isComposerFocused
-                        ? "border-primary/35 shadow-[0_0_0_3px_hsl(var(--primary)/0.10)]"
-                        : "border-border"
+                        ? "border-primary/35 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]"
+                        : "border-border/75"
                     )}
                   >
                     <button
                       type="button"
                       onClick={() => setPickerOpen(true)}
                       disabled={activeConversation?.scope === "document"}
-                      className="m-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition duration-200 motion-safe:hover:-translate-y-0.5 hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      className="m-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                       title={t("attach_document")}
                     >
                       <Paperclip className="h-4.5 w-4.5" />
@@ -1288,7 +1301,7 @@ export default function Chat() {
                         size="icon"
                         className={cn(
                           "m-1 h-10 w-10 shrink-0 rounded-xl transition duration-200",
-                          canSend && "chat-soft-pulse motion-safe:hover:-translate-y-0.5"
+                          canSend && "chat-soft-pulse"
                         )}
                         onClick={() => void handleSend()}
                         disabled={!canSend}
@@ -1301,9 +1314,19 @@ export default function Chat() {
               </div>
             </main>
 
-            {previewDocId || previewCodeBlock ? (
-              <aside className="chat-slide-in glass-surface hidden w-[360px] shrink-0 border-l border-border/60 xl:flex xl:flex-col">
-                <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+            {isPreviewOpen ? (
+              <div className="pointer-events-none absolute inset-0 z-20 flex justify-end">
+                <button
+                  type="button"
+                  className="pointer-events-auto absolute inset-0 bg-black/20"
+                  onClick={() => {
+                    setPreviewDocId(null)
+                    setPreviewCodeBlock(null)
+                    setPreviewCodeView("code")
+                  }}
+                />
+                <aside className="chat-slide-in glass-surface pointer-events-auto flex h-full w-full max-w-[460px] flex-col border-l border-border/60 shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
                   <div>
                     <p className="text-sm font-semibold">
                       {previewCodeBlock ? t("preview.code_title") : t("preview.title")}
@@ -1345,73 +1368,74 @@ export default function Chat() {
                         </button>
                       </div>
                     ) : null}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 rounded-2xl"
-                      onClick={() => {
-                        setPreviewDocId(null)
-                        setPreviewCodeBlock(null)
-                        setPreviewCodeView("code")
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-2xl"
+                        onClick={() => {
+                          setPreviewDocId(null)
+                          setPreviewCodeBlock(null)
+                          setPreviewCodeView("code")
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                   </div>
-                </div>
-                <div className="flex-1 overflow-auto p-4">
-                  {previewCodeBlock ? (
-                    previewCodeView === "render" && previewCodeRenderKind === "html" ? (
-                      <div className="h-full overflow-hidden rounded-2xl border border-border/80 bg-background">
-                        <iframe
-                          title="html-preview"
-                          srcDoc={previewCodeBlock.code}
-                          sandbox="allow-scripts"
-                          className="h-full w-full"
+                  </div>
+                  <div className="flex-1 overflow-auto p-4">
+                    {previewCodeBlock ? (
+                      previewCodeView === "render" && previewCodeRenderKind === "html" ? (
+                        <div className="h-full overflow-hidden rounded-2xl border border-border/80 bg-background">
+                          <iframe
+                            title="html-preview"
+                            srcDoc={previewCodeBlock.code}
+                            sandbox="allow-scripts"
+                            className="h-full w-full"
+                          />
+                        </div>
+                      ) : previewCodeView === "render" && previewCodeRenderKind === "mindmap" ? (
+                        <div className="rounded-2xl border border-border/80 bg-muted/25 p-3">
+                          <MindmapTree nodes={mindmapNodes} />
+                        </div>
+                      ) : (
+                        <div className="overflow-hidden rounded-2xl border border-border/80 bg-background">
+                          <div className="border-b border-border/70 bg-muted/45 px-3 py-2">
+                            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                              {previewCodeBlock.language}
+                            </span>
+                          </div>
+                          <pre className="max-h-full overflow-auto p-3 text-xs leading-6 text-foreground">
+                            <code>{previewCodeBlock.code}</code>
+                          </pre>
+                        </div>
+                      )
+                    ) : previewRenderablePdf ? (
+                      <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
+                        <PdfViewer
+                          fileUrl={previewRenderablePdf}
+                          fileName={previewDocument?.filename}
+                          showZoomControls={false}
+                          className="h-full"
                         />
                       </div>
-                    ) : previewCodeView === "render" && previewCodeRenderKind === "mindmap" ? (
-                      <div className="rounded-2xl border border-border/80 bg-muted/25 p-3">
-                        <MindmapTree nodes={mindmapNodes} />
+                    ) : previewMarkdownContent ? (
+                      <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
+                        <MarkdownViewer
+                          content={previewMarkdownContent}
+                          contentFormat={previewContentFormat}
+                          textScale={0.92}
+                          className="h-full px-2 py-3"
+                          contentClassName="prose-headings:tracking-tight prose-p:text-[0.98em]"
+                        />
                       </div>
                     ) : (
-                      <div className="overflow-hidden rounded-2xl border border-border/80 bg-background">
-                        <div className="border-b border-border/70 bg-muted/45 px-3 py-2">
-                          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                            {previewCodeBlock.language}
-                          </span>
-                        </div>
-                        <pre className="max-h-full overflow-auto p-3 text-xs leading-6 text-foreground">
-                          <code>{previewCodeBlock.code}</code>
-                        </pre>
-                      </div>
-                    )
-                  ) : previewRenderablePdf ? (
-                    <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
-                      <PdfViewer
-                        fileUrl={previewRenderablePdf}
-                        fileName={previewDocument?.filename}
-                        showZoomControls={false}
-                        className="h-full"
-                      />
-                    </div>
-                  ) : previewMarkdownContent ? (
-                    <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
-                      <MarkdownViewer
-                        content={previewMarkdownContent}
-                        contentFormat={previewContentFormat}
-                        textScale={0.92}
-                        className="h-full px-2 py-3"
-                        contentClassName="prose-headings:tracking-tight prose-p:text-[0.98em]"
-                      />
-                    </div>
-                  ) : (
-                    <p className="py-8 text-center text-sm text-muted-foreground">
-                      {t("preview.no_content")}
-                    </p>
-                  )}
-                </div>
-              </aside>
+                      <p className="py-8 text-center text-sm text-muted-foreground">
+                        {t("preview.no_content")}
+                      </p>
+                    )}
+                  </div>
+                </aside>
+              </div>
             ) : null}
           </div>
         </section>

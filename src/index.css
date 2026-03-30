@@ -169,6 +169,27 @@
       radial-gradient(circle at top left, hsl(var(--primary) / 0.06), transparent 44%);
   }
 
+  .chat-claude-surface {
+    background:
+      radial-gradient(circle at 0% 0%, hsl(var(--muted) / 0.6), transparent 45%),
+      radial-gradient(circle at 100% 100%, hsl(var(--muted) / 0.52), transparent 42%),
+      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.3) 100%);
+  }
+
+  .chat-claude-sidebar {
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.96), hsl(var(--background) / 0.88));
+    backdrop-filter: blur(8px);
+  }
+
+  .chat-claude-composer {
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.94), hsl(var(--background) / 0.9));
+    box-shadow:
+      0 10px 30px rgba(15, 23, 42, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  }
+
   .reader-noise {
     background-image:
       radial-gradient(circle at top, rgba(255,255,255,0.7), transparent 34%),
