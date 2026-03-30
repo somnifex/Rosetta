@@ -8,8 +8,10 @@ import {
   findDocumentConversation,
   genId,
   generateConversationTitle,
+  loadChatBehaviorSettings,
   loadConversations,
   patchConversation,
+  renderPromptTemplate,
   saveConversations,
   streamRagChat,
   type ChatConversation,
@@ -73,6 +75,11 @@ export function ReaderAskPanel({
   const { data: providers = [] } = useQuery({
     queryKey: ["providers"],
     queryFn: () => api.getProviders(),
+  })
+
+  const { data: chatBehaviorSettings } = useQuery({
+    queryKey: ["chatBehaviorSettings"],
+    queryFn: loadChatBehaviorSettings,
   })
 
   const activeChatProvider = getActiveProviderForType(providers, "chat")
@@ -188,6 +195,60 @@ export function ReaderAskPanel({
   async function handleSend() {
     if (!input.trim() || !activeConversation) return
 
+    const effectiveBehavior = {
+      documentAppendPrompt:
+        chatBehaviorSettings?.documentAppendPrompt ||
+        "用户问题：{{user_input}}\n\n以下是文档全文，请优先基于全文回答并在结论后指出关键依据：\n\n{{document_content}}",
+      longTextRagPrompt:
+        chatBehaviorSettings?.longTextRagPrompt ||
+        "用户输入很长，请先给出结构化摘要，再按要点回答，必要时明确指出不确定性。\n\n原始输入：\n{{user_input}}",
+      longTextThreshold: chatBehaviorSettings?.longTextThreshold ?? 3000,
+      defaultAlwaysIncludeFullDocument:
+        chatBehaviorSettings?.defaultAlwaysIncludeFullDocument ?? false,
+    }
+
+    const alwaysIncludeFullDocument =
+      activeConversation.alwaysIncludeFullDocument ??
+      effectiveBehavior.defaultAlwaysIncludeFullDocument
+
+    const fetchDocumentFullContent = async () => {
+      try {
+        const parsed = await api.getParsedContent(documentId)
+        if (parsed?.markdown_content?.trim()) return parsed.markdown_content
+      } catch {
+        // ignore parsed-content fetch failures
+      }
+
+      try {
+        const translated = await api.getTranslatedContent(documentId)
+        if (translated?.content?.trim()) return translated.content
+      } catch {
+        // ignore translated-content fetch failures
+      }
+
+      return ""
+    }
+
+    let requestUserContent = input.trim()
+
+    if (alwaysIncludeFullDocument) {
+      const fullDocument = await fetchDocumentFullContent()
+      if (fullDocument.length > effectiveBehavior.longTextThreshold) {
+        requestUserContent = renderPromptTemplate(effectiveBehavior.longTextRagPrompt, {
+          user_input: input.trim(),
+        })
+        toast({
+          title: t("composer.long_text_rag_enabled"),
+          description: t("composer.long_text_rag_enabled_desc"),
+        })
+      } else if (fullDocument.trim()) {
+        requestUserContent = renderPromptTemplate(effectiveBehavior.documentAppendPrompt, {
+          user_input: input.trim(),
+          document_content: fullDocument,
+        })
+      }
+    }
+
     const userMessage: ChatMessage = {
       id: genId(),
       role: "user",
@@ -225,9 +286,13 @@ export function ReaderAskPanel({
         {
           messages: updatedMessages.map((message) => ({
             role: message.role,
-            content: message.content,
+            content:
+              message.id === userMessage.id
+                ? requestUserContent
+                : message.content,
           })),
           attachments: activeConversation.contextAttachments,
+          enableRetrieval: true,
           topK: activeConversation.retrievalTopK,
           systemPrompt: activeConversation.systemPrompt,
           sampling: activeConversation.sampling,

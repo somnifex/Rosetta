@@ -94,6 +94,9 @@ export interface TranslationConfig {
   use_glossary: boolean
   system_prompt?: string
   user_prompt_template?: string
+  // 速率限制配置
+  max_requests_per_minute?: number
+  max_concurrent_requests?: number
 }
 
 export interface ParsedContent {

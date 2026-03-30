@@ -2838,6 +2838,11 @@ async fn execute_translation_job(
         translate_model.model_name,
         sampling,
     );
+    
+    // 应用速率限制配置（暂时使用保守配置以确保稳定性）
+    // 可以从数据库或环境变量读取配置
+    let rate_limit_config = crate::rate_limiter::RateLimitConfig::moderate();
+    let translator = translator.with_rate_limit_config(rate_limit_config);
 
     let result = translator
         .translate(&markdown_content, source_language, target_language)

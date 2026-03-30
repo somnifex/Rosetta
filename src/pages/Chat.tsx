@@ -14,16 +14,21 @@ import {
   conversationMatchesQuery,
   createConversation,
   deriveConversationTitleCandidate,
+  encodeImageAttachmentAsDataUrl,
   findDocumentConversation,
   genId,
   generateConversationTitle,
   getConversationPreview,
+  isImageAttachment,
+  loadChatBehaviorSettings,
   loadConversations,
   patchConversation,
+  renderPromptTemplate,
   removeConversation,
   replaceConversation,
   saveConversations,
   streamRagChat,
+  type ChatRequestMessage,
   type ChatAttachment,
   type ChatConversation,
   type ChatMessage,
@@ -90,6 +95,7 @@ export default function Chat() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [useLocalRagForNextTurn, setUseLocalRagForNextTurn] = useState(false)
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
   const [historyQuery, setHistoryQuery] = useState("")
   const [titleGeneratingId, setTitleGeneratingId] = useState<string | null>(null)
@@ -105,6 +111,11 @@ export default function Chat() {
     queryKey: ["parsedContent", previewDocId],
     queryFn: () => api.getParsedContent(previewDocId!),
     enabled: !!previewDocId,
+  })
+
+  const { data: chatBehaviorSettings } = useQuery({
+    queryKey: ["chatBehaviorSettings"],
+    queryFn: loadChatBehaviorSettings,
   })
 
   const { data: providers = [] } = useQuery({
@@ -262,6 +273,82 @@ export default function Chat() {
     const composerAttachments =
       conversation.scope === "document" ? [] : [...attachments]
 
+    const alwaysIncludeFullDocument =
+      conversation.alwaysIncludeFullDocument ??
+      chatBehaviorSettings?.defaultAlwaysIncludeFullDocument ??
+      false
+
+    const effectiveBehavior = {
+      documentAppendPrompt:
+        chatBehaviorSettings?.documentAppendPrompt ||
+        "用户问题：{{user_input}}\n\n以下是文档全文，请优先基于全文回答并在结论后指出关键依据：\n\n{{document_content}}",
+      longTextRagPrompt:
+        chatBehaviorSettings?.longTextRagPrompt ||
+        "用户输入很长，请先给出结构化摘要，再按要点回答，必要时明确指出不确定性。\n\n原始输入：\n{{user_input}}",
+      longTextThreshold: chatBehaviorSettings?.longTextThreshold ?? 3000,
+    }
+
+    const primaryDocumentAttachment =
+      conversation.scope === "document"
+        ? conversation.contextAttachments[0]
+        : null
+
+    let requestUserContent = messageContent
+
+    const fetchDocumentFullContent = async (documentId: string) => {
+      try {
+        const parsed = await api.getParsedContent(documentId)
+        if (parsed?.markdown_content?.trim()) return parsed.markdown_content
+      } catch {
+        // ignore parsed-content fetch failures
+      }
+
+      try {
+        const translated = await api.getTranslatedContent(documentId)
+        if (translated?.content?.trim()) return translated.content
+      } catch {
+        // ignore translated-content fetch failures
+      }
+
+      return ""
+    }
+
+    let shouldEnableRetrieval =
+      useLocalRagForNextTurn ||
+      conversation.scope === "document" ||
+      composerAttachments.length > 0 ||
+      conversation.contextAttachments.length > 0
+
+    if (conversation.scope === "document" && alwaysIncludeFullDocument && primaryDocumentAttachment) {
+      const fullDocument = await fetchDocumentFullContent(primaryDocumentAttachment.documentId)
+      if (fullDocument.length > effectiveBehavior.longTextThreshold) {
+        shouldEnableRetrieval = true
+        requestUserContent = renderPromptTemplate(effectiveBehavior.longTextRagPrompt, {
+          user_input: messageContent,
+        })
+        toast({
+          title: t("composer.long_text_rag_enabled"),
+          description: t("composer.long_text_rag_enabled_desc"),
+        })
+      } else if (fullDocument.trim()) {
+        requestUserContent = renderPromptTemplate(effectiveBehavior.documentAppendPrompt, {
+          user_input: messageContent,
+          document_content: fullDocument,
+        })
+      }
+    }
+
+    if (!shouldEnableRetrieval && messageContent.length > effectiveBehavior.longTextThreshold) {
+      shouldEnableRetrieval = true
+      requestUserContent = renderPromptTemplate(effectiveBehavior.longTextRagPrompt, {
+        user_input: messageContent,
+      })
+      toast({
+        title: t("composer.long_text_rag_enabled"),
+        description: t("composer.long_text_rag_enabled_desc"),
+      })
+    }
+
     const userMessage: ChatMessage = {
       id: genId(),
       role: "user",
@@ -319,13 +406,59 @@ export default function Chat() {
       let fullContent = ""
       let sources = assistantMessage.sources ?? []
 
+      let requestMessages: ChatRequestMessage[] = updatedMessages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      }))
+
+      const latestUserIndex = updatedMessages.findIndex((message) => message.id === userMessage.id)
+      if (latestUserIndex >= 0) {
+        requestMessages[latestUserIndex] = {
+          role: "user",
+          content: requestUserContent,
+        }
+      }
+
+      if (activeChatModel?.supports_vision) {
+        const imageDataUrls = (
+          await Promise.all(
+            requestAttachments
+              .filter(isImageAttachment)
+              .slice(0, 3)
+              .map((attachment) => encodeImageAttachmentAsDataUrl(attachment))
+          )
+        ).filter((value): value is string => !!value)
+
+        if (imageDataUrls.length > 0) {
+          const lastUserIndex = [...requestMessages]
+            .map((msg, index) => ({ msg, index }))
+            .reverse()
+            .find((entry) => entry.msg.role === "user")?.index
+
+          if (lastUserIndex != null) {
+            const textContent =
+              typeof requestMessages[lastUserIndex].content === "string"
+                ? requestMessages[lastUserIndex].content
+                : ""
+            requestMessages[lastUserIndex] = {
+              role: "user",
+              content: [
+                { type: "text", text: textContent },
+                ...imageDataUrls.map((url) => ({
+                  type: "image_url" as const,
+                  image_url: { url },
+                })),
+              ],
+            }
+          }
+        }
+      }
+
       for await (const event of streamRagChat(
         {
-          messages: updatedMessages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
+          messages: requestMessages,
           attachments: requestAttachments,
+          enableRetrieval: shouldEnableRetrieval,
           topK: conversation.retrievalTopK,
           systemPrompt: conversation.systemPrompt,
           sampling: conversation.sampling,
@@ -379,6 +512,7 @@ export default function Chat() {
       }
     } finally {
       setIsStreaming(false)
+      setUseLocalRagForNextTurn(false)
       abortRef.current = null
     }
   }
@@ -796,13 +930,24 @@ export default function Chat() {
 
                   <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{t("composer.shortcut")}</span>
-                    <span>
-                      {activeConversation?.retrievalTopK
-                        ? t("composer.retrieval_top_k", {
-                            count: activeConversation.retrievalTopK,
-                          })
-                        : t("composer.retrieval_default")}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant={useLocalRagForNextTurn ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 rounded-full px-3 text-[11px]"
+                        onClick={() => setUseLocalRagForNextTurn((current) => !current)}
+                      >
+                        {t("composer.local_rag_toggle")}
+                      </Button>
+                      <span>
+                        {activeConversation?.retrievalTopK
+                          ? t("composer.retrieval_top_k", {
+                              count: activeConversation.retrievalTopK,
+                            })
+                          : t("composer.retrieval_default")}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="desktop-panel flex items-end gap-0 rounded-[28px] border border-border/70 bg-background/85 p-1.5">

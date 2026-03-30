@@ -21,6 +21,18 @@ export default {
       dark: "深色",
       system: "跟随系统",
     },
+    chat_behavior_title: "模型与文档行为",
+    chat_behavior_description: "配置对话行为说明、文档注入和长文本策略提示词。",
+    model_behavior_description: "模型与文档行为描述",
+    default_full_document: "默认始终传递全文",
+    default_full_document_hint: "仅对文档线程生效，可在单个对话设置中覆盖。",
+    long_text_threshold: "长文本阈值（字符）",
+    document_append_prompt: "文档全文注入提示词",
+    document_append_prompt_hint: "可用变量：{{user_input}}、{{document_content}}",
+    long_text_rag_prompt: "长文本回退本地 RAG 提示词",
+    long_text_rag_prompt_hint: "可用变量：{{user_input}}",
+    chat_behavior_saved: "对话行为设置已保存",
+    chat_behavior_save_error: "保存对话行为设置失败",
   },
   providers: {
     failover: {

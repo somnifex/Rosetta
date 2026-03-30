@@ -62,6 +62,9 @@ export default {
     shortcut: "Enter to send, Shift + Enter for a new line",
     retrieval_top_k: "Retrieval top_k: {{count}}",
     retrieval_default: "Retrieval top_k follows the global default",
+    local_rag_toggle: "Temp Local RAG",
+    long_text_rag_enabled: "Long input detected, local RAG enabled",
+    long_text_rag_enabled_desc: "This turn will prioritize local retrieval to improve response quality.",
     document_placeholder: "Ask about concepts, claims, evidence, structure, or where something appears in this document",
   },
   settings: {
@@ -78,6 +81,9 @@ export default {
     reset: "Reset overrides",
     inherit_global: "Use global default",
     retrieval_top_k: "Retrieval Top K",
+    always_include_full_document: "Always include full document (document threads only)",
+    always_include_full_document_hint:
+      "When enabled, the full document is appended to the user prompt. If too long, it falls back to local RAG automatically.",
     done: "Done",
     system_prompt_badge: "Custom prompt",
   },

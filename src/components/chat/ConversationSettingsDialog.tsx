@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { useTranslation } from "react-i18next"
 
 interface ConversationSettingsDialogProps {
@@ -148,11 +149,26 @@ export function ConversationSettingsDialog({
                     systemPrompt: undefined,
                     sampling: undefined,
                     retrievalTopK: undefined,
+                    alwaysIncludeFullDocument: undefined,
                   })
                 }
               >
                 {t("settings.reset")}
               </Button>
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl border border-border/70 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">{t("settings.always_include_full_document")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.always_include_full_document_hint")}
+                </p>
+              </div>
+              <Switch
+                checked={conversation?.alwaysIncludeFullDocument === true}
+                onCheckedChange={(checked) => onChange({ alwaysIncludeFullDocument: checked })}
+                disabled={conversation?.scope !== "document"}
+              />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

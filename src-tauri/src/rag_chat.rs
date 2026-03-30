@@ -7,7 +7,7 @@ use crate::AppState;
 use reqwest::Client;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
@@ -33,9 +33,16 @@ pub struct OpenAiChannelConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RagChatMessageContent {
+    Text(String),
+    Parts(Value),
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct RagChatMessageInput {
     pub role: String,
-    pub content: String,
+    pub content: RagChatMessageContent,
 }
 
 #[allow(dead_code)]
@@ -52,16 +59,22 @@ pub struct RagChatAttachment {
 pub struct RagChatRequest {
     pub request_id: String,
     pub chat_channel: OpenAiChannelConfig,
-    pub embed_channel: OpenAiChannelConfig,
+    pub embed_channel: Option<OpenAiChannelConfig>,
     pub rerank_channel: Option<OpenAiChannelConfig>,
     pub messages: Vec<RagChatMessageInput>,
     #[serde(default)]
     pub attachments: Vec<RagChatAttachment>,
+    #[serde(default = "default_enable_retrieval")]
+    pub enable_retrieval: bool,
     pub top_k: Option<usize>,
     #[serde(default)]
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub sampling_override: Option<LlmSamplingConfig>,
+}
+
+fn default_enable_retrieval() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -202,12 +215,39 @@ fn emit_error(app: &AppHandle, request_id: &str, message: &str) -> Result<(), St
 }
 
 fn latest_user_message(messages: &[RagChatMessageInput]) -> Result<&str, String> {
-    messages
-        .iter()
-        .rev()
-        .find(|message| message.role == "user" && !message.content.trim().is_empty())
-        .map(|message| message.content.trim())
-        .ok_or_else(|| "No user message was provided for the chat request".to_string())
+    for message in messages.iter().rev() {
+        if message.role != "user" {
+            continue;
+        }
+
+        match &message.content {
+            RagChatMessageContent::Text(content) if !content.trim().is_empty() => {
+                return Ok(content.trim())
+            }
+            RagChatMessageContent::Parts(parts) => {
+                if let Some(content) = extract_text_from_message_parts(parts) {
+                    return Ok(content)
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Err("No user message was provided for the chat request".to_string())
+}
+
+fn extract_text_from_message_parts(parts: &Value) -> Option<&str> {
+    let list = parts.as_array()?;
+    for item in list {
+        if item.get("type")?.as_str()? != "text" {
+            continue;
+        }
+        let text = item.get("text")?.as_str()?;
+        if !text.trim().is_empty() {
+            return Some(text.trim());
+        }
+    }
+    None
 }
 
 fn merge_sampling_config(
@@ -575,11 +615,15 @@ async fn retrieve_context(
     request: &RagChatRequest,
 ) -> Result<Vec<RagChatSource>, String> {
     let query = latest_user_message(&request.messages)?.to_string();
+    let embed_channel = request
+        .embed_channel
+        .as_ref()
+        .ok_or_else(|| "No embedding channel configured for retrieval".to_string())?;
     let provider = DirectEmbeddingProvider {
-        base_url: request.embed_channel.base_url.clone(),
-        api_key: request.embed_channel.api_key.clone(),
-        embedding_model: request.embed_channel.model.clone(),
-        dimensions: request.embed_channel.dimensions,
+        base_url: embed_channel.base_url.clone(),
+        api_key: embed_channel.api_key.clone(),
+        embedding_model: embed_channel.model.clone(),
+        dimensions: embed_channel.dimensions,
     };
     let top_k = request.top_k.unwrap_or(6).clamp(1, 12);
 
@@ -800,14 +844,30 @@ fn build_chat_payload(
     }));
 
     for message in &request.messages {
-        if message.content.trim().is_empty() {
-            continue;
-        }
-
         if matches!(message.role.as_str(), "user" | "assistant" | "system") {
+            let content = match &message.content {
+                RagChatMessageContent::Text(text) => {
+                    let trimmed = text.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    Value::String(trimmed.to_string())
+                }
+                RagChatMessageContent::Parts(parts) => {
+                    if parts
+                        .as_array()
+                        .map(|items| items.is_empty())
+                        .unwrap_or(true)
+                    {
+                        continue;
+                    }
+                    parts.clone()
+                }
+            };
+
             messages.push(json!({
                 "role": message.role,
-                "content": message.content,
+                "content": content,
             }));
         }
     }
@@ -842,7 +902,12 @@ fn build_title_generation_payload(
         .messages
         .iter()
         .filter_map(|message| {
-            let content = message.content.trim();
+            let content = match &message.content {
+                RagChatMessageContent::Text(text) => text.trim(),
+                RagChatMessageContent::Parts(parts) => {
+                    extract_text_from_message_parts(parts).unwrap_or("")
+                }
+            };
             if content.is_empty() {
                 return None;
             }
@@ -1024,7 +1089,11 @@ async fn run_rag_chat(
     request: &RagChatRequest,
 ) -> Result<(), String> {
     let app_dir = crate::app_dirs::runtime_app_dir(app)?;
-    let sources = retrieve_context(state, &app_dir, request).await?;
+    let sources = if request.enable_retrieval {
+        retrieve_context(state, &app_dir, request).await?
+    } else {
+        Vec::new()
+    };
     let base_sampling = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         load_llm_sampling_config(db.get_connection(), "chat")?

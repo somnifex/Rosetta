@@ -21,6 +21,18 @@ export default {
       dark: "Dark",
       system: "System",
     },
+    chat_behavior_title: "Model & Document Behavior",
+    chat_behavior_description: "Configure behavior description, document injection, and long-text strategy prompts.",
+    model_behavior_description: "Behavior description",
+    default_full_document: "Default to always include full document",
+    default_full_document_hint: "Applies to document threads and can be overridden per conversation.",
+    long_text_threshold: "Long text threshold (chars)",
+    document_append_prompt: "Full-document injection prompt",
+    document_append_prompt_hint: "Available variables: {{user_input}}, {{document_content}}",
+    long_text_rag_prompt: "Long-text local RAG fallback prompt",
+    long_text_rag_prompt_hint: "Available variable: {{user_input}}",
+    chat_behavior_saved: "Chat behavior settings saved",
+    chat_behavior_save_error: "Failed to save chat behavior settings",
   },
   providers: {
     failover: {

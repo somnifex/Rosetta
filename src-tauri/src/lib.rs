@@ -1,4 +1,5 @@
 mod app_dirs;
+mod chunking;
 mod commands;
 mod database;
 mod embedder;
@@ -7,7 +8,9 @@ mod mineru;
 mod mineru_process;
 mod models;
 mod rag_chat;
+mod rate_limiter;
 mod reranker;
+mod retry;
 mod sync_backup;
 mod translator;
 mod webdav;

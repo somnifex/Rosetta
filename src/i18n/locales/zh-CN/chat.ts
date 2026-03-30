@@ -62,6 +62,9 @@ export default {
     shortcut: "Enter 发送，Shift + Enter 换行",
     retrieval_top_k: "当前检索 top_k：{{count}}",
     retrieval_default: "检索 top_k 使用全局默认值",
+    local_rag_toggle: "临时本地 RAG",
+    long_text_rag_enabled: "输入较长，已启用本地 RAG",
+    long_text_rag_enabled_desc: "为保证响应质量，本轮请求将优先使用本地检索。",
     document_placeholder: "询问这份文档里的概念、结论、出处、证据或结构",
   },
   settings: {
@@ -78,6 +81,9 @@ export default {
     reset: "重置覆盖项",
     inherit_global: "继承全局默认值",
     retrieval_top_k: "检索 Top K",
+    always_include_full_document: "始终传递全文（仅文档线程）",
+    always_include_full_document_hint:
+      "开启后，本轮问题会拼接文档全文后再发送给模型。若全文过长会自动回退到本地 RAG。",
     done: "完成",
     system_prompt_badge: "自定义提示词",
   },

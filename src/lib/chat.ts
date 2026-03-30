@@ -1,4 +1,5 @@
 import type { LlmSamplingConfig } from "../../packages/types"
+import { readFile } from "@tauri-apps/plugin-fs"
 import { api } from "./api"
 import {
   getActiveProviderForType,
@@ -30,6 +31,15 @@ export interface ChatMessage {
   sources?: ChatSource[]
 }
 
+export type ChatRequestMessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+
+export interface ChatRequestMessage {
+  role: "user" | "assistant" | "system"
+  content: string | ChatRequestMessageContentPart[]
+}
+
 export type ChatConversationScope = "general" | "document"
 export type ChatTitleSource = "fallback" | "ai" | "manual"
 
@@ -45,6 +55,7 @@ export interface ChatConversation {
   systemPrompt?: string
   sampling?: LlmSamplingConfig
   retrievalTopK?: number
+  alwaysIncludeFullDocument?: boolean
 }
 
 export type ChatStreamEvent =
@@ -59,6 +70,23 @@ export const LEGACY_DOCUMENT_CHAT_PREFIX = "pdf-translate:document-chat:"
 const EVENT_CHAT_CHUNK = "rag-chat-chunk"
 const EVENT_CHAT_DONE = "rag-chat-done"
 const EVENT_CHAT_ERROR = "rag-chat-error"
+
+const DEFAULT_DOCUMENT_APPEND_PROMPT =
+  "用户问题：{{user_input}}\n\n以下是文档全文，请优先基于全文回答并在结论后指出关键依据：\n\n{{document_content}}"
+
+const DEFAULT_LONG_TEXT_RAG_PROMPT =
+  "用户输入很长，请先给出结构化摘要，再按要点回答，必要时明确指出不确定性。\n\n原始输入：\n{{user_input}}"
+
+const DEFAULT_CHAT_MODEL_BEHAVIOR_DESCRIPTION =
+  "普通对话默认不走本地RAG；文档线程可按设置注入全文；长文本自动提示并切换本地RAG；若模型支持视觉会自动附带图片。"
+
+export interface ChatBehaviorSettings {
+  modelBehaviorDescription: string
+  documentAppendPrompt: string
+  longTextRagPrompt: string
+  longTextThreshold: number
+  defaultAlwaysIncludeFullDocument: boolean
+}
 
 function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -222,6 +250,10 @@ function normalizeConversation(value: unknown): ChatConversation | null {
     systemPrompt: cleanString(raw.systemPrompt ?? raw.system_prompt) || undefined,
     sampling: normalizeSamplingConfig(raw.sampling),
     retrievalTopK: clampNumber(raw.retrievalTopK ?? raw.retrieval_top_k, 1, 12),
+    alwaysIncludeFullDocument:
+      typeof (raw.alwaysIncludeFullDocument ?? raw.always_include_full_document) === "boolean"
+        ? Boolean(raw.alwaysIncludeFullDocument ?? raw.always_include_full_document)
+        : undefined,
   }
 }
 
@@ -539,11 +571,78 @@ function mergeSampling(
 }
 
 interface StreamRagChatArgs {
-  messages: { role: string; content: string }[]
+  messages: ChatRequestMessage[]
   attachments?: ChatAttachment[]
   topK?: number
   systemPrompt?: string
   sampling?: LlmSamplingConfig
+  enableRetrieval?: boolean
+}
+
+function toBase64(bytes: Uint8Array) {
+  let binary = ""
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.slice(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
+}
+
+function inferImageMimeType(filename: string) {
+  const lowered = filename.toLowerCase()
+  if (lowered.endsWith(".png")) return "image/png"
+  if (lowered.endsWith(".jpg") || lowered.endsWith(".jpeg")) return "image/jpeg"
+  if (lowered.endsWith(".webp")) return "image/webp"
+  if (lowered.endsWith(".gif")) return "image/gif"
+  if (lowered.endsWith(".bmp")) return "image/bmp"
+  return null
+}
+
+export function isImageAttachment(attachment: ChatAttachment) {
+  return inferImageMimeType(attachment.filename) != null
+}
+
+export async function encodeImageAttachmentAsDataUrl(attachment: ChatAttachment) {
+  const mimeType = inferImageMimeType(attachment.filename)
+  if (!mimeType) {
+    return null
+  }
+
+  const filePath = await api.getDocumentFilePath(attachment.documentId)
+  const bytes = await readFile(filePath)
+  return `data:${mimeType};base64,${toBase64(bytes)}`
+}
+
+export function renderPromptTemplate(
+  template: string,
+  values: Record<string, string>
+) {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => values[key] ?? "")
+}
+
+export async function loadChatBehaviorSettings(): Promise<ChatBehaviorSettings> {
+  const settings = await api.getAllAppSettings()
+  const map = new Map(settings.map((item) => [item.key, item.value]))
+
+  const thresholdRaw = map.get("chat.long_text_threshold")?.trim() ?? ""
+  const parsedThreshold = Number(thresholdRaw)
+
+  return {
+    modelBehaviorDescription:
+      map.get("chat.model_behavior_description") ||
+      DEFAULT_CHAT_MODEL_BEHAVIOR_DESCRIPTION,
+    documentAppendPrompt:
+      map.get("chat.prompt.document_append") || DEFAULT_DOCUMENT_APPEND_PROMPT,
+    longTextRagPrompt:
+      map.get("chat.prompt.long_text_rag") || DEFAULT_LONG_TEXT_RAG_PROMPT,
+    longTextThreshold:
+      Number.isFinite(parsedThreshold) && parsedThreshold >= 400
+        ? Math.floor(parsedThreshold)
+        : 3000,
+    defaultAlwaysIncludeFullDocument:
+      map.get("chat.default_always_include_full_document") === "true",
+  }
 }
 
 export async function generateConversationTitle(
@@ -600,9 +699,13 @@ export async function* streamRagChat(
     throw new Error("NO_ACTIVE_CHAT_CHANNEL")
   }
 
-  const embedProvider = getActiveProviderForType(providers, "embed")
+  const enableRetrieval = args.enableRetrieval !== false
+
+  const embedProvider = enableRetrieval
+    ? getActiveProviderForType(providers, "embed")
+    : null
   const embedModel = embedProvider ? getPrimaryModelForType(embedProvider, "embed") : null
-  if (!embedProvider || !embedModel) {
+  if (enableRetrieval && (!embedProvider || !embedModel)) {
     throw new Error("NO_ACTIVE_EMBED_CHANNEL")
   }
 
@@ -674,13 +777,14 @@ export async function* streamRagChat(
       request: {
         requestId,
         chatChannel: toOpenAiChannelConfig(chatProvider, chatModel),
-        embedChannel: toOpenAiChannelConfig(embedProvider, embedModel),
+        embedChannel: embedProvider && embedModel ? toOpenAiChannelConfig(embedProvider, embedModel) : null,
         rerankChannel:
           rerankProvider && rerankModel
             ? toOpenAiChannelConfig(rerankProvider, rerankModel)
             : null,
         messages: args.messages,
         attachments: args.attachments ?? [],
+        enableRetrieval,
         topK: args.topK,
         systemPrompt: args.systemPrompt?.trim() || null,
         samplingOverride: normalizeSamplingConfig(args.sampling),
