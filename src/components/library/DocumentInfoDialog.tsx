@@ -12,6 +12,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +25,8 @@ import { useToast } from "@/hooks/use-toast"
 import {
   AlertTriangle,
   BookOpen,
+  Check,
+  Circle,
   Download,
   Eye,
   FileCode2,
@@ -77,6 +80,14 @@ function getProgressBadge(status: string, progress?: number) {
   return <Badge variant="outline">{status}</Badge>
 }
 
+/* Small status dot for the header row */
+function StatusDot({ status }: { status: string }) {
+  if (status === "completed") return <Check className="h-3 w-3 text-emerald-500" />
+  if (status === "failed") return <AlertTriangle className="h-3 w-3 text-destructive" />
+  if (["parsing", "translating", "indexing"].includes(status)) return <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
+  return <Circle className="h-3 w-3 text-muted-foreground/40" />
+}
+
 function findActiveProvider(providers: Provider[] | undefined) {
   return providers?.find((provider) => provider.is_active) ?? null
 }
@@ -114,16 +125,18 @@ function FolderSelect({
 function PdfPreview({
   fileUrl,
   onLoad,
+  width = 120,
 }: {
   fileUrl: string
   onLoad: (numPages: number) => void
+  width?: number
 }) {
   const assetUrl = useMemo(() => convertFileSrc(fileUrl), [fileUrl])
   const [loading, setLoading] = useState(true)
 
   return (
     <div className="relative flex h-full items-center justify-center">
-      {loading && <Loader2 className="absolute h-6 w-6 animate-spin text-muted-foreground" />}
+      {loading && <Loader2 className="absolute h-5 w-5 animate-spin text-muted-foreground" />}
       <Document
         file={assetUrl}
         onLoadSuccess={({ numPages }) => {
@@ -133,7 +146,7 @@ function PdfPreview({
         onLoadError={() => setLoading(false)}
         loading={null}
       >
-        <Page pageNumber={1} width={260} renderAnnotationLayer={false} renderTextLayer={false} />
+        <Page pageNumber={1} width={width} renderAnnotationLayer={false} renderTextLayer={false} />
       </Document>
     </div>
   )
@@ -351,7 +364,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   if (!document) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl p-0">
+        <DialogContent className="max-w-3xl p-0">
           <div className="flex items-center justify-center py-24">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
@@ -385,7 +398,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       : !translatedPdf
         ? {
             title: "可补充翻译版 PDF",
-            description: "如果需要最终版面校对或导出 PDF，可以上传翻译版 PDF 作为阅读与导出资产。",
+            description: "如果需要最终版面校对或导出 PDF，可以上传翻译版 PDF。",
             label: "上传翻译版 PDF",
             onClick: async () => {
               const filePath = await pickSingleFile(["pdf"])
@@ -395,406 +408,373 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
           }
         : {
             title: "阅读与交付都已就绪",
-            description: "当前文档已经具备原文、翻译、对照和导出能力，可以直接进入沉浸式工作区。",
+            description: "当前文档已经具备原文、翻译、对照和导出能力。",
             label: "继续阅读",
             onClick: () => openReader(),
             disabled: false,
           }
 
+  const readingActions = [
+    {
+      title: "继续阅读",
+      icon: BookOpen,
+      onClick: () => openReader(),
+      disabled: false,
+      primary: true,
+    },
+    {
+      title: "查看原文",
+      icon: Eye,
+      onClick: () => openReader("original"),
+      disabled: !isPdf && !parseReady,
+    },
+    {
+      title: "查看翻译",
+      icon: Languages,
+      onClick: () => openReader("translated"),
+      disabled: !translationReady && !translatedPdf,
+    },
+    {
+      title: "对照阅读",
+      icon: SearchCheck,
+      onClick: () => openReader("compare"),
+      disabled: !compareReady,
+    },
+    {
+      title: "阅读并提问",
+      icon: PanelRightOpen,
+      onClick: () => openReader("ask"),
+      disabled: !askReady,
+    },
+  ]
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[88vh] max-w-[1160px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-xl [&>button]:hidden">
-          <div className="relative grid min-h-[720px] grid-cols-[320px,minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
-            <section className="relative flex min-h-0 flex-col border-r border-border bg-gray-50/50">
-              <div className="flex items-center justify-between px-5 py-4">
-                <Badge variant="outline" className="rounded-full bg-background/80 shadow-none">{isPdf ? "PDF" : "文本"}</Badge>
-                {displayedPageCount ? <Badge className="rounded-full shadow-none">{displayedPageCount} 页</Badge> : null}
+        <DialogContent className="max-h-[88vh] max-w-[820px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-xl [&>button]:hidden">
+          <div className="relative flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+
+            {/* ── Header: Preview + Metadata ── */}
+            <div className="flex gap-5 border-b border-border px-6 py-5">
+              {/* PDF Thumbnail — compact */}
+              <div className="flex h-[160px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-gray-50/60">
+                {isPdf && !document.is_file_missing ? (
+                  <PdfPreview fileUrl={document.file_path} onLoad={setThumbnailPages} width={112} />
+                ) : (
+                  <FileText className="h-10 w-10 text-muted-foreground/50" />
+                )}
               </div>
 
-              <div className="flex-1 px-5 pb-5">
-                <div className="flex h-full min-h-[420px] items-center justify-center rounded-lg border border-border bg-background p-4 shadow-sm">
-                  {isPdf && !document.is_file_missing ? (
-                    <PdfPreview fileUrl={document.file_path} onLoad={setThumbnailPages} />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-center text-muted-foreground">
-                      <FileText className="mb-4 h-16 w-16" />
-                      <p className="font-medium text-foreground">暂无首页缩略图</p>
-                      <p className="mt-1 text-sm">可继续使用解析结果或原始文本进入阅读工作区</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="border-t bg-background/70 px-5 py-4">
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-muted-foreground">解析</span>
-                    {getProgressBadge(document.parse_status, parseJob?.progress)}
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-muted-foreground">翻译</span>
-                    {getProgressBadge(document.translation_status, translationJob?.progress)}
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-muted-foreground">索引</span>
-                    {getProgressBadge(document.index_status)}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="flex min-h-0 flex-col overflow-hidden bg-background">
-              <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
-                <div className="min-w-0 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-2xl font-semibold">{document.title}</h2>
-                    {document.is_file_missing && <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />}
-                  </div>
-                  <p className="truncate text-sm text-muted-foreground">{document.filename}</p>
-                  <p className="text-xs text-muted-foreground">作者：当前项目暂无结构化作者字段</p>
-                  <div className="flex flex-wrap gap-2">
-                    {document.category_name && <Badge variant="secondary">{document.category_name}</Badge>}
-                    {document.folder_name && <Badge variant="secondary">{document.folder_name}</Badge>}
-                    {translatedPdf && <Badge>翻译版 PDF 已就绪</Badge>}
-                    {document.is_file_missing && <Badge variant="destructive">原始文件缺失</Badge>}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="icon" className="rounded-lg bg-background shadow-none">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={handleOpenOriginalFile}>在系统中打开原文件</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleExportText("bilingual", "md", "Markdown")} disabled={!compareReady}>
-                        导出双语 Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => setConfirmTrashOpen(true)}>
-                        移入回收站
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button variant="ghost" size="icon" className="rounded-lg" onClick={() => onOpenChange(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="space-y-6">
-                  <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-2 text-sm font-semibold">
-                          <Sparkles className="h-4 w-4 text-primary" />
-                          {recommendedAction.title}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">{recommendedAction.description}</p>
+              {/* Document info */}
+              <div className="flex min-w-0 flex-1 flex-col justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h2 className="truncate text-xl font-semibold leading-tight">{document.title}</h2>
+                        {document.is_file_missing && <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />}
                       </div>
-                      <Button className="rounded-lg" onClick={recommendedAction.onClick} disabled={recommendedAction.disabled}>
-                        {recommendedAction.label}
+                      <p className="mt-1 truncate text-sm text-muted-foreground">{document.filename}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg bg-background shadow-none">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={handleOpenOriginalFile}>在系统中打开原文件</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleExportText("bilingual", "md", "Markdown")} disabled={!compareReady}>
+                            导出双语 Markdown
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onClick={() => setConfirmTrashOpen(true)}>
+                            移入回收站
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => onOpenChange(false)}>
+                        <X className="h-4 w-4" />
                       </Button>
                     </div>
-                  </section>
+                  </div>
 
-                  <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">上传时间</p>
-                      <p className="mt-2 text-sm font-medium">{formatDate(document.created_at)}</p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">文件大小</p>
-                      <p className="mt-2 text-sm font-medium">{formatBytes(document.file_size)}</p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">页数</p>
-                      <p className="mt-2 text-sm font-medium">{displayedPageCount || "未知"}</p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">语言</p>
-                      <p className="mt-2 text-sm font-medium">{document.source_language || "自动识别"} → {document.target_language || "未设置"}</p>
-                    </div>
-                  </section>
+                  {/* Meta row */}
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>{formatDate(document.created_at)}</span>
+                    <span className="text-border">|</span>
+                    <span>{formatBytes(document.file_size)}</span>
+                    <span className="text-border">|</span>
+                    <span>{displayedPageCount ? `${displayedPageCount} 页` : "页数未知"}</span>
+                    <span className="text-border">|</span>
+                    <span>{document.source_language || "自动识别"} → {document.target_language || "未设置"}</span>
+                  </div>
+                </div>
 
-                  <section className="rounded-[28px] border bg-card p-5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-lg font-semibold">阅读入口</h3>
-                        <p className="text-sm text-muted-foreground">在进入阅读器之前，先在这里完成高频操作和状态确认。</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {[
-                        {
-                          title: "继续阅读",
-                          description: "沿用上次阅读模式和位置继续工作",
-                          icon: BookOpen,
-                          onClick: () => openReader(),
-                          disabled: false,
-                          primary: true,
-                        },
-                        {
-                          title: "查看原文",
-                          description: isPdf ? "进入原始 PDF 阅读模式" : "进入解析原文阅读模式",
-                          icon: Eye,
-                          onClick: () => openReader("original"),
-                          disabled: !isPdf && !parseReady,
-                        },
-                        {
-                          title: "查看翻译",
-                          description: translatedPdf ? "优先进入翻译版 PDF 阅读模式" : "进入翻译文本阅读模式",
-                          icon: Languages,
-                          onClick: () => openReader("translated"),
-                          disabled: !translationReady && !translatedPdf,
-                        },
-                        {
-                          title: "对照阅读",
-                          description: "左右分栏对照原文与翻译",
-                          icon: SearchCheck,
-                          onClick: () => openReader("compare"),
-                          disabled: !compareReady,
-                        },
-                        {
-                          title: "阅读并提问",
-                          description: "在阅读器内打开文档问答面板",
-                          icon: PanelRightOpen,
-                          onClick: () => openReader("ask"),
-                          disabled: !askReady,
-                        },
-                      ].map((action) => {
-                        const Icon = action.icon
-                        return (
-                            <button
-                              key={action.title}
-                              type="button"
-                              onClick={action.onClick}
-                              disabled={action.disabled}
-                              className={`group rounded-lg border p-4 text-left transition-all ${
-                                action.primary
-                                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                  : "bg-background border-border hover:bg-muted"
-                              } ${action.disabled ? "cursor-not-allowed opacity-45" : ""}`}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className={`rounded-md p-2.5 ${action.primary ? "bg-white/14" : "bg-primary/10 text-primary"}`}>
-                                <Icon className="h-4 w-4" />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="font-medium">{action.title}</p>
-                                <p className={`mt-1 text-sm ${action.primary ? "text-primary-foreground/82" : "text-muted-foreground"}`}>
-                                  {action.description}
-                                </p>
-                              </div>
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </section>
+                {/* Status pills */}
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <StatusDot status={document.parse_status} />
+                    <span>解析</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <StatusDot status={document.translation_status} />
+                    <span>翻译</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <StatusDot status={document.index_status} />
+                    <span>索引</span>
+                  </div>
+                  {document.is_file_missing && <Badge variant="destructive" className="rounded-full text-xs shadow-none">原始文件缺失</Badge>}
+                  {translatedPdf && <Badge className="rounded-full text-xs shadow-none">翻译版 PDF 已就绪</Badge>}
+                </div>
+              </div>
+            </div>
 
-                  <section className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr),minmax(320px,0.8fr)]">
-                    <div className="rounded-lg border border-border bg-background p-5 shadow-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-semibold">输出与状态</h3>
-                          <p className="text-sm text-muted-foreground">所有可用结果都集中在这里确认与导出。</p>
+            {/* ── Recommended Action Banner ── */}
+            <div className="flex items-center justify-between gap-4 border-b border-border bg-muted/30 px-6 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+                <span className="font-medium">{recommendedAction.title}</span>
+                <span className="text-muted-foreground">—</span>
+                <span className="text-muted-foreground">{recommendedAction.description}</span>
+              </div>
+              <Button size="sm" className="shrink-0 rounded-lg" onClick={recommendedAction.onClick} disabled={recommendedAction.disabled}>
+                {recommendedAction.label}
+              </Button>
+            </div>
+
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto">
+
+              {/* ── Reading Entries (horizontal) ── */}
+              <div className="border-b border-border px-6 py-5">
+                <h3 className="mb-3 text-sm font-semibold text-foreground">阅读入口</h3>
+                <div className="grid grid-cols-5 gap-2">
+                  {readingActions.map((action) => {
+                    const Icon = action.icon
+                    return (
+                      <button
+                        key={action.title}
+                        type="button"
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                        className={`group flex flex-col items-center gap-2 rounded-lg border p-3 text-center transition-all ${
+                          action.primary
+                            ? "border-primary/20 bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "border-border bg-background hover:border-gray-300 hover:bg-muted"
+                        } ${action.disabled ? "cursor-not-allowed opacity-40" : ""}`}
+                      >
+                        <div className={`rounded-md p-2 ${action.primary ? "bg-white/14" : "bg-primary/8 text-primary"}`}>
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <span className="text-xs font-medium leading-tight">{action.title}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* ── Tabbed sections ── */}
+              <div className="px-6 py-5">
+                <Tabs defaultValue="outputs" className="w-full">
+                  <TabsList className="w-full justify-start rounded-lg">
+                    <TabsTrigger value="outputs" className="rounded-md text-xs">输出与导出</TabsTrigger>
+                    <TabsTrigger value="archive" className="rounded-md text-xs">归档与标注</TabsTrigger>
+                    <TabsTrigger value="advanced" className="rounded-md text-xs">高级操作</TabsTrigger>
+                  </TabsList>
+
+                  {/* ── Tab: Outputs ── */}
+                  <TabsContent value="outputs" className="mt-4 space-y-3">
+                    {/* Original PDF */}
+                    <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileOutput className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">原文 PDF</p>
+                          <p className="text-xs text-muted-foreground truncate">{isPdf && !document.is_file_missing ? "可直接导出原始 PDF" : "当前不是可导出的 PDF 文件"}</p>
                         </div>
                       </div>
-
-                      <div className="mt-4 space-y-3">
-                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm">
-                          <div className="flex items-center gap-3">
-                            <FileOutput className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">原文 PDF</p>
-                              <p className="text-sm text-muted-foreground">{isPdf && !document.is_file_missing ? "可直接导出原始 PDF" : "当前不是可导出的 PDF 文件"}</p>
-                            </div>
-                          </div>
-                          <Button variant="outline" size="sm" className="rounded-lg" disabled={!isPdf || !!document.is_file_missing} onClick={() => handleExportAsset("original_pdf", document.filename)}>
-                            <Download className="mr-1.5 h-4 w-4" />
-                            导出
-                          </Button>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm">
-                          <div className="flex items-center gap-3">
-                            <Languages className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">翻译版 PDF</p>
-                              <p className="text-sm text-muted-foreground">
-                                {translatedPdf ? "已接入真实输出资产，可阅读和导出" : "尚未提供翻译版 PDF，可上传替换"}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={translatedPdf ? "secondary" : "outline"} className="rounded-full shadow-none font-normal text-xs">{translatedPdf ? "已准备" : "未提供"}</Badge>
-                            <Button variant="outline" size="sm" className="rounded-lg" disabled={!translatedPdf || !!translatedPdf?.is_file_missing} onClick={() => handleExportAsset("translated_pdf", `${document.title}.translated.pdf`)}>
-                              <Download className="mr-1.5 h-4 w-4" />
-                              导出
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm">
-                          <div className="flex items-center gap-3">
-                            <FileCode2 className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">Markdown</p>
-                              <p className="text-sm text-muted-foreground">
-                                {parseReady ? "解析后的 Markdown 已生成" : "完成解析后可导出 Markdown"}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={parseReady ? "secondary" : "outline"} className="rounded-full shadow-none font-normal text-xs">{parseReady ? "已生成" : "未生成"}</Badge>
-                            <Button variant="outline" size="sm" className="rounded-lg" disabled={!parseReady} onClick={() => handleExportText("original", "md", "Markdown")}>
-                              <Download className="mr-1.5 h-4 w-4" />
-                              导出
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-3">
-                          <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                            <p className="text-sm font-medium">解析结果</p>
-                            <div className="mt-3 flex items-center justify-between">
-                              {getProgressBadge(document.parse_status, parseJob?.progress)}
-                              <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => parseMutation.mutate()} disabled={parseMutation.isPending}>
-                                <RefreshCcw className="mr-1.5 h-4 w-4" />
-                                重试
-                              </Button>
-                            </div>
-                            {parseJob?.error_message ? <p className="mt-2 text-xs text-destructive">{parseJob.error_message}</p> : null}
-                          </div>
-
-                          <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                            <p className="text-sm font-medium">翻译结果</p>
-                            <div className="mt-3 flex items-center justify-between">
-                              {getProgressBadge(document.translation_status, translationJob?.progress)}
-                              <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => translationMutation.mutate()} disabled={translationMutation.isPending || !parseReady}>
-                                <RefreshCcw className="mr-1.5 h-4 w-4" />
-                                重试
-                              </Button>
-                            </div>
-                            {translationJob?.error_message ? <p className="mt-2 text-xs text-destructive">{translationJob.error_message}</p> : null}
-                          </div>
-
-                          <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                            <p className="text-sm font-medium">索引状态</p>
-                            <div className="mt-3 flex items-center justify-between">
-                              {getProgressBadge(document.index_status)}
-                              <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => indexMutation.mutate()} disabled={indexMutation.isPending || !parseReady}>
-                                <RefreshCcw className="mr-1.5 h-4 w-4" />
-                                重试
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <Button variant="outline" size="sm" className="shrink-0 rounded-lg" disabled={!isPdf || !!document.is_file_missing} onClick={() => handleExportAsset("original_pdf", document.filename)}>
+                        <Download className="mr-1.5 h-3.5 w-3.5" />
+                        导出
+                      </Button>
                     </div>
 
-                    <div className="space-y-6">
-                      <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
-                        <h3 className="text-lg font-semibold">归档与标注</h3>
-                        <div className="mt-4 space-y-4">
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">分类</p>
-                            <Select
-                              value={document.category_id || "none"}
-                              onValueChange={(value) => updateDocMutation.mutate({ id: document.id, categoryId: value === "none" ? "" : value })}
-                            >
-                              <SelectTrigger className="h-9 rounded-lg">
-                                <SelectValue placeholder="未分类" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">未分类</SelectItem>
-                                {categories.map((category) => (
-                                  <SelectItem key={category.id} value={category.id}>
-                                    {category.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <p className="flex items-center gap-2 text-sm font-medium">
-                              <FolderTree className="h-4 w-4" />
-                              文件夹
-                            </p>
-                            <FolderSelect
-                              folders={folders}
-                              value={document.folder_id || null}
-                              onChange={(value) => updateFolderMutation.mutate(value)}
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">标签</p>
-                            <TagPicker documentId={document.id} />
-                          </div>
+                    {/* Translated PDF */}
+                    <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Languages className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">翻译版 PDF</p>
+                          <p className="text-xs text-muted-foreground truncate">{translatedPdf ? "已接入真实输出资产" : "尚未提供翻译版 PDF"}</p>
                         </div>
-                      </section>
-
-                      <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
-                        <h3 className="text-lg font-semibold">替换与维护</h3>
-                        <div className="mt-4 space-y-3">
-                          <Button
-                            variant="outline"
-                            className="h-11 w-full justify-start rounded-lg shadow-none"
-                            onClick={async () => {
-                              const filePath = await pickSingleFile(["pdf"])
-                              if (filePath) replaceOriginalMutation.mutate(filePath)
-                            }}
-                            disabled={replaceOriginalMutation.isPending}
-                          >
-                            <Upload className="mr-2 h-4 w-4" />
-                            替换原版 PDF
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="h-11 w-full justify-start rounded-lg shadow-none"
-                            onClick={async () => {
-                              const filePath = await pickSingleFile(["pdf"])
-                              if (filePath) replaceTranslatedPdfMutation.mutate(filePath)
-                            }}
-                            disabled={replaceTranslatedPdfMutation.isPending}
-                          >
-                            <Upload className="mr-2 h-4 w-4" />
-                            替换翻译版 PDF
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="h-11 w-full justify-start rounded-lg shadow-none"
-                            onClick={async () => {
-                              const filePath = await pickSingleFile(["md", "markdown", "txt"])
-                              if (filePath) replaceMarkdownMutation.mutate(filePath)
-                            }}
-                            disabled={replaceMarkdownMutation.isPending}
-                          >
-                            <Upload className="mr-2 h-4 w-4" />
-                            替换 Markdown
-                          </Button>
-                        </div>
-                      </section>
-
-                      <section className="rounded-lg border border-destructive/20 bg-destructive/5 p-5 shadow-sm">
-                        <h3 className="text-lg font-semibold text-destructive">危险操作</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">删除不会直接永久清除，而是先进入回收站，方便你从一级页面集中恢复或清空。</p>
-                        <Button variant="destructive" className="mt-4 w-full rounded-lg shadow-none" onClick={() => setConfirmTrashOpen(true)}>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          移入回收站
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge variant={translatedPdf ? "secondary" : "outline"} className="rounded-full shadow-none text-xs font-normal">{translatedPdf ? "已准备" : "未提供"}</Badge>
+                        <Button variant="outline" size="sm" className="rounded-lg" disabled={!translatedPdf || !!translatedPdf?.is_file_missing} onClick={() => handleExportAsset("translated_pdf", `${document.title}.translated.pdf`)}>
+                          <Download className="mr-1.5 h-3.5 w-3.5" />
+                          导出
                         </Button>
-                      </section>
+                      </div>
                     </div>
-                  </section>
-                </div>
+
+                    {/* Markdown */}
+                    <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">Markdown</p>
+                          <p className="text-xs text-muted-foreground truncate">{parseReady ? "解析后的 Markdown 已生成" : "完成解析后可导出 Markdown"}</p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge variant={parseReady ? "secondary" : "outline"} className="rounded-full shadow-none text-xs font-normal">{parseReady ? "已生成" : "未生成"}</Badge>
+                        <Button variant="outline" size="sm" className="rounded-lg" disabled={!parseReady} onClick={() => handleExportText("original", "md", "Markdown")}>
+                          <Download className="mr-1.5 h-3.5 w-3.5" />
+                          导出
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Pipeline status row */}
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      <div className="rounded-lg border border-border p-3">
+                        <p className="text-xs font-medium text-muted-foreground">解析结果</p>
+                        <div className="mt-2.5 flex items-center justify-between">
+                          {getProgressBadge(document.parse_status, parseJob?.progress)}
+                          <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => parseMutation.mutate()} disabled={parseMutation.isPending}>
+                            <RefreshCcw className="mr-1 h-3 w-3" />
+                            重试
+                          </Button>
+                        </div>
+                        {parseJob?.error_message ? <p className="mt-1.5 text-xs text-destructive">{parseJob.error_message}</p> : null}
+                      </div>
+
+                      <div className="rounded-lg border border-border p-3">
+                        <p className="text-xs font-medium text-muted-foreground">翻译结果</p>
+                        <div className="mt-2.5 flex items-center justify-between">
+                          {getProgressBadge(document.translation_status, translationJob?.progress)}
+                          <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => translationMutation.mutate()} disabled={translationMutation.isPending || !parseReady}>
+                            <RefreshCcw className="mr-1 h-3 w-3" />
+                            重试
+                          </Button>
+                        </div>
+                        {translationJob?.error_message ? <p className="mt-1.5 text-xs text-destructive">{translationJob.error_message}</p> : null}
+                      </div>
+
+                      <div className="rounded-lg border border-border p-3">
+                        <p className="text-xs font-medium text-muted-foreground">索引状态</p>
+                        <div className="mt-2.5 flex items-center justify-between">
+                          {getProgressBadge(document.index_status)}
+                          <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => indexMutation.mutate()} disabled={indexMutation.isPending || !parseReady}>
+                            <RefreshCcw className="mr-1 h-3 w-3" />
+                            重试
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  {/* ── Tab: Archive ── */}
+                  <TabsContent value="archive" className="mt-4 space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">分类</p>
+                        <Select
+                          value={document.category_id || "none"}
+                          onValueChange={(value) => updateDocMutation.mutate({ id: document.id, categoryId: value === "none" ? "" : value })}
+                        >
+                          <SelectTrigger className="h-9 rounded-lg">
+                            <SelectValue placeholder="未分类" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">未分类</SelectItem>
+                            {categories.map((category) => (
+                              <SelectItem key={category.id} value={category.id}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="flex items-center gap-2 text-sm font-medium">
+                          <FolderTree className="h-4 w-4" />
+                          文件夹
+                        </p>
+                        <FolderSelect
+                          folders={folders}
+                          value={document.folder_id || null}
+                          onChange={(value) => updateFolderMutation.mutate(value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">标签</p>
+                      <TagPicker documentId={document.id} />
+                    </div>
+                  </TabsContent>
+
+                  {/* ── Tab: Advanced ── */}
+                  <TabsContent value="advanced" className="mt-4 space-y-4">
+                    <div>
+                      <h4 className="text-sm font-semibold">替换与维护</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">替换文件会自动重置相关流水线任务。</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <Button
+                          variant="outline"
+                          className="h-10 justify-start rounded-lg shadow-none text-sm"
+                          onClick={async () => {
+                            const filePath = await pickSingleFile(["pdf"])
+                            if (filePath) replaceOriginalMutation.mutate(filePath)
+                          }}
+                          disabled={replaceOriginalMutation.isPending}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          替换原版 PDF
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-10 justify-start rounded-lg shadow-none text-sm"
+                          onClick={async () => {
+                            const filePath = await pickSingleFile(["pdf"])
+                            if (filePath) replaceTranslatedPdfMutation.mutate(filePath)
+                          }}
+                          disabled={replaceTranslatedPdfMutation.isPending}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          替换翻译版 PDF
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-10 justify-start rounded-lg shadow-none text-sm"
+                          onClick={async () => {
+                            const filePath = await pickSingleFile(["md", "markdown", "txt"])
+                            if (filePath) replaceMarkdownMutation.mutate(filePath)
+                          }}
+                          disabled={replaceMarkdownMutation.isPending}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          替换 Markdown
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+                      <h4 className="text-sm font-semibold text-destructive">危险操作</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">删除不会直接永久清除，而是先进入回收站。</p>
+                      <Button variant="destructive" size="sm" className="mt-3 rounded-lg shadow-none" onClick={() => setConfirmTrashOpen(true)}>
+                        <Trash2 className="mr-2 h-3.5 w-3.5" />
+                        移入回收站
+                      </Button>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </div>
-            </section>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

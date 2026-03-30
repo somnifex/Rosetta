@@ -1,9 +1,8 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Document as PdfDocument, Page, pdfjs } from "react-pdf"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import type { Document } from "../../../packages/types"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
   AlertTriangle,
@@ -33,6 +32,8 @@ function getFileIcon(filename: string) {
 }
 
 function formatBytes(size: number) {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`
   return `${(size / 1024 / 1024).toFixed(2)} MB`
 }
 
@@ -43,19 +44,36 @@ function formatDate(value?: string) {
 
 function PdfThumbnail({ filePath }: { filePath: string }) {
   const [loading, setLoading] = useState(true)
+  const [containerWidth, setContainerWidth] = useState(0)
+  const containerRef = useRef<HTMLDivElement>(null)
   const fileUrl = useMemo(() => convertFileSrc(filePath), [filePath])
 
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+    observer.observe(el)
+    setContainerWidth(el.clientWidth)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,#fff_0%,#eef1f7_55%,#dbe2f0_100%)]">
-      {loading && <Loader2 className="absolute h-5 w-5 animate-spin text-muted-foreground" />}
-      <PdfDocument file={fileUrl} loading={null} onLoadSuccess={() => setLoading(false)} onLoadError={() => setLoading(false)}>
-        <Page
-          pageNumber={1}
-          width={132}
-          renderAnnotationLayer={false}
-          renderTextLayer={false}
-        />
-      </PdfDocument>
+    <div ref={containerRef} className="h-full w-full overflow-hidden">
+      {loading && <Loader2 className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 animate-spin text-muted-foreground/50" />}
+      {containerWidth > 0 && (
+        <PdfDocument file={fileUrl} loading={null} onLoadSuccess={() => setLoading(false)} onLoadError={() => setLoading(false)}>
+          <Page
+            pageNumber={1}
+            width={containerWidth}
+            renderAnnotationLayer={false}
+            renderTextLayer={false}
+          />
+        </PdfDocument>
+      )}
     </div>
   )
 }
@@ -91,19 +109,20 @@ export function DocumentCard({
   return (
     <article
       className={cn(
-        "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:-translate-y-1 hover:shadow-md hover:border-gray-300",
+        "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:shadow-md hover:border-gray-300",
         selected && "border-primary shadow-sm ring-1 ring-primary"
       )}
     >
+      {/* Selection checkbox */}
       <button
         type="button"
-        className="absolute left-3 top-3 z-10 h-5 w-5 rounded border border-border bg-background/90"
+        className="absolute left-2.5 top-2.5 z-10 h-5 w-5 rounded border border-border bg-background/90 flex items-center justify-center"
         onClick={(event) => {
           event.stopPropagation()
           onToggleSelect(event.shiftKey)
         }}
       >
-        {selected && <div className="mx-auto mt-0.5 h-3 w-3 rounded-sm bg-primary" />}
+        {selected && <div className="h-3 w-3 rounded-sm bg-primary" />}
       </button>
 
       <div
@@ -116,84 +135,83 @@ export function DocumentCard({
           onOpen()
         }}
       >
-        <div className="relative h-48 overflow-hidden border-b border-border bg-gray-50/50">
+        {/* A4 Preview — portrait ratio */}
+        <div className="relative aspect-[3/4] overflow-hidden border-b border-border bg-gray-50/50">
           {isPdf && !document.is_file_missing ? (
             <PdfThumbnail filePath={document.file_path} />
           ) : (
             <div className="flex h-full items-center justify-center bg-gray-50/50">
-              <Icon className="h-16 w-16 text-muted-foreground/60" />
+              <Icon className="h-12 w-12 text-muted-foreground/40" />
             </div>
           )}
 
-          <div className="absolute inset-x-0 bottom-0 flex translate-y-3 items-center justify-end gap-2 px-3 pb-3 opacity-0 transition-all group-hover:translate-y-0 group-hover:opacity-100">
+          {/* Hover action overlay - bottom strip */}
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-end gap-1.5 px-2.5 pb-2 pt-6 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
             {!inTrash ? (
               <>
-                <Button size="icon" variant="secondary" className="h-9 w-9 rounded-full shadow-lg" onClick={(event) => { event.stopPropagation(); onOpen() }}>
-                  <Eye className="h-4 w-4" />
-                </Button>
-                <Button size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-lg" onClick={(event) => { event.stopPropagation(); onDelete() }}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <button
+                  type="button"
+                  className="rounded-full bg-white/90 p-1.5 text-foreground shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  onClick={(event) => { event.stopPropagation(); onOpen() }}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-white/90 p-1.5 text-destructive shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  onClick={(event) => { event.stopPropagation(); onDelete() }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </>
             ) : (
               <>
-                <Button size="icon" variant="secondary" className="h-9 w-9 rounded-full shadow-lg" onClick={(event) => { event.stopPropagation(); onRestore() }}>
-                  <ArchiveRestore className="h-4 w-4" />
-                </Button>
-                <Button size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-lg" onClick={(event) => { event.stopPropagation(); onPermanentDelete() }}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <button
+                  type="button"
+                  className="rounded-full bg-white/90 p-1.5 text-foreground shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  onClick={(event) => { event.stopPropagation(); onRestore() }}
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-white/90 p-1.5 text-destructive shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  onClick={(event) => { event.stopPropagation(); onPermanentDelete() }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </>
             )}
           </div>
         </div>
 
-        <div className="space-y-4 p-4">
-          <div className="space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="line-clamp-2 text-base font-semibold leading-6">{document.title}</h3>
-                <p className="mt-1 truncate text-sm text-muted-foreground">{document.filename}</p>
-              </div>
-              {document.is_file_missing && (
-                <AlertTriangle className="mt-1 h-4 w-4 shrink-0 text-amber-500" />
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="rounded-full shadow-none font-normal text-xs">{statusLabel}</Badge>
-              {document.category_name && <Badge variant="secondary" className="rounded-full shadow-none font-normal text-xs bg-muted text-muted-foreground">{document.category_name}</Badge>}
-              {document.folder_name && <Badge variant="secondary" className="rounded-full shadow-none font-normal text-xs bg-muted text-muted-foreground">{document.folder_name}</Badge>}
-              {document.is_file_missing && <Badge variant="destructive" className="rounded-full shadow-none font-normal text-xs">本地文件缺失</Badge>}
-              {document.translation_status === "completed" && (
-                <Badge className="gap-1 rounded-full shadow-none font-normal text-xs bg-primary text-primary-foreground">
-                  <CheckCircle2 className="h-3 w-3" />
-                  已翻译
-                </Badge>
-              )}
-            </div>
+        {/* Info section — compact 2-line layout */}
+        <div className="px-3 py-2.5 space-y-1.5">
+          {/* Row 1: Title + status */}
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="truncate text-sm font-medium leading-5 flex-1">{document.title}</h3>
+            {document.is_file_missing && (
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            )}
+            <Badge
+              variant="outline"
+              className="shrink-0 rounded-full shadow-none font-normal text-[11px] px-2 py-0"
+            >
+              {statusLabel}
+            </Badge>
+            {document.translation_status === "completed" && (
+              <Badge className="shrink-0 gap-0.5 rounded-full shadow-none font-normal text-[11px] px-2 py-0 bg-primary text-primary-foreground">
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                译
+              </Badge>
+            )}
           </div>
 
-          {document.tags && document.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {document.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag.id}
-                  className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground"
-                >
-                  {tag.name}
-                </span>
-              ))}
-              {document.tags.length > 3 && (
-                <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                  +{document.tags.length - 3}
-                </span>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{formatDate(inTrash ? document.deleted_at : document.updated_at)}</span>
-            <span>{formatBytes(document.file_size)}</span>
+          {/* Row 2: filename + date + size */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="truncate flex-1">{document.filename}</span>
+            <span className="shrink-0">{formatDate(inTrash ? document.deleted_at : document.updated_at)}</span>
+            <span className="shrink-0">{formatBytes(document.file_size)}</span>
           </div>
         </div>
       </div>

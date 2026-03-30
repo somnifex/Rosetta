@@ -2,21 +2,18 @@ import { useTranslation } from "react-i18next"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Upload, FileText, FileCode, FileType, ChevronDown } from "lucide-react"
+import { Upload } from "lucide-react"
 import { open } from "@tauri-apps/plugin-dialog"
 import { useToast } from "@/hooks/use-toast"
 
-const FILE_TYPES = [
-  { type: "pdf", label: "PDF (.pdf)", extensions: ["pdf"], icon: FileText },
-  { type: "md", label: "Markdown (.md)", extensions: ["md", "markdown"], icon: FileCode },
-  { type: "txt", label: "Text (.txt)", extensions: ["txt"], icon: FileType },
-] as const
+const SUPPORTED_EXTENSIONS = ["pdf", "md", "markdown", "txt"]
+
+function detectFileType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() || ""
+  if (ext === "markdown") return "md"
+  if (SUPPORTED_EXTENSIONS.includes(ext)) return ext
+  return "pdf" // fallback
+}
 
 export function ImportButton() {
   const { t } = useTranslation("library")
@@ -29,10 +26,6 @@ export function ImportButton() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] })
       queryClient.invalidateQueries({ queryKey: ["libraryDocuments"] })
-      toast({
-        title: t("toast.import_success.title"),
-        description: t("toast.import_success.description"),
-      })
     },
     onError: (error: any) => {
       toast({
@@ -43,40 +36,43 @@ export function ImportButton() {
     },
   })
 
-  const handleImport = async (fileType: string, extensions: readonly string[]) => {
+  const handleImport = async () => {
     try {
       const selected = await open({
         multiple: true,
-        filters: [{ name: fileType.toUpperCase(), extensions: [...extensions] }],
+        filters: [{ name: "Documents", extensions: [...SUPPORTED_EXTENSIONS] }],
       })
 
-      if (selected) {
-        const files = Array.isArray(selected) ? selected : [selected]
-        for (const file of files) {
+      if (!selected) return
+
+      const files = Array.isArray(selected) ? selected : [selected]
+      let successCount = 0
+      const errors: string[] = []
+
+      for (const file of files) {
+        const fileType = detectFileType(file)
+        try {
           await importMutation.mutateAsync({ filePath: file, fileType })
+          successCount++
+        } catch (error: any) {
+          errors.push(error?.message || String(error))
         }
       }
-    } catch (error) {
-      console.error("Import error:", error)
-    }
-  }
 
-  const handleImportAll = async () => {
-    try {
-      const allExtensions = FILE_TYPES.flatMap((ft) => [...ft.extensions])
-      const selected = await open({
-        multiple: true,
-        filters: [{ name: "Documents", extensions: allExtensions }],
-      })
-
-      if (selected) {
-        const files = Array.isArray(selected) ? selected : [selected]
-        for (const file of files) {
-          const ext = file.split(".").pop()?.toLowerCase() || ""
-          const ft = FILE_TYPES.find((f) => f.extensions.some((supportedExt) => supportedExt === ext))
-          const fileType = ft?.type || "pdf"
-          await importMutation.mutateAsync({ filePath: file, fileType })
-        }
+      if (successCount > 0) {
+        toast({
+          title: t("toast.import_success.title"),
+          description: successCount > 1
+            ? `成功导入 ${successCount} 份文档`
+            : t("toast.import_success.description"),
+        })
+      }
+      if (errors.length > 0 && successCount > 0) {
+        toast({
+          title: "部分导入失败",
+          description: `${errors.length} 份文档导入失败`,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Import error:", error)
@@ -84,33 +80,13 @@ export function ImportButton() {
   }
 
   return (
-    <div className="flex items-center">
-      <Button
-        onClick={handleImportAll}
-        disabled={importMutation.isPending}
-        className="rounded-l-lg rounded-r-none shadow-none"
-      >
-        <Upload className="mr-2 h-4 w-4" />
-        {importMutation.isPending ? t("btn.importing") : t("btn.import")}
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            disabled={importMutation.isPending}
-            className="rounded-l-none rounded-r-lg border-l border-primary-foreground/20 px-2.5 shadow-none"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[180px]">
-          {FILE_TYPES.map(({ type, label, extensions, icon: Icon }) => (
-            <DropdownMenuItem key={type} onClick={() => handleImport(type, extensions)} className="gap-2.5">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-              {label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <Button
+      onClick={handleImport}
+      disabled={importMutation.isPending}
+      className="gap-2 rounded-lg shadow-none"
+    >
+      <Upload className="h-4 w-4" />
+      {importMutation.isPending ? t("btn.importing") : t("btn.import")}
+    </Button>
   )
 }

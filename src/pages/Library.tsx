@@ -25,6 +25,8 @@ import type { BatchActionReport, Document, Folder, PermanentDeleteReport } from 
 import {
   Archive,
   BookOpen,
+  ChevronRight,
+  CornerLeftUp,
   FolderOpen,
   SearchX,
   SlidersHorizontal,
@@ -164,6 +166,35 @@ export default function Library() {
       setFolderDialogOpen(false)
     },
     onError: (error: Error) => toast({ title: "创建文件夹失败", description: error.message, variant: "destructive" }),
+  })
+
+  const createCategoryMutation = useMutation({
+    mutationFn: (name: string) => api.createCategory({ name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] })
+      toast({ title: "分类已创建" })
+    },
+    onError: (error: Error) => toast({ title: "创建分类失败", description: error.message, variant: "destructive" }),
+  })
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.updateCategory({ id, name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] })
+      invalidateLibraryQueries()
+      toast({ title: "分类已更新" })
+    },
+    onError: (error: Error) => toast({ title: "更新分类失败", description: error.message, variant: "destructive" }),
+  })
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: (id: string) => api.deleteCategory(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] })
+      invalidateLibraryQueries()
+      toast({ title: "分类已删除" })
+    },
+    onError: (error: Error) => toast({ title: "删除分类失败", description: error.message, variant: "destructive" }),
   })
 
   const batchUpdateMutation = useMutation({
@@ -458,6 +489,9 @@ export default function Library() {
         handleFolderChange(folderId)
       }}
       onCreateFolder={() => setFolderDialogOpen(true)}
+      onCreateCategory={(name) => createCategoryMutation.mutate(name)}
+      onUpdateCategory={(id, name) => updateCategoryMutation.mutate({ id, name })}
+      onDeleteCategory={(id) => deleteCategoryMutation.mutate(id)}
     />
   )
 
@@ -543,11 +577,6 @@ export default function Library() {
                     : categories.find((category) => `category:${category.id}` === selectedCategoryKey)?.name || "分类"}
                 </span>
               )}
-              {selectedFolder && (
-                <span className="rounded-full border bg-card px-3 py-1 text-sm text-muted-foreground">
-                  位于文件夹: {selectedFolder.name}
-                </span>
-              )}
               {selectedTagIds.length > 0 && (
                 <span className="rounded-full border bg-card px-3 py-1 text-sm text-muted-foreground">
                   标签筛选: {selectedTagIds.length}
@@ -555,6 +584,61 @@ export default function Library() {
               )}
             </div>
           )}
+
+          {/* Folder breadcrumb with back navigation */}
+          {activeSection === "library" && selectedFolderId && (() => {
+            const buildBreadcrumb = () => {
+              const crumbs: { id: string | null; name: string }[] = [{ id: null, name: "根目录" }]
+              const visited = new Set<string>()
+              let currentId: string | null = selectedFolderId
+              const path: { id: string; name: string }[] = []
+              while (currentId) {
+                if (visited.has(currentId)) break
+                visited.add(currentId)
+                const f = folders.find((folder) => folder.id === currentId)
+                if (!f) break
+                path.unshift({ id: f.id, name: f.name })
+                currentId = f.parent_id || null
+              }
+              return [...crumbs, ...path]
+            }
+            const breadcrumb = buildBreadcrumb()
+            const parentId = selectedFolder?.parent_id || null
+            return (
+              <div className="mb-4 flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-lg shadow-none text-muted-foreground h-8"
+                  onClick={() => setSelectedFolderId(parentId)}
+                >
+                  <CornerLeftUp className="h-3.5 w-3.5" />
+                  返回上级
+                </Button>
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                  {breadcrumb.map((crumb, index) => {
+                    const isLast = index === breadcrumb.length - 1
+                    return (
+                      <span key={crumb.id ?? "root"} className="flex items-center gap-1">
+                        {index > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/50" />}
+                        {isLast ? (
+                          <span className="font-medium text-foreground">{crumb.name}</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="hover:text-foreground transition-colors hover:underline"
+                            onClick={() => setSelectedFolderId(crumb.id)}
+                          >
+                            {crumb.name}
+                          </button>
+                        )}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
 
           {activeSection === "trash" && trashDocuments.length > 0 && (
             <div className="mb-4 flex justify-end">
@@ -605,15 +689,13 @@ export default function Library() {
           )}
 
           {isLoading ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, index) => (
-                <div key={index} className="space-y-3 rounded-[28px] border bg-card p-4 shadow-sm">
-                  <Skeleton className="h-44 rounded-[22px]" />
-                  <Skeleton className="h-6 w-2/3" />
-                  <Skeleton className="h-4 w-1/2" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-6 w-16 rounded-full" />
-                    <Skeleton className="h-6 w-20 rounded-full" />
+            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 220px))' }}>
+              {Array.from({ length: 10 }).map((_, index) => (
+                <div key={index} className="overflow-hidden rounded-lg border bg-card">
+                  <Skeleton className="aspect-[3/4]" />
+                  <div className="px-3 py-2.5 space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
                   </div>
                 </div>
               ))}
@@ -653,7 +735,7 @@ export default function Library() {
               />
             )
           ) : viewMode === "grid" ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 220px))' }}>
               {filteredDocuments.map((document) => (
                 <DocumentCard
                   key={document.id}
@@ -672,6 +754,7 @@ export default function Library() {
             </div>
           ) : (
             <div className="overflow-x-auto">
+              <div className="min-w-[800px]">
               <DocumentList
                 documents={filteredDocuments}
                 selectionMode={selection.selectionMode}
@@ -684,6 +767,7 @@ export default function Library() {
                 onPermanentDelete={(documentId) => openPermanentDeleteConfirm([documentId])}
                 inTrash={activeSection === "trash"}
               />
+              </div>
             </div>
           )}
         </div>

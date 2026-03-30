@@ -1,15 +1,22 @@
+import { useState } from "react"
 import type { ReactNode } from "react"
 import type { Category, Folder } from "../../../packages/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
   Archive,
+  Check,
   FileQuestion,
   FolderClosed,
   FolderOpen,
   FolderPlus,
   Layers3,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
 } from "lucide-react"
 
 interface LibrarySidebarProps {
@@ -27,6 +34,9 @@ interface LibrarySidebarProps {
   onSelectCategory: (categoryKey: string) => void
   onSelectFolder: (folderId: string | null) => void
   onCreateFolder: () => void
+  onCreateCategory: (name: string) => void
+  onUpdateCategory: (id: string, name: string) => void
+  onDeleteCategory: (id: string) => void
 }
 
 function navItemClass(active: boolean) {
@@ -53,7 +63,15 @@ export function LibrarySidebar({
   onSelectCategory,
   onSelectFolder,
   onCreateFolder,
+  onCreateCategory,
+  onUpdateCategory,
+  onDeleteCategory,
 }: LibrarySidebarProps) {
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState("")
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [editCategoryName, setEditCategoryName] = useState("")
+
   const categoryChildren = new Map<string, Category[]>()
   const rootCategories: Category[] = []
 
@@ -80,26 +98,99 @@ export function LibrarySidebar({
     }
   }
 
+  const handleCreateCategory = () => {
+    if (newCategoryName.trim()) {
+      onCreateCategory(newCategoryName.trim())
+      setNewCategoryName("")
+      setIsCreatingCategory(false)
+    }
+  }
+
+  const handleUpdateCategory = (id: string) => {
+    if (editCategoryName.trim()) {
+      onUpdateCategory(id, editCategoryName.trim())
+      setEditingCategoryId(null)
+      setEditCategoryName("")
+    }
+  }
+
   const renderCategory = (category: Category, depth = 0): ReactNode => {
     const children = categoryChildren.get(category.id) || []
     const categoryKey = `category:${category.id}`
+    const isEditing = editingCategoryId === category.id
+
+    if (isEditing) {
+      return (
+        <div key={category.id}>
+          <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${depth * 14 + 8}px` }}>
+            <Input
+              value={editCategoryName}
+              onChange={(e) => setEditCategoryName(e.target.value)}
+              className="h-7 text-sm"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleUpdateCategory(category.id)
+                if (e.key === "Escape") {
+                  setEditingCategoryId(null)
+                  setEditCategoryName("")
+                }
+              }}
+            />
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleUpdateCategory(category.id)}>
+              <Check className="h-3 w-3" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { setEditingCategoryId(null); setEditCategoryName("") }}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+          {children.map((child) => renderCategory(child, depth + 1))}
+        </div>
+      )
+    }
+
     return (
       <div key={category.id}>
-        <button
-          type="button"
-          className={navItemClass(activeSection === "library" && selectedCategoryKey === categoryKey)}
-          style={{ paddingLeft: `${depth * 14 + 12}px` }}
-          onClick={() => {
-            onSelectSection("library")
-            onSelectCategory(categoryKey)
-          }}
-        >
-          {children.length > 0 ? <Layers3 className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
-          <span className="flex-1 truncate text-left">{category.name}</span>
-          <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
-            {categoryCounts[category.id] || 0}
-          </Badge>
-        </button>
+        <div className="group relative">
+          <button
+            type="button"
+            className={navItemClass(activeSection === "library" && selectedCategoryKey === categoryKey)}
+            style={{ paddingLeft: `${depth * 14 + 12}px` }}
+            onClick={() => {
+              onSelectSection("library")
+              onSelectCategory(categoryKey)
+            }}
+          >
+            {children.length > 0 ? <Layers3 className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
+            <span className="flex-1 truncate text-left">{category.name}</span>
+            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
+              {categoryCounts[category.id] || 0}
+            </Badge>
+          </button>
+          {/* Hover action buttons */}
+          <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditingCategoryId(category.id)
+                setEditCategoryName(category.name)
+              }}
+              className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDeleteCategory(category.id)
+              }}
+              className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
         {children.map((child) => renderCategory(child, depth + 1))}
       </div>
     )
@@ -185,15 +276,49 @@ export function LibrarySidebar({
           </button>
         </div>
 
+        {/* Categories section with CRUD */}
         <div className="space-y-2">
           <div className="flex items-center justify-between px-2 pt-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
               分类
             </p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-md"
+              onClick={() => setIsCreatingCategory(true)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
           </div>
           <div className="space-y-1">
             {rootCategories.map((category) => renderCategory(category))}
           </div>
+          {/* Inline create category */}
+          {isCreatingCategory && (
+            <div className="flex items-center gap-1 px-2 py-1">
+              <Input
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="分类名称"
+                className="h-7 text-sm"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateCategory()
+                  if (e.key === "Escape") {
+                    setIsCreatingCategory(false)
+                    setNewCategoryName("")
+                  }
+                }}
+              />
+              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={handleCreateCategory}>
+                <Check className="h-3 w-3" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { setIsCreatingCategory(false); setNewCategoryName("") }}>
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -216,8 +341,8 @@ export function LibrarySidebar({
             <FolderOpen className="h-4 w-4 shrink-0" />
             <span className="flex-1 text-left">根目录</span>
           </button>
-          <div className="space-y-1">
-            {rootFolders.map((folder) => renderFolder(folder))}
+          <div className="space-y-0.5 ml-2 border-l border-border/50">
+            {rootFolders.map((folder) => renderFolder(folder, 1))}
           </div>
         </div>
       </div>
