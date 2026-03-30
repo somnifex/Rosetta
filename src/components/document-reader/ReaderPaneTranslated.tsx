@@ -7,13 +7,10 @@ import { cn } from "@/lib/utils"
 
 interface ReaderPaneTranslatedProps {
   pdfPath?: string | null
+  pdfFileName?: string
   markdownContent?: string | null
-  pageNumber: number
-  scale: number
+  contentFormat?: "markdown" | "plain"
   textScale: number
-  onPageChange: (page: number) => void
-  onScaleChange: (scale: number) => void
-  onDocumentLoad: (numPages: number) => void
   onAskAI: (text: string) => void
   onTranslateSelection: (text: string) => void
   className?: string
@@ -21,13 +18,10 @@ interface ReaderPaneTranslatedProps {
 
 export function ReaderPaneTranslated({
   pdfPath,
+  pdfFileName,
   markdownContent,
-  pageNumber,
-  scale,
+  contentFormat = "markdown",
   textScale,
-  onPageChange,
-  onScaleChange,
-  onDocumentLoad,
   onAskAI,
   onTranslateSelection,
   className,
@@ -36,36 +30,41 @@ export function ReaderPaneTranslated({
 
   return (
     <section className={cn("relative flex h-full min-w-0 flex-col overflow-hidden", className)}>
-      <TextSelectionToolbar
-        containerRef={viewerContainerRef}
-        onAskAI={onAskAI}
-        onTranslate={onTranslateSelection}
-      />
-
-      <div ref={viewerContainerRef} className="flex-1 min-h-0 overflow-hidden">
-        {pdfPath ? (
-          <PdfViewer
-            fileUrl={pdfPath}
-            pageNumber={pageNumber}
-            scale={scale}
-            onPageChange={onPageChange}
-            onScaleChange={onScaleChange}
-            onDocumentLoad={onDocumentLoad}
-            showControls={false}
-            className="reader-noise h-full"
+      {pdfPath ? (
+        <PdfViewer
+          fileUrl={pdfPath}
+          fileName={pdfFileName}
+          onAskAI={onAskAI}
+          onTranslateSelection={onTranslateSelection}
+          className="h-full"
+        />
+      ) : markdownContent ? (
+        <>
+          <TextSelectionToolbar
+            containerRef={viewerContainerRef}
+            onAskAI={onAskAI}
+            onTranslate={onTranslateSelection}
           />
-        ) : markdownContent ? (
-          <MarkdownViewer content={markdownContent} textScale={textScale} className="reader-noise h-full" contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]" />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-            <FileText className="h-10 w-10" />
-            <div>
-              <p className="font-medium text-foreground">翻译内容尚未准备好</p>
-              <p className="text-sm">请先在文档操作页生成翻译结果，或上传翻译版 PDF。</p>
-            </div>
+
+          <div ref={viewerContainerRef} className="flex-1 min-h-0 overflow-hidden">
+            <MarkdownViewer
+              content={markdownContent}
+              contentFormat={contentFormat}
+              textScale={textScale}
+              className="reader-noise h-full"
+              contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"
+            />
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+          <FileText className="h-10 w-10" />
+          <div>
+            <p className="font-medium text-foreground">翻译内容尚未准备好</p>
+            <p className="text-sm">请先在文档操作页生成翻译结果，或上传翻译版 PDF。</p>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

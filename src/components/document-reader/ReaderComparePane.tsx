@@ -11,6 +11,8 @@ import { ArrowLeftRight, GripVertical } from "lucide-react"
 interface ReaderComparePaneProps {
   originalContent: string
   translatedContent: string
+  originalFormat?: "markdown" | "plain"
+  translatedFormat?: "markdown" | "plain"
   textScale: number
   compareRatio: number
   compareOrder: CompareOrder
@@ -30,6 +32,8 @@ function proportion(source: HTMLDivElement, target: HTMLDivElement) {
 export function ReaderComparePane({
   originalContent,
   translatedContent,
+  originalFormat = "markdown",
+  translatedFormat = "markdown",
   textScale,
   compareRatio,
   compareOrder,
@@ -85,6 +89,7 @@ export function ReaderComparePane({
         title: "原文",
         variant: "outline" as const,
         content: originalContent,
+        format: originalFormat,
         wrapperRef: originalWrapperRef,
         scrollRef: originalScrollRef,
         onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
@@ -93,6 +98,7 @@ export function ReaderComparePane({
         title: "译文",
         variant: "default" as const,
         content: translatedContent,
+        format: translatedFormat,
         wrapperRef: translatedWrapperRef,
         scrollRef: translatedScrollRef,
         onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
@@ -103,6 +109,7 @@ export function ReaderComparePane({
         title: "译文",
         variant: "default" as const,
         content: translatedContent,
+        format: translatedFormat,
         wrapperRef: translatedWrapperRef,
         scrollRef: translatedScrollRef,
         onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
@@ -111,6 +118,7 @@ export function ReaderComparePane({
         title: "原文",
         variant: "outline" as const,
         content: originalContent,
+        format: originalFormat,
         wrapperRef: originalWrapperRef,
         scrollRef: originalScrollRef,
         onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
@@ -165,6 +173,7 @@ export function ReaderComparePane({
             </div>
             <MarkdownViewer
               content={leftPane.content}
+              contentFormat={leftPane.format}
               textScale={textScale}
               containerRef={leftPane.scrollRef}
               onScroll={leftPane.onScroll}
@@ -201,6 +210,7 @@ export function ReaderComparePane({
             </div>
             <MarkdownViewer
               content={rightPane.content}
+              contentFormat={rightPane.format}
               textScale={textScale}
               containerRef={rightPane.scrollRef}
               onScroll={rightPane.onScroll}

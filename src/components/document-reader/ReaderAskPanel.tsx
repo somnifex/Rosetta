@@ -298,7 +298,7 @@ export function ReaderAskPanel({
     <>
       <aside
         className={cn(
-          "glass-surface border-l transition-all duration-200 flex flex-col min-h-0",
+          "glass-surface border-l flex flex-col min-h-0",
           isOpen ? "w-[400px] shrink-0" : "w-0 overflow-hidden border-l-0"
         )}
       >

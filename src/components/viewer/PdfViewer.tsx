@@ -1,180 +1,335 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Document, Page, pdfjs } from "react-pdf"
-import "react-pdf/dist/Page/AnnotationLayer.css"
-import "react-pdf/dist/Page/TextLayer.css"
-import { Button } from "@/components/ui/button"
-import { ChevronLeft, ChevronRight, Loader2, ZoomIn, ZoomOut } from "lucide-react"
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react"
+import type { IAnnotation, IConfig, IDocument } from "@iamjariwala/react-doc-viewer"
 import { convertFileSrc } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
+import { Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url
-).toString()
 
 interface PdfViewerProps {
   fileUrl: string
-  pageNumber?: number
-  scale?: number
-  onPageChange?: (page: number) => void
-  onScaleChange?: (scale: number) => void
-  onDocumentLoad?: (numPages: number) => void
-  onTextSelect?: (text: string) => void
-  showControls?: boolean
+  fileName?: string
+  onAskAI?: (text: string) => void
+  onTranslateSelection?: (text: string) => void
   className?: string
 }
 
-export function PdfViewer({
+const PDF_ANNOTATION_COLORS = ["#fde047", "#f97316", "#38bdf8", "#34d399"]
+const LazyPdfViewerRuntime = lazy(() => import("./PdfViewerRuntime"))
+
+function getAnnotationStorageKey(fileUrl: string) {
+  return `rosetta:pdf-annotations:${encodeURIComponent(fileUrl)}`
+}
+
+function getThemeMode(): "light" | "dark" {
+  if (typeof window === "undefined") return "light" as const
+  return window.document.documentElement.classList.contains("dark")
+    ? "dark"
+    : "light"
+}
+
+function getFileNameFromPath(path: string) {
+  return path.split(/[\\/]/).pop() || "document.pdf"
+}
+
+function readStoredAnnotations(storageKey: string, documentUri: string) {
+  if (typeof window === "undefined") return [] as IAnnotation[]
+
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return [] as IAnnotation[]
+
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return [] as IAnnotation[]
+
+    return parsed.map((annotation) => ({
+      ...annotation,
+      documentUri,
+    })) as IAnnotation[]
+  } catch {
+    return [] as IAnnotation[]
+  }
+}
+
+export const PdfViewer = memo(function PdfViewer({
   fileUrl,
-  pageNumber,
-  scale,
-  onPageChange,
-  onScaleChange,
-  onDocumentLoad,
-  onTextSelect,
-  showControls = true,
+  fileName,
+  onAskAI,
+  onTranslateSelection,
   className,
 }: PdfViewerProps) {
-  const [numPages, setNumPages] = useState(0)
-  const [internalPage, setInternalPage] = useState(1)
-  const [internalScale, setInternalScale] = useState(1)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const { t } = useTranslation("document")
+  const shellRef = useRef<HTMLDivElement>(null)
+  const zoomThrottleRef = useRef(0)
+  const recoveryFrameIdsRef = useRef<number[]>([])
+  const askActionRef = useRef(onAskAI)
+  const translateActionRef = useRef(onTranslateSelection)
+  const [themeMode, setThemeMode] = useState(getThemeMode)
   const assetUrl = useMemo(() => convertFileSrc(fileUrl), [fileUrl])
-
-  const currentPage = pageNumber ?? internalPage
-  const currentScale = scale ?? internalScale
-
-  useEffect(() => {
-    setInternalPage(1)
-    setLoading(true)
-    setLoadError(null)
-  }, [fileUrl])
+  const storageKey = useMemo(() => getAnnotationStorageKey(fileUrl), [fileUrl])
+  const initialAnnotations = useMemo(
+    () => readStoredAnnotations(storageKey, assetUrl),
+    [assetUrl, storageKey]
+  )
 
   useEffect(() => {
-    containerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" })
-  }, [currentPage, fileUrl])
+    askActionRef.current = onAskAI
+  }, [onAskAI])
 
-  const updatePage = useCallback((nextPage: number) => {
-    const safePage = Math.max(1, Math.min(numPages || nextPage, nextPage))
-    if (pageNumber === undefined) setInternalPage(safePage)
-    onPageChange?.(safePage)
-  }, [numPages, onPageChange, pageNumber])
+  useEffect(() => {
+    translateActionRef.current = onTranslateSelection
+  }, [onTranslateSelection])
 
-  const updateScale = useCallback((nextScale: number) => {
-    const safeScale = Math.min(3, Math.max(0.5, nextScale))
-    if (scale === undefined) setInternalScale(safeScale)
-    onScaleChange?.(safeScale)
-  }, [onScaleChange, scale])
+  const selectionActions = useMemo(
+    () =>
+      [
+        askActionRef.current
+          ? {
+              label: t("selection.ask_ai"),
+              onClick: (selectedText: string) => askActionRef.current?.(selectedText),
+            }
+          : null,
+        translateActionRef.current
+          ? {
+              label: t("selection.translate"),
+              onClick: (selectedText: string) => translateActionRef.current?.(selectedText),
+            }
+          : null,
+      ].filter((action): action is NonNullable<typeof action> => action !== null),
+    [t]
+  )
 
-  const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
-    setNumPages(numPages)
-    setLoading(false)
-    setLoadError(null)
-    onDocumentLoad?.(numPages)
-    if (currentPage > numPages) updatePage(numPages)
-  }, [currentPage, onDocumentLoad, updatePage])
+  useEffect(() => {
+    if (typeof window === "undefined") return
 
-  const onDocumentLoadError = useCallback((error: Error) => {
-    console.error("PDF load error:", error)
-    setLoading(false)
-    setLoadError(error.message || "Failed to load PDF")
+    const observer = new MutationObserver(() => {
+      setThemeMode(getThemeMode())
+    })
+
+    observer.observe(window.document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+
+    return () => observer.disconnect()
   }, [])
 
-  const handleMouseUp = useCallback(() => {
-    if (!onTextSelect) return
-    const selection = window.getSelection()
-    const text = selection?.toString().trim()
-    if (text) onTextSelect(text)
-  }, [onTextSelect])
+  const clearRecoveryFrames = useCallback(() => {
+    for (const id of recoveryFrameIdsRef.current) {
+      window.cancelAnimationFrame(id)
+    }
+    recoveryFrameIdsRef.current = []
+  }, [])
+
+  useEffect(() => clearRecoveryFrames, [clearRecoveryFrames])
+
+  const persistAnnotations = useCallback((annotations: IAnnotation[]) => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(storageKey, JSON.stringify(annotations))
+  }, [storageKey])
+
+  const dispatchViewerShortcut = useCallback((key: "+" | "-" | "0") => {
+    const code =
+      key === "0" ? "Digit0" : key === "-" ? "Minus" : "Equal"
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        code,
+        bubbles: true,
+        cancelable: true,
+        shiftKey: key === "+",
+      })
+    )
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName.toLowerCase()
+      const isEditable =
+        !!target?.isContentEditable ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select"
+
+      if (isEditable || !(event.ctrlKey || event.metaKey)) return
+
+      if (event.key === "=" || event.key === "+") {
+        event.preventDefault()
+        dispatchViewerShortcut("+")
+        return
+      }
+
+      if (event.key === "-") {
+        event.preventDefault()
+        dispatchViewerShortcut("-")
+        return
+      }
+
+      if (event.key === "0") {
+        event.preventDefault()
+        dispatchViewerShortcut("0")
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [dispatchViewerShortcut])
+
+  const handleWheelCapture = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!(event.ctrlKey || event.metaKey)) return
+
+    event.preventDefault()
+
+    const now = Date.now()
+    if (now - zoomThrottleRef.current < 72) return
+    zoomThrottleRef.current = now
+
+    dispatchViewerShortcut(event.deltaY < 0 ? "+" : "-")
+  }, [dispatchViewerShortcut])
+
+  const recoverPaginationToggleLayout = useCallback((
+    nextPaginated: boolean,
+    currentPage: number,
+    attempt = 0
+  ) => {
+    const shell = shellRef.current
+    if (!shell) return
+
+    const mainContent = shell.querySelector(".rdv-pdf-main-content")
+    if (!(mainContent instanceof HTMLElement)) return
+
+    const pageWrappers = shell.querySelectorAll(".rdv-pdf-page-wrapper")
+    const modeReady = nextPaginated ? pageWrappers.length === 1 : pageWrappers.length > 1
+
+    if (!modeReady && attempt < 10) {
+      const id = window.requestAnimationFrame(() => {
+        recoverPaginationToggleLayout(nextPaginated, currentPage, attempt + 1)
+      })
+      recoveryFrameIdsRef.current.push(id)
+      return
+    }
+
+    if (nextPaginated) {
+      mainContent.scrollTo({ top: 0, left: 0, behavior: "auto" })
+      return
+    }
+
+    const targetPage = pageWrappers[Math.max(0, currentPage - 1)]
+    if (!(targetPage instanceof HTMLElement)) {
+      mainContent.scrollTo({ top: 0, left: 0, behavior: "auto" })
+      return
+    }
+
+    const containerRect = mainContent.getBoundingClientRect()
+    const pageRect = targetPage.getBoundingClientRect()
+    const nextTop = Math.max(0, mainContent.scrollTop + pageRect.top - containerRect.top - 8)
+    mainContent.scrollTo({ top: nextTop, left: 0, behavior: "auto" })
+  }, [])
+
+  const handleMouseDownCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null
+    if (!target?.closest("#pdf-toggle-pagination")) return
+
+    const shell = shellRef.current
+    if (!shell) return
+
+    clearRecoveryFrames()
+
+    const currentPageInput = shell.querySelector("#pdf-pagination-input")
+    const currentPage =
+      currentPageInput instanceof HTMLInputElement && Number.isFinite(Number(currentPageInput.value))
+        ? Math.max(1, Math.floor(Number(currentPageInput.value)))
+        : 1
+
+    const visiblePageCount = shell.querySelectorAll(".rdv-pdf-page-wrapper").length
+    const nextPaginated = visiblePageCount > 1
+
+    const id = window.requestAnimationFrame(() => {
+      recoverPaginationToggleLayout(nextPaginated, currentPage)
+    })
+    recoveryFrameIdsRef.current.push(id)
+  }, [clearRecoveryFrames, recoverPaginationToggleLayout])
+
+  const config = useMemo<IConfig>(() => ({
+    header: {
+      disableHeader: true,
+    },
+    pdfZoom: {
+      defaultZoom: 1.1,
+      zoomJump: 0.15,
+    },
+    pdfVerticalScrollByDefault: true,
+    loadingProgress: {
+      enableProgressBar: true,
+    },
+    textSelection: {
+      enableTextSelection: true,
+    },
+    keyboard: {
+      enableKeyboardShortcuts: true,
+    },
+    search: {
+      enableSearch: true,
+    },
+    bookmarks: {
+      enableBookmarks: true,
+    },
+    thumbnail: {
+      enableThumbnails: true,
+      thumbnailWidth: 112,
+      sidebarDefaultOpen: false,
+    },
+    annotations: {
+      enableAnnotations: true,
+      defaultColor: PDF_ANNOTATION_COLORS[0],
+      colors: PDF_ANNOTATION_COLORS,
+      tools: ["select", "highlight", "comment", "eraser"],
+      initialAnnotations,
+      onAnnotationChange: persistAnnotations,
+    },
+    selectionToolbar: {
+      enabled: true,
+      actions: selectionActions,
+      showHighlightColors: true,
+      showCopyButton: true,
+      showCommentButton: true,
+      colors: PDF_ANNOTATION_COLORS,
+    },
+    themeMode,
+  }), [initialAnnotations, persistAnnotations, selectionActions, themeMode])
+
+  const documents = useMemo<IDocument[]>(
+    () => [
+      {
+        uri: assetUrl,
+        fileName: fileName || getFileNameFromPath(fileUrl),
+        fileType: "pdf",
+      },
+    ],
+    [assetUrl, fileName, fileUrl]
+  )
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      {showControls && (
-        <div className="glass-surface flex items-center justify-between border-b px-4 py-2 shrink-0">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-xl bg-background/70"
-              onClick={() => updatePage(currentPage - 1)}
-              disabled={currentPage <= 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="min-w-[80px] text-center text-sm">
-              {currentPage} / {numPages || "-"}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-xl bg-background/70"
-              onClick={() => updatePage(currentPage + 1)}
-              disabled={numPages > 0 && currentPage >= numPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+    <div
+      ref={shellRef}
+      className={cn("rosetta-pdf-shell min-h-0 flex-1 overflow-hidden", className)}
+      onMouseDownCapture={handleMouseDownCapture}
+      onWheelCapture={handleWheelCapture}
+    >
+      <Suspense
+        fallback={(
+          <div className="flex h-full items-center justify-center text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-xl bg-background/70"
-              onClick={() => updateScale(currentScale - 0.1)}
-            >
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="min-w-[50px] text-center text-sm">
-              {Math.round(currentScale * 100)}%
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-xl bg-background/70"
-              onClick={() => updateScale(currentScale + 0.1)}
-            >
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1 overflow-auto bg-muted/30 p-3"
-        onMouseUp={handleMouseUp}
+        )}
       >
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        )}
-        {loadError && (
-          <div className="flex items-center justify-center py-12">
-            <p className="text-sm text-destructive">{loadError}</p>
-          </div>
-        )}
-
-        <div className="flex items-start justify-center">
-          <Document
-            file={assetUrl}
-            onLoadSuccess={onDocumentLoadSuccess}
-            onLoadError={onDocumentLoadError}
-            loading={null}
-          >
-            <div className="rounded-xl bg-white shadow-md ring-1 ring-slate-200/60 dark:ring-slate-700/50">
-              <Page
-                pageNumber={currentPage}
-                scale={currentScale}
-                renderTextLayer={true}
-                renderAnnotationLayer={true}
-              />
-            </div>
-          </Document>
-        </div>
-      </div>
+        <LazyPdfViewerRuntime
+          key={assetUrl}
+          documents={documents}
+          config={config}
+        />
+      </Suspense>
     </div>
   )
-}
+})

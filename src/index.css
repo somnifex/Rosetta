@@ -129,4 +129,278 @@
       radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.14) 1px, transparent 0);
     background-size: 20px 20px;
   }
-}
+
+  .reader-doc-surface {
+    background:
+      radial-gradient(circle at top, rgba(255, 255, 255, 0.72), transparent 32%),
+      linear-gradient(180deg, rgba(241, 245, 249, 0.9), rgba(226, 232, 240, 0.58));
+  }
+
+  .reader-paper {
+    position: relative;
+    box-shadow:
+      0 28px 70px rgba(15, 23, 42, 0.08),
+      0 1px 0 rgba(255, 255, 255, 0.85) inset;
+    backdrop-filter: blur(8px);
+  }
+
+  .reader-paper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 18%),
+      radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 28%);
+  }
+
+  .reader-prose {
+    color: hsl(var(--foreground));
+    line-height: 1.85;
+  }
+
+  .reader-prose > :first-child,
+  .reader-plain-text > :first-child {
+    margin-top: 0;
+  }
+
+  .reader-prose > :last-child,
+  .reader-plain-text > :last-child {
+    margin-bottom: 0;
+  }
+
+  .reader-prose h1,
+  .reader-prose h2,
+  .reader-prose h3,
+  .reader-prose h4 {
+    color: hsl(var(--foreground));
+    scroll-margin-top: 5rem;
+  }
+
+  .reader-prose h1 {
+    font-size: 2.15em;
+    letter-spacing: -0.04em;
+  }
+
+  .reader-prose h2 {
+    margin-top: 2.3em;
+    padding-bottom: 0.45em;
+    border-bottom: 1px solid hsl(var(--border) / 0.7);
+    letter-spacing: -0.03em;
+  }
+
+  .reader-prose h3 {
+    margin-top: 1.8em;
+    letter-spacing: -0.02em;
+  }
+
+  .reader-prose p,
+  .reader-prose li,
+  .reader-prose blockquote {
+    font-size: 1.04em;
+  }
+
+  .reader-prose a {
+    color: hsl(201 96% 32%);
+    text-underline-offset: 0.18em;
+  }
+
+  .reader-prose a:hover {
+    color: hsl(201 96% 26%);
+  }
+
+  .reader-prose hr {
+    margin: 2.2em 0;
+    border-color: hsl(var(--border) / 0.7);
+  }
+
+  .reader-prose code {
+    border: 1px solid hsl(var(--border) / 0.8);
+    background: hsl(var(--muted) / 0.85);
+    padding: 0.2em 0.45em;
+    border-radius: 0.55rem;
+    font-size: 0.9em;
+  }
+
+  .reader-prose pre {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: linear-gradient(180deg, #111827, #0f172a);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .reader-prose pre code {
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+
+  .reader-prose blockquote {
+    border-left-color: hsl(199 89% 48% / 0.9);
+    background: linear-gradient(90deg, hsl(199 89% 48% / 0.08), transparent 68%);
+    font-style: normal;
+    border-radius: 0 1rem 1rem 0;
+    padding: 0.2rem 0 0.2rem 1rem;
+  }
+
+  .reader-prose table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    border-spacing: 0;
+    font-size: 0.95em;
+  }
+
+  .reader-prose th,
+  .reader-prose td {
+    border: 1px solid hsl(var(--border) / 0.7);
+    padding: 0.72rem 0.9rem;
+    white-space: nowrap;
+  }
+
+  .reader-prose th {
+    background: hsl(var(--muted) / 0.82);
+    font-weight: 600;
+  }
+
+  .reader-prose img {
+    border-radius: 1rem;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
+  }
+
+  .reader-plain-text {
+    margin: 0;
+    color: hsl(var(--foreground));
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    line-height: 1.9;
+    white-space: pre-wrap;
+    word-break: break-word;
+    tab-size: 4;
+  }
+
+  .rosetta-pdf-shell {
+    background:
+      radial-gradient(circle at top, rgba(255, 255, 255, 0.72), transparent 30%),
+      linear-gradient(180deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.62));
+  }
+
+  .rosetta-pdf-shell #react-doc-viewer,
+  .rosetta-pdf-shell .rdv-container {
+    height: 100%;
+    border-radius: 1.75rem;
+    overflow: hidden;
+  }
+
+  .rosetta-pdf-shell .rdv-container {
+    border: 1px solid hsl(var(--border) / 0.7);
+    box-shadow:
+      0 28px 72px rgba(15, 23, 42, 0.1),
+      0 1px 0 rgba(255, 255, 255, 0.86) inset;
+  }
+
+  .rosetta-pdf-shell .rdv-pdf-main-content {
+    position: relative;
+    isolation: isolate;
+    padding: 20px 22px 34px;
+    background:
+      linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(226, 232, 240, 0.72)),
+      radial-gradient(circle at top, rgba(14, 165, 233, 0.08), transparent 30%);
+    scrollbar-gutter: stable;
+  }
+
+  .rosetta-pdf-shell .rdv-thumbnail-toggle,
+  .rosetta-pdf-shell .rdv-bookmarks-toggle {
+    display: none !important;
+  }
+
+  .rosetta-pdf-shell .rdv-annotation-toolbar,
+  .rosetta-pdf-shell .rdv-search-bar,
+  .rosetta-pdf-shell .rdv-pdf-controls {
+    z-index: 30;
+    padding: 10px 14px;
+    background: hsl(var(--background) / 0.82);
+    border-bottom-color: hsl(var(--border) / 0.72);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  }
+
+  .rosetta-pdf-shell .rdv-pdf-controls {
+    position: sticky;
+    top: 0;
+  }
+
+  .rosetta-pdf-shell .rdv-annotation-toolbar {
+    position: relative;
+    z-index: 32;
+  }
+
+  .rosetta-pdf-shell .rdv-search-bar {
+    position: relative;
+    z-index: 31;
+  }
+
+  .rosetta-pdf-shell .rdv-pdf-document {
+    position: relative;
+    z-index: 0;
+  }
+
+  .rosetta-pdf-shell .rdv-toolbar-btn,
+  .rosetta-pdf-shell .rdv-toolbar-page-input {
+    border-radius: 0.85rem;
+  }
+
+  .rosetta-pdf-shell .rdv-pdf-page-wrapper {
+    position: relative;
+    z-index: 0;
+    scroll-margin-top: 132px;
+  }
+
+  .rosetta-pdf-shell .rdv-pdf-page-container {
+    border-radius: 1.25rem;
+    box-shadow:
+      0 22px 60px rgba(15, 23, 42, 0.14),
+      0 0 0 1px rgba(148, 163, 184, 0.18);
+  }
+
+  .rosetta-pdf-shell .rdv-selection-toolbar,
+  .rosetta-pdf-shell .rdv-comment-popover {
+    backdrop-filter: blur(14px);
+  }
+
+  .dark .reader-doc-surface,
+  .dark .rosetta-pdf-shell {
+    background:
+      radial-gradient(circle at top, rgba(59, 130, 246, 0.12), transparent 32%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.82));
+  }
+
+  .dark .reader-paper {
+    background:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.8)),
+      radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 30%);
+    border-color: hsl(var(--border) / 0.72);
+  }
+
+  .dark .reader-prose a {
+    color: hsl(199 89% 70%);
+  }
+
+  .dark .reader-prose a:hover {
+    color: hsl(199 89% 77%);
+  }
+
+  .dark .reader-prose code {
+    border-color: hsl(var(--border) / 0.9);
+    background: hsl(var(--muted) / 0.65);
+  }
+
+  .dark .reader-prose th {
+    background: hsl(var(--muted) / 0.7);
+  }
+
+  .dark .rosetta-pdf-shell .rdv-pdf-main-content {
+    background:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.86)),
+      radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 32%);
+  }
+  }

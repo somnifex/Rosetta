@@ -28,6 +28,8 @@ interface ReaderToolbarProps {
   onPageChange?: (page: number) => void
   onScaleChange?: (scale: number) => void
   pageControlsDisabled?: boolean
+  showScaleControls?: boolean
+  showPageControls?: boolean
   modeDisabled?: Partial<Record<ReaderBaseMode | "ask", boolean>>
 }
 
@@ -45,6 +47,8 @@ export function ReaderToolbar({
   onPageChange,
   onScaleChange,
   pageControlsDisabled = false,
+  showScaleControls = true,
+  showPageControls = true,
   modeDisabled,
 }: ReaderToolbarProps) {
   const [fullScreen, setFullScreen] = useState(false)
@@ -90,63 +94,67 @@ export function ReaderToolbar({
           disabled={modeDisabled}
         />
 
-        <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl"
-            onClick={() => onScaleChange?.((scale ?? 1) - 0.1)}
-            disabled={!onScaleChange}
-          >
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <span className="min-w-[54px] text-center text-xs sm:text-sm">
-            {Math.round((scale ?? 1) * 100)}%
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl"
-            onClick={() => onScaleChange?.((scale ?? 1) + 0.1)}
-            disabled={!onScaleChange}
-          >
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-        </div>
+        {showScaleControls ? (
+          <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-xl"
+              onClick={() => onScaleChange?.((scale ?? 1) - 0.1)}
+              disabled={!onScaleChange}
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <span className="min-w-[54px] text-center text-xs sm:text-sm">
+              {Math.round((scale ?? 1) * 100)}%
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-xl"
+              onClick={() => onScaleChange?.((scale ?? 1) + 0.1)}
+              disabled={!onScaleChange}
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null}
 
-        <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl"
-            onClick={() => canPage && onPageChange?.((pageNumber ?? 1) - 1)}
-            disabled={!canPage || (pageNumber ?? 1) <= 1}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Input
-            value={pageInput}
-            onChange={(event) => setPageInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || !canPage || !totalPages) return
-              const nextPage = Number(pageInput)
-              if (!Number.isFinite(nextPage)) return
-              onPageChange?.(Math.max(1, Math.min(totalPages, Math.floor(nextPage))))
-            }}
-            disabled={!canPage}
-            className="h-8 w-16 rounded-xl border-0 bg-transparent px-2 text-center shadow-none"
-          />
-          <span className="text-xs text-muted-foreground sm:text-sm">/ {totalPages || "-"}</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl"
-            onClick={() => canPage && onPageChange?.((pageNumber ?? 1) + 1)}
-            disabled={!canPage || (!!totalPages && (pageNumber ?? 1) >= totalPages)}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        {showPageControls ? (
+          <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-xl"
+              onClick={() => canPage && onPageChange?.((pageNumber ?? 1) - 1)}
+              disabled={!canPage || (pageNumber ?? 1) <= 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Input
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !canPage || !totalPages) return
+                const nextPage = Number(pageInput)
+                if (!Number.isFinite(nextPage)) return
+                onPageChange?.(Math.max(1, Math.min(totalPages, Math.floor(nextPage))))
+              }}
+              disabled={!canPage}
+              className="h-8 w-16 rounded-xl border-0 bg-transparent px-2 text-center shadow-none"
+            />
+            <span className="text-xs text-muted-foreground sm:text-sm">/ {totalPages || "-"}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-xl"
+              onClick={() => canPage && onPageChange?.((pageNumber ?? 1) + 1)}
+              disabled={!canPage || (!!totalPages && (pageNumber ?? 1) >= totalPages)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null}
 
         <Button variant="outline" size="sm" className="shrink-0 rounded-xl bg-background/70" onClick={onAskToggle}>
           <PanelRightOpen className="mr-1.5 h-4 w-4" />

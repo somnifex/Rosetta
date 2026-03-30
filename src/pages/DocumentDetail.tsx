@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -21,18 +21,12 @@ export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [originalPages, setOriginalPages] = useState(0)
-  const [translatedPages, setTranslatedPages] = useState(0)
   const [prefillText, setPrefillText] = useState("")
 
   const {
     state: readerState,
     setBaseMode,
     setAskOpen,
-    setOriginalPage,
-    setTranslatedPage,
-    setOriginalScale,
-    setTranslatedScale,
     setTextScale,
     setCompareRatio,
     setCompareOrder,
@@ -89,62 +83,22 @@ export default function DocumentDetail() {
   const parseReady = document?.parse_status === "completed"
   const translationReady = document?.translation_status === "completed"
   const compareReady = !!parsedContent?.markdown_content && !!translatedContent?.content
+  const prefersPlainTextLayout = !!document?.filename.toLowerCase().endsWith(".txt")
+  const fallbackContentFormat = prefersPlainTextLayout ? "plain" : "markdown"
+  const usesIntegratedPdfControls =
+    (readerState.baseMode === "original" && !!originalPdf) ||
+    (readerState.baseMode === "translated" && !!translatedPdf)
+  const translatedPdfName = translatedPdf?.split(/[\\/]/).pop()
 
-  const activePdfState = useMemo(() => {
-    if (readerState.baseMode === "original" && originalPdf) {
-      return {
-        page: readerState.originalPage,
-        totalPages: originalPages,
-        scale: readerState.originalScale,
-        onPageChange: setOriginalPage,
-        onScaleChange: setOriginalScale,
-      }
-    }
-
-    if (readerState.baseMode === "translated" && translatedPdf) {
-      return {
-        page: readerState.translatedPage,
-        totalPages: translatedPages,
-        scale: readerState.translatedScale,
-        onPageChange: setTranslatedPage,
-        onScaleChange: setTranslatedScale,
-      }
-    }
-
-    return {
-      page: undefined,
-      totalPages: undefined,
-      scale: readerState.textScale,
-      onPageChange: undefined,
-      onScaleChange: setTextScale,
-    }
-  }, [
-    originalPages,
-    originalPdf,
-    readerState.baseMode,
-    readerState.originalPage,
-    readerState.originalScale,
-    readerState.textScale,
-    readerState.translatedPage,
-    readerState.translatedScale,
-    setOriginalPage,
-    setOriginalScale,
-    setTextScale,
-    setTranslatedPage,
-    setTranslatedScale,
-    translatedPages,
-    translatedPdf,
-  ])
-
-  const handleAsk = (text: string) => {
+  const handleAsk = useCallback((text: string) => {
     setPrefillText(`请结合当前文档解释这段内容：\n\n${text}`)
     setAskOpen(true)
-  }
+  }, [setAskOpen])
 
-  const handleTranslateSelection = (text: string) => {
+  const handleTranslateSelection = useCallback((text: string) => {
     setPrefillText(`请翻译并解释这段内容：\n\n${text}`)
     setAskOpen(true)
-  }
+  }, [setAskOpen])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -183,27 +137,14 @@ export default function DocumentDetail() {
         return
       }
 
-      if (activePdfState.onPageChange && activePdfState.page) {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault()
-          activePdfState.onPageChange(activePdfState.page - 1)
-          return
-        }
-        if (event.key === "ArrowRight") {
-          event.preventDefault()
-          activePdfState.onPageChange(activePdfState.page + 1)
-          return
-        }
-      }
-
-      if (activePdfState.onScaleChange && (event.ctrlKey || event.metaKey)) {
+      if (!usesIntegratedPdfControls && (event.ctrlKey || event.metaKey)) {
         if (event.key === "=" || event.key === "+") {
           event.preventDefault()
-          activePdfState.onScaleChange((activePdfState.scale ?? 1) + 0.1)
+          setTextScale(readerState.textScale + 0.1)
         }
         if (event.key === "-") {
           event.preventDefault()
-          activePdfState.onScaleChange((activePdfState.scale ?? 1) - 0.1)
+          setTextScale(readerState.textScale - 0.1)
         }
       }
     }
@@ -211,14 +152,16 @@ export default function DocumentDetail() {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [
-    activePdfState,
     compareReady,
     parseReady,
     readerState.askOpen,
+    readerState.textScale,
     setAskOpen,
     setBaseMode,
+    setTextScale,
     translatedPdf,
     translationReady,
+    usesIntegratedPdfControls,
   ])
 
   if (isLoading) {
@@ -252,12 +195,10 @@ export default function DocumentDetail() {
         onAskToggle={() => setAskOpen(!readerState.askOpen)}
         onBackToLibrary={() => navigate("/library")}
         onOpenActions={() => navigate("/library", { state: { reopenDocumentId: document.id } })}
-        pageNumber={activePdfState.page}
-        totalPages={activePdfState.totalPages}
-        scale={activePdfState.scale}
-        onPageChange={activePdfState.onPageChange}
-        onScaleChange={activePdfState.onScaleChange}
-        pageControlsDisabled={!activePdfState.onPageChange}
+        scale={readerState.textScale}
+        onScaleChange={usesIntegratedPdfControls ? undefined : setTextScale}
+        showScaleControls={!usesIntegratedPdfControls}
+        showPageControls={false}
         modeDisabled={{
           translated: !translationReady && !translatedPdf,
           compare: !compareReady,
@@ -271,13 +212,10 @@ export default function DocumentDetail() {
               {readerState.baseMode === "original" ? (
                 <ReaderPaneOriginal
                   pdfPath={originalPdf}
+                  pdfFileName={document.filename}
                   markdownContent={parsedContent?.markdown_content}
-                  pageNumber={readerState.originalPage}
-                  scale={readerState.originalScale}
+                  contentFormat={fallbackContentFormat}
                   textScale={readerState.textScale}
-                  onPageChange={setOriginalPage}
-                  onScaleChange={setOriginalScale}
-                  onDocumentLoad={setOriginalPages}
                   onAskAI={handleAsk}
                   onTranslateSelection={handleTranslateSelection}
                 />
@@ -286,13 +224,10 @@ export default function DocumentDetail() {
               {readerState.baseMode === "translated" ? (
                 <ReaderPaneTranslated
                   pdfPath={translatedPdf}
+                  pdfFileName={translatedPdfName}
                   markdownContent={translatedContent?.content}
-                  pageNumber={readerState.translatedPage}
-                  scale={readerState.translatedScale}
+                  contentFormat={fallbackContentFormat}
                   textScale={readerState.textScale}
-                  onPageChange={setTranslatedPage}
-                  onScaleChange={setTranslatedScale}
-                  onDocumentLoad={setTranslatedPages}
                   onAskAI={handleAsk}
                   onTranslateSelection={handleTranslateSelection}
                 />
@@ -303,6 +238,8 @@ export default function DocumentDetail() {
                   <ReaderComparePane
                     originalContent={parsedContent?.markdown_content || ""}
                     translatedContent={translatedContent?.content || ""}
+                    originalFormat={fallbackContentFormat}
+                    translatedFormat={fallbackContentFormat}
                     textScale={readerState.textScale}
                     compareRatio={readerState.compareRatio}
                     compareOrder={readerState.compareOrder}
@@ -337,7 +274,7 @@ export default function DocumentDetail() {
       </div>
 
       {!readerState.askOpen && parseReady ? (
-        <div className="pointer-events-none fixed bottom-5 right-5">
+        <div className="pointer-events-none fixed bottom-5 right-5 z-50">
           <Button
             className="pointer-events-auto h-12 w-12 rounded-full shadow-[0_20px_40px_rgba(37,99,235,0.22)] ring-4 ring-white/70"
             size="icon"

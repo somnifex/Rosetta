@@ -4,10 +4,13 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 
+type MarkdownContentFormat = "markdown" | "plain"
+
 interface MarkdownViewerProps {
   content: string
   onTextSelect?: (text: string) => void
   textScale?: number
+  contentFormat?: MarkdownContentFormat
   containerRef?: Ref<HTMLDivElement>
   onScroll?: UIEventHandler<HTMLDivElement>
   className?: string
@@ -18,6 +21,7 @@ export function MarkdownViewer({
   content,
   onTextSelect,
   textScale = 1,
+  contentFormat = "markdown",
   containerRef,
   onScroll,
   className,
@@ -33,17 +37,33 @@ export function MarkdownViewer({
   return (
     <div
       ref={containerRef}
-      className={cn("flex-1 overflow-auto p-6", className)}
+      className={cn("reader-doc-surface flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-10", className)}
       onMouseUp={handleMouseUp}
       onScroll={onScroll}
     >
-      <div
-        className={cn("prose prose-sm max-w-none dark:prose-invert", contentClassName)}
-        style={{ fontSize: `${textScale}rem` }}
-      >
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {content}
-        </ReactMarkdown>
+      <div className="mx-auto w-full max-w-[1040px]">
+        <div className="reader-paper overflow-hidden rounded-[30px] border border-border/70 bg-background/90">
+          {contentFormat === "plain" ? (
+            <pre
+              className="reader-plain-text px-6 py-7 sm:px-10 sm:py-10"
+              style={{ fontSize: `${textScale}rem` }}
+            >
+              {content}
+            </pre>
+          ) : (
+            <div
+              className={cn(
+                "reader-prose prose prose-slate max-w-none px-6 py-7 dark:prose-invert sm:px-10 sm:py-10",
+                contentClassName
+              )}
+              style={{ fontSize: `${textScale}rem` }}
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content}
+              </ReactMarkdown>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
