@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import { getActiveProviderForType } from "@/lib/providers"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -58,7 +59,7 @@ export default function SearchPage() {
       return
     }
 
-    const activeProvider = providers?.find((p) => p.is_active)
+    const activeProvider = getActiveProviderForType(providers, "embed")
     if (!activeProvider) {
       toast({
         title: tc("no_active_provider.title"),

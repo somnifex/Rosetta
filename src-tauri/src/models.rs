@@ -61,18 +61,79 @@ pub struct Provider {
     pub name: String,
     pub base_url: String,
     pub api_key: String,
+    pub max_retries: i32,
+    pub priority: i32,
+    pub models: Vec<ProviderModel>,
     pub chat_model: Option<String>,
+    pub translate_model: Option<String>,
     pub embedding_model: Option<String>,
     pub rerank_model: Option<String>,
     pub headers: Option<String>,
     pub organization: Option<String>,
-    pub max_tokens: Option<i32>,
-    pub temperature: Option<f64>,
     pub timeout: Option<i32>,
     pub concurrency: i32,
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderModel {
+    pub id: String,
+    pub provider_id: String,
+    pub name: String,
+    pub model_type: String,
+    pub model_name: String,
+    pub supports_vision: bool,
+    pub is_active: bool,
+    pub priority: i32,
+    pub config: Option<ProviderModelConfig>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderModelConfig {
+    pub dimensions: Option<usize>,
+    pub rerank_top_n: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LlmSamplingConfig {
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub top_k: Option<i32>,
+    pub max_tokens: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUpsertInput {
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub max_retries: Option<i32>,
+    pub priority: Option<i32>,
+    pub headers: Option<String>,
+    pub organization: Option<String>,
+    pub timeout: Option<i32>,
+    pub concurrency: Option<i32>,
+    pub is_active: Option<bool>,
+    #[serde(default)]
+    pub models: Vec<ProviderModelInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub model_type: String,
+    pub model_name: String,
+    pub supports_vision: Option<bool>,
+    pub is_active: Option<bool>,
+    pub priority: Option<i32>,
+    pub config: Option<ProviderModelConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

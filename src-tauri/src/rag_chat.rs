@@ -1,5 +1,8 @@
-use crate::commands::{execute_index_job_with_embedding_provider, DirectEmbeddingProvider};
+use crate::commands::{
+    execute_index_job_with_embedding_provider, load_llm_sampling_config, DirectEmbeddingProvider,
+};
 use crate::embedder::Embedder;
+use crate::models::LlmSamplingConfig;
 use crate::AppState;
 use reqwest::Client;
 use rusqlite::OptionalExtension;
@@ -23,6 +26,10 @@ pub struct OpenAiChannelConfig {
     pub api_key: String,
     pub model: String,
     pub max_retries: Option<i32>,
+    #[serde(default)]
+    pub dimensions: Option<usize>,
+    #[serde(default)]
+    pub rerank_top_n: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -528,6 +535,7 @@ async fn retrieve_context(
         base_url: request.embed_channel.base_url.clone(),
         api_key: request.embed_channel.api_key.clone(),
         embedding_model: request.embed_channel.model.clone(),
+        dimensions: request.embed_channel.dimensions,
     };
     let top_k = request.top_k.unwrap_or(6).clamp(1, 12);
 
@@ -535,6 +543,7 @@ async fn retrieve_context(
         provider.base_url.clone(),
         provider.api_key.clone(),
         provider.embedding_model.clone(),
+        provider.dimensions,
     );
     let query_embeddings = embedder.embed(vec![query.clone()]).await?;
     let query_embedding = query_embeddings
@@ -650,13 +659,18 @@ async fn retrieve_context(
                     content: s.content.clone(),
                 })
                 .collect();
+            let effective_top_n = rerank_channel
+                .rerank_top_n
+                .filter(|top_n| *top_n > 0)
+                .unwrap_or(reranker_top_n)
+                .min(top_k);
             let reranked = crate::reranker::rerank_remote(
                 &rerank_channel.base_url,
                 &rerank_channel.api_key,
                 &rerank_channel.model,
                 &query,
                 &docs,
-                reranker_top_n.min(top_k),
+                effective_top_n,
             )
             .await?;
             let scored: Vec<(String, f32)> = reranked
@@ -716,7 +730,11 @@ fn build_system_prompt(request: &RagChatRequest, sources: &[RagChatSource]) -> S
     )
 }
 
-fn build_chat_payload(request: &RagChatRequest, sources: &[RagChatSource]) -> serde_json::Value {
+fn build_chat_payload(
+    request: &RagChatRequest,
+    sources: &[RagChatSource],
+    sampling: &LlmSamplingConfig,
+) -> serde_json::Value {
     let mut messages = Vec::with_capacity(request.messages.len() + 1);
     messages.push(json!({
         "role": "system",
@@ -736,24 +754,40 @@ fn build_chat_payload(request: &RagChatRequest, sources: &[RagChatSource]) -> se
         }
     }
 
-    json!({
+    let mut payload = json!({
         "model": request.chat_channel.model,
         "messages": messages,
         "stream": true,
-    })
+    });
+
+    if let Some(temperature) = sampling.temperature {
+        payload["temperature"] = json!(temperature);
+    }
+    if let Some(top_p) = sampling.top_p {
+        payload["top_p"] = json!(top_p);
+    }
+    if let Some(top_k) = sampling.top_k {
+        payload["top_k"] = json!(top_k);
+    }
+    if let Some(max_tokens) = sampling.max_tokens {
+        payload["max_tokens"] = json!(max_tokens);
+    }
+
+    payload
 }
 
 async fn stream_chat_completion(
     app: &AppHandle,
     request: &RagChatRequest,
     sources: Vec<RagChatSource>,
+    sampling: LlmSamplingConfig,
 ) -> Result<(), String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(300))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let payload = build_chat_payload(request, &sources);
+    let payload = build_chat_payload(request, &sources, &sampling);
     let url = openai_compatible_url(&request.chat_channel.base_url, "chat/completions");
 
     let response = client
@@ -832,7 +866,11 @@ async fn run_rag_chat(
 ) -> Result<(), String> {
     let app_dir = crate::app_dirs::runtime_app_dir(app)?;
     let sources = retrieve_context(state, &app_dir, request).await?;
-    stream_chat_completion(app, request, sources).await
+    let sampling = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        load_llm_sampling_config(db.get_connection(), "chat")?
+    };
+    stream_chat_completion(app, request, sources, sampling).await
 }
 
 #[tauri::command]

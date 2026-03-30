@@ -6,6 +6,8 @@ use std::time::Duration;
 struct EmbeddingRequest {
     model: String,
     input: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dimensions: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -22,11 +24,17 @@ pub struct Embedder {
     base_url: String,
     api_key: String,
     model: String,
+    dimensions: Option<usize>,
     client: Client,
 }
 
 impl Embedder {
-    pub fn new(base_url: String, api_key: String, model: String) -> Self {
+    pub fn new(
+        base_url: String,
+        api_key: String,
+        model: String,
+        dimensions: Option<usize>,
+    ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
@@ -36,6 +44,7 @@ impl Embedder {
             base_url,
             api_key,
             model,
+            dimensions,
             client,
         }
     }
@@ -44,6 +53,7 @@ impl Embedder {
         let request = EmbeddingRequest {
             model: self.model.clone(),
             input: texts,
+            dimensions: self.dimensions,
         };
 
         let url = openai_compatible_url(&self.base_url, "embeddings");

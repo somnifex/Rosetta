@@ -1,3 +1,4 @@
+use crate::models::LlmSamplingConfig;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -6,7 +7,13 @@ use std::time::Duration;
 struct ChatRequest {
     model: String,
     messages: Vec<Message>,
-    temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<i32>,
 }
 
@@ -30,8 +37,7 @@ pub struct Translator {
     base_url: String,
     api_key: String,
     model: String,
-    temperature: f64,
-    max_tokens: Option<i32>,
+    sampling: LlmSamplingConfig,
     client: Client,
 }
 
@@ -40,8 +46,7 @@ impl Translator {
         base_url: String,
         api_key: String,
         model: String,
-        temperature: f64,
-        max_tokens: Option<i32>,
+        sampling: LlmSamplingConfig,
     ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(120))
@@ -52,8 +57,7 @@ impl Translator {
             base_url,
             api_key,
             model,
-            temperature,
-            max_tokens,
+            sampling,
             client,
         }
     }
@@ -81,8 +85,10 @@ impl Translator {
                     content: text.to_string(),
                 },
             ],
-            temperature: self.temperature,
-            max_tokens: self.max_tokens,
+            temperature: self.sampling.temperature,
+            top_p: self.sampling.top_p,
+            top_k: self.sampling.top_k,
+            max_tokens: self.sampling.max_tokens,
         };
 
         let url = openai_compatible_url(&self.base_url, "chat/completions");

@@ -843,7 +843,6 @@ pub async fn download_reranker_model(
 
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             child.creation_flags(CREATE_NO_WINDOW);
         }

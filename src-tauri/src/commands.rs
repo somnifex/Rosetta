@@ -14,6 +14,10 @@ const TASK_REMOVED_BY_USER: &str = "Removed by user";
 const TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED: &str =
     "Cancelled because the document was deleted";
 const DOCUMENT_SELECT_FIELDS: &str = "d.id, d.title, d.filename, d.file_path, d.file_size, d.page_count, d.source_language, d.target_language, d.category_id, df.folder_id, d.created_at, d.updated_at, d.deleted_at, d.parse_status, d.translation_status, d.index_status, d.sync_status, c.name, f.name";
+const PROVIDER_MODEL_TYPE_CHAT: &str = "chat";
+const PROVIDER_MODEL_TYPE_TRANSLATE: &str = "translate";
+const PROVIDER_MODEL_TYPE_EMBED: &str = "embed";
+const PROVIDER_MODEL_TYPE_RERANK: &str = "rerank";
 
 struct IndexedChunk {
     id: String,
@@ -27,6 +31,390 @@ pub(crate) struct DirectEmbeddingProvider {
     pub base_url: String,
     pub api_key: String,
     pub embedding_model: String,
+    pub dimensions: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderRecord {
+    id: String,
+    name: String,
+    base_url: String,
+    api_key: String,
+    max_retries: i32,
+    priority: i32,
+    headers: Option<String>,
+    organization: Option<String>,
+    timeout: Option<i32>,
+    concurrency: i32,
+    is_active: bool,
+    created_at: String,
+    updated_at: String,
+    legacy_temperature: Option<f64>,
+    legacy_max_tokens: Option<i32>,
+}
+
+fn provider_select_sql() -> &'static str {
+    "SELECT
+        id,
+        name,
+        base_url,
+        api_key,
+        COALESCE(max_retries, 3) AS max_retries,
+        COALESCE(priority, 0) AS priority,
+        headers,
+        organization,
+        timeout,
+        COALESCE(concurrency, 3) AS concurrency,
+        is_active,
+        created_at,
+        updated_at,
+        temperature,
+        max_tokens
+     FROM providers"
+}
+
+fn normalize_provider_model_type(value: &str) -> Option<&'static str> {
+    match value.trim().to_lowercase().as_str() {
+        "chat" => Some(PROVIDER_MODEL_TYPE_CHAT),
+        "translate" => Some(PROVIDER_MODEL_TYPE_TRANSLATE),
+        "embed" | "embedding" => Some(PROVIDER_MODEL_TYPE_EMBED),
+        "rerank" | "reranker" => Some(PROVIDER_MODEL_TYPE_RERANK),
+        _ => None,
+    }
+}
+
+fn parse_optional_f64(value: Option<String>) -> Option<f64> {
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.parse::<f64>().ok())
+}
+
+fn parse_optional_i32(value: Option<String>) -> Option<i32> {
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.parse::<i32>().ok())
+}
+
+fn get_setting_value(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>, String> {
+    conn.query_row("SELECT value FROM app_settings WHERE key = ?1", [key], |row| {
+        row.get::<_, String>(0)
+    })
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+pub(crate) fn load_llm_sampling_config(
+    conn: &rusqlite::Connection,
+    scope: &str,
+) -> Result<LlmSamplingConfig, String> {
+    Ok(LlmSamplingConfig {
+        temperature: parse_optional_f64(get_setting_value(conn, &format!("llm.{scope}.temperature"))?),
+        top_p: parse_optional_f64(get_setting_value(conn, &format!("llm.{scope}.top_p"))?),
+        top_k: parse_optional_i32(get_setting_value(conn, &format!("llm.{scope}.top_k"))?),
+        max_tokens: parse_optional_i32(get_setting_value(conn, &format!("llm.{scope}.max_tokens"))?),
+    })
+}
+
+fn serialize_provider_model_config(config: Option<&ProviderModelConfig>) -> Result<Option<String>, String> {
+    let Some(config) = config else {
+        return Ok(None);
+    };
+
+    if config.dimensions.is_none() && config.rerank_top_n.is_none() {
+        return Ok(None);
+    }
+
+    serde_json::to_string(config)
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
+fn parse_provider_model_config(raw: Option<String>) -> Result<Option<ProviderModelConfig>, String> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+
+    serde_json::from_str::<ProviderModelConfig>(&raw)
+        .map(Some)
+        .map_err(|e| format!("Invalid provider model config: {e}"))
+}
+
+fn load_provider_models_map(
+    conn: &rusqlite::Connection,
+    provider_ids: &[String],
+) -> Result<HashMap<String, Vec<ProviderModel>>, String> {
+    let mut model_map: HashMap<String, Vec<ProviderModel>> = HashMap::new();
+
+    if provider_ids.is_empty() {
+        return Ok(model_map);
+    }
+
+    let placeholders = (1..=provider_ids.len())
+        .map(|idx| format!("?{idx}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let sql = format!(
+        "SELECT
+            id,
+            provider_id,
+            name,
+            model_type,
+            model_name,
+            supports_vision,
+            is_active,
+            priority,
+            config,
+            created_at,
+            updated_at
+         FROM provider_models
+         WHERE provider_id IN ({placeholders})
+         ORDER BY provider_id, priority ASC, created_at ASC"
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(provider_ids.iter()), |row| {
+            let raw_config: Option<String> = row.get(8)?;
+            let config = parse_provider_model_config(raw_config)
+                .map_err(|error| rusqlite::Error::FromSqlConversionFailure(
+                    8,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+                ))?;
+
+            Ok(ProviderModel {
+                id: row.get(0)?,
+                provider_id: row.get(1)?,
+                name: row.get(2)?,
+                model_type: row.get(3)?,
+                model_name: row.get(4)?,
+                supports_vision: row.get::<_, i32>(5)? != 0,
+                is_active: row.get::<_, i32>(6)? != 0,
+                priority: row.get(7)?,
+                config,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for model in rows {
+        model_map
+            .entry(model.provider_id.clone())
+            .or_default()
+            .push(model);
+    }
+
+    Ok(model_map)
+}
+
+fn primary_model_name_for_type(models: &[ProviderModel], model_type: &str) -> Option<String> {
+    models
+        .iter()
+        .filter(|model| model.is_active && model.model_type == model_type)
+        .min_by_key(|model| (model.priority, model.created_at.clone()))
+        .map(|model| model.model_name.clone())
+}
+
+fn build_provider(record: ProviderRecord, models: Vec<ProviderModel>) -> Provider {
+    Provider {
+        id: record.id,
+        name: record.name,
+        base_url: record.base_url,
+        api_key: record.api_key,
+        max_retries: record.max_retries,
+        priority: record.priority,
+        models: models.clone(),
+        chat_model: primary_model_name_for_type(&models, PROVIDER_MODEL_TYPE_CHAT),
+        translate_model: primary_model_name_for_type(&models, PROVIDER_MODEL_TYPE_TRANSLATE),
+        embedding_model: primary_model_name_for_type(&models, PROVIDER_MODEL_TYPE_EMBED),
+        rerank_model: primary_model_name_for_type(&models, PROVIDER_MODEL_TYPE_RERANK),
+        headers: record.headers,
+        organization: record.organization,
+        timeout: record.timeout,
+        concurrency: record.concurrency,
+        is_active: record.is_active,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    }
+}
+
+fn load_provider_records(conn: &rusqlite::Connection) -> Result<Vec<ProviderRecord>, String> {
+    let sql = format!("{} ORDER BY priority ASC, created_at ASC, name ASC", provider_select_sql());
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+        Ok(ProviderRecord {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            base_url: row.get(2)?,
+            api_key: row.get(3)?,
+            max_retries: row.get(4)?,
+            priority: row.get(5)?,
+            headers: row.get(6)?,
+            organization: row.get(7)?,
+            timeout: row.get(8)?,
+            concurrency: row.get(9)?,
+            is_active: row.get::<_, i32>(10)? != 0,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            legacy_temperature: row.get(13)?,
+            legacy_max_tokens: row.get(14)?,
+        })
+    })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+fn load_provider_record_by_id(
+    conn: &rusqlite::Connection,
+    provider_id: &str,
+) -> Result<ProviderRecord, String> {
+    let sql = format!("{} WHERE id = ?1", provider_select_sql());
+    conn.query_row(&sql, [provider_id], |row| {
+        Ok(ProviderRecord {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            base_url: row.get(2)?,
+            api_key: row.get(3)?,
+            max_retries: row.get(4)?,
+            priority: row.get(5)?,
+            headers: row.get(6)?,
+            organization: row.get(7)?,
+            timeout: row.get(8)?,
+            concurrency: row.get(9)?,
+            is_active: row.get::<_, i32>(10)? != 0,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            legacy_temperature: row.get(13)?,
+            legacy_max_tokens: row.get(14)?,
+        })
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn load_provider_models_for_provider(
+    conn: &rusqlite::Connection,
+    provider_id: &str,
+) -> Result<Vec<ProviderModel>, String> {
+    let mut model_map = load_provider_models_map(conn, &[provider_id.to_string()])?;
+    Ok(model_map.remove(provider_id).unwrap_or_default())
+}
+
+fn find_primary_model_for_type(
+    models: &[ProviderModel],
+    model_type: &str,
+) -> Option<ProviderModel> {
+    models
+        .iter()
+        .filter(|model| model.is_active && model.model_type == model_type)
+        .min_by_key(|model| (model.priority, model.created_at.clone()))
+        .cloned()
+}
+
+fn sync_provider_models(
+    conn: &rusqlite::Connection,
+    provider_id: &str,
+    models: &[ProviderModelInput],
+    now: &str,
+) -> Result<(), String> {
+    let existing_ids = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM provider_models WHERE provider_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([provider_id], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+    };
+
+    let mut kept_ids = Vec::with_capacity(models.len());
+
+    for (index, model) in models.iter().enumerate() {
+        let model_name = model.model_name.trim();
+        let display_name = model.name.trim();
+        let Some(model_type) = normalize_provider_model_type(&model.model_type) else {
+            return Err(format!("Unsupported model type: {}", model.model_type));
+        };
+
+        if display_name.is_empty() {
+            return Err("Model name is required".to_string());
+        }
+        if model_name.is_empty() {
+            return Err("Model identifier is required".to_string());
+        }
+
+        let model_id = model
+            .id
+            .clone()
+            .filter(|id| existing_ids.iter().any(|existing| existing == id))
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        kept_ids.push(model_id.clone());
+
+        let config_json = serialize_provider_model_config(model.config.as_ref())?;
+        let priority = model.priority.unwrap_or(index as i32);
+
+        conn.execute(
+            "INSERT INTO provider_models (
+                id,
+                provider_id,
+                name,
+                model_type,
+                model_name,
+                supports_vision,
+                is_active,
+                priority,
+                config,
+                created_at,
+                updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+             ON CONFLICT(id) DO UPDATE SET
+                provider_id = excluded.provider_id,
+                name = excluded.name,
+                model_type = excluded.model_type,
+                model_name = excluded.model_name,
+                supports_vision = excluded.supports_vision,
+                is_active = excluded.is_active,
+                priority = excluded.priority,
+                config = excluded.config,
+                updated_at = excluded.updated_at",
+            (
+                &model_id,
+                provider_id,
+                display_name,
+                model_type,
+                model_name,
+                if model.supports_vision.unwrap_or(false) { 1 } else { 0 },
+                if model.is_active.unwrap_or(true) { 1 } else { 0 },
+                priority,
+                config_json,
+                now,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for existing_id in existing_ids {
+        if !kept_ids.iter().any(|id| id == &existing_id) {
+            conn.execute("DELETE FROM provider_models WHERE id = ?1", [&existing_id])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 fn openai_compatible_url(base_url: &str, path: &str) -> String {
@@ -1655,127 +2043,166 @@ pub fn get_providers(state: State<AppState>) -> Result<Vec<Provider>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    let mut stmt = conn
-        .prepare("SELECT * FROM providers ORDER BY name")
-        .map_err(|e| e.to_string())?;
+    let records = load_provider_records(conn)?;
+    let ids = records
+        .iter()
+        .map(|record| record.id.clone())
+        .collect::<Vec<_>>();
+    let model_map = load_provider_models_map(conn, &ids)?;
 
-    let providers = stmt
-        .query_map([], |row| {
-            Ok(Provider {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                base_url: row.get(2)?,
-                api_key: row.get(3)?,
-                chat_model: row.get(4)?,
-                embedding_model: row.get(5)?,
-                rerank_model: row.get(6)?,
-                headers: row.get(7)?,
-                organization: row.get(8)?,
-                max_tokens: row.get(9)?,
-                temperature: row.get(10)?,
-                timeout: row.get(11)?,
-                concurrency: row.get(12)?,
-                is_active: row.get::<_, i32>(13)? != 0,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
-            })
+    Ok(records
+        .into_iter()
+        .map(|record| {
+            let models = model_map.get(&record.id).cloned().unwrap_or_default();
+            build_provider(record, models)
         })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(providers)
+        .collect())
 }
 
 #[tauri::command]
 pub fn create_provider(
     state: State<AppState>,
-    name: String,
-    base_url: String,
-    api_key: String,
-    chat_model: Option<String>,
-    embedding_model: Option<String>,
+    input: ProviderUpsertInput,
 ) -> Result<Provider, String> {
+    if input.name.trim().is_empty() {
+        return Err("Channel name is required".to_string());
+    }
+    if input.base_url.trim().is_empty() {
+        return Err("Base URL is required".to_string());
+    }
+    if input.api_key.trim().is_empty() {
+        return Err("API key is required".to_string());
+    }
+
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
 
-    conn.execute(
-        "INSERT INTO providers (id, name, base_url, api_key, chat_model, embedding_model, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        (&id, &name, &base_url, &api_key, &chat_model, &embedding_model, &now, &now),
-    )
-    .map_err(|e| e.to_string())?;
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+    let result = (|| {
+        conn.execute(
+            "INSERT INTO providers (
+                id,
+                name,
+                base_url,
+                api_key,
+                headers,
+                organization,
+                timeout,
+                concurrency,
+                is_active,
+                created_at,
+                updated_at,
+                max_retries,
+                priority
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11, ?12)",
+            (
+                &id,
+                input.name.trim(),
+                input.base_url.trim(),
+                input.api_key.trim(),
+                input.headers.as_deref(),
+                input.organization.as_deref(),
+                input.timeout,
+                input.concurrency.unwrap_or(3),
+                if input.is_active.unwrap_or(true) { 1 } else { 0 },
+                &now,
+                input.max_retries.unwrap_or(3),
+                input.priority.unwrap_or(0),
+            ),
+        )
+        .map_err(|e| e.to_string())?;
 
-    Ok(Provider {
-        id,
-        name,
-        base_url,
-        api_key,
-        chat_model,
-        embedding_model,
-        rerank_model: None,
-        headers: None,
-        organization: None,
-        max_tokens: None,
-        temperature: None,
-        timeout: None,
-        concurrency: 3,
-        is_active: true,
-        created_at: now.clone(),
-        updated_at: now,
-    })
+        sync_provider_models(conn, &id, &input.models, &now)?;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(error);
+    }
+
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+
+    let record = load_provider_record_by_id(conn, &id)?;
+    let models = load_provider_models_for_provider(conn, &id)?;
+    Ok(build_provider(record, models))
 }
 
 #[tauri::command]
 pub fn update_provider(
     state: State<AppState>,
     id: String,
-    name: Option<String>,
-    base_url: Option<String>,
-    api_key: Option<String>,
-    is_active: Option<bool>,
-) -> Result<(), String> {
+    input: ProviderUpsertInput,
+) -> Result<Provider, String> {
+    if input.name.trim().is_empty() {
+        return Err("Channel name is required".to_string());
+    }
+    if input.base_url.trim().is_empty() {
+        return Err("Base URL is required".to_string());
+    }
+    if input.api_key.trim().is_empty() {
+        return Err("API key is required".to_string());
+    }
+
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
 
-    let mut updates = vec![];
-    let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+    let result = (|| {
+        let updated = conn
+            .execute(
+                "UPDATE providers
+                 SET name = ?1,
+                     base_url = ?2,
+                     api_key = ?3,
+                     headers = ?4,
+                     organization = ?5,
+                     timeout = ?6,
+                     concurrency = ?7,
+                     is_active = ?8,
+                     updated_at = ?9,
+                     max_retries = ?10,
+                     priority = ?11
+                 WHERE id = ?12",
+                (
+                    input.name.trim(),
+                    input.base_url.trim(),
+                    input.api_key.trim(),
+                    input.headers.as_deref(),
+                    input.organization.as_deref(),
+                    input.timeout,
+                    input.concurrency.unwrap_or(3),
+                    if input.is_active.unwrap_or(true) { 1 } else { 0 },
+                    &now,
+                    input.max_retries.unwrap_or(3),
+                    input.priority.unwrap_or(0),
+                    &id,
+                ),
+            )
+            .map_err(|e| e.to_string())?;
 
-    if let Some(n) = name {
-        updates.push("name = ?");
-        params.push(Box::new(n));
+        if updated == 0 {
+            return Err("Provider not found".to_string());
+        }
+
+        sync_provider_models(conn, &id, &input.models, &now)?;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(error);
     }
-    if let Some(b) = base_url {
-        updates.push("base_url = ?");
-        params.push(Box::new(b));
-    }
-    if let Some(a) = api_key {
-        updates.push("api_key = ?");
-        params.push(Box::new(a));
-    }
-    if let Some(active) = is_active {
-        updates.push("is_active = ?");
-        params.push(Box::new(if active { 1 } else { 0 }));
-    }
 
-    if updates.is_empty() {
-        return Ok(());
-    }
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
 
-    updates.push("updated_at = ?");
-    params.push(Box::new(now));
-    params.push(Box::new(id));
-
-    let sql = format!("UPDATE providers SET {} WHERE id = ?", updates.join(", "));
-    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-
-    conn.execute(&sql, params_refs.as_slice())
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
+    let record = load_provider_record_by_id(conn, &id)?;
+    let models = load_provider_models_for_provider(conn, &id)?;
+    Ok(build_provider(record, models))
 }
 
 #[tauri::command]
@@ -1783,6 +2210,8 @@ pub fn delete_provider(state: State<AppState>, id: String) -> Result<(), String>
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
+    conn.execute("DELETE FROM provider_models WHERE provider_id = ?1", [&id])
+        .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM providers WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
 
@@ -2238,11 +2667,32 @@ pub async fn start_translation_job(
         return Err("Document not found".to_string());
     }
 
+    let provider_record = load_provider_record_by_id(conn, &provider_id)?;
+    let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
+    let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+        .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+    let mut sampling = load_llm_sampling_config(conn, "translate")?;
+    if sampling.temperature.is_none() {
+        sampling.temperature = provider_record.legacy_temperature;
+    }
+    if sampling.max_tokens.is_none() {
+        sampling.max_tokens = provider_record.legacy_max_tokens;
+    }
+
     let job_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let config = serde_json::json!({
         "source_language": source_language,
         "target_language": target_language,
+        "provider_name": provider_record.name,
+        "model_id": translate_model.id,
+        "model_name": translate_model.model_name,
+        "sampling": {
+            "temperature": sampling.temperature,
+            "top_p": sampling.top_p,
+            "top_k": sampling.top_k,
+            "max_tokens": sampling.max_tokens,
+        },
     })
     .to_string();
 
@@ -2338,7 +2788,7 @@ async fn execute_translation_job(
     source_language: &str,
     target_language: &str,
 ) -> Result<(), String> {
-    let (provider, markdown_content) = {
+    let (provider_record, translate_model, sampling, markdown_content) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let now = Utc::now().to_rfc3339();
@@ -2356,11 +2806,17 @@ async fn execute_translation_job(
         )
         .map_err(|e| e.to_string())?;
 
-        let provider: (String, String, Option<String>, Option<f64>, Option<i32>) = conn.query_row(
-            "SELECT base_url, api_key, chat_model, temperature, max_tokens FROM providers WHERE id = ?",
-            [provider_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-        ).map_err(|e| e.to_string())?;
+        let provider_record = load_provider_record_by_id(conn, provider_id)?;
+        let provider_models = load_provider_models_for_provider(conn, provider_id)?;
+        let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+            .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let mut sampling = load_llm_sampling_config(conn, "translate")?;
+        if sampling.temperature.is_none() {
+            sampling.temperature = provider_record.legacy_temperature;
+        }
+        if sampling.max_tokens.is_none() {
+            sampling.max_tokens = provider_record.legacy_max_tokens;
+        }
 
         let markdown_content: String = conn.query_row(
             "SELECT pc.markdown_content
@@ -2373,15 +2829,14 @@ async fn execute_translation_job(
             |row| row.get(0),
         ).map_err(|e| e.to_string())?;
 
-        (provider, markdown_content)
+        (provider_record, translate_model, sampling, markdown_content)
     };
 
     let translator = crate::translator::Translator::new(
-        provider.0,
-        provider.1,
-        provider.2.unwrap_or_else(|| "gpt-4".to_string()),
-        provider.3.unwrap_or(0.3),
-        provider.4,
+        provider_record.base_url,
+        provider_record.api_key,
+        translate_model.model_name,
+        sampling,
     );
 
     let result = translator
@@ -2793,21 +3248,16 @@ async fn execute_index_job(
     let provider = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
-
-        let provider: (String, String, Option<String>) = conn
-            .query_row(
-                "SELECT base_url, api_key, embedding_model FROM providers WHERE id = ?",
-                [provider_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .map_err(|e| e.to_string())?;
+        let provider_record = load_provider_record_by_id(conn, provider_id)?;
+        let provider_models = load_provider_models_for_provider(conn, provider_id)?;
+        let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
+            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
 
         DirectEmbeddingProvider {
-            base_url: provider.0,
-            api_key: provider.1,
-            embedding_model: provider
-                .2
-                .unwrap_or_else(|| "text-embedding-ada-002".to_string()),
+            base_url: provider_record.base_url,
+            api_key: provider_record.api_key,
+            embedding_model: embed_model.model_name,
+            dimensions: embed_model.config.and_then(|config| config.dimensions),
         }
     };
 
@@ -2857,6 +3307,7 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         provider.base_url.clone(),
         provider.api_key.clone(),
         embedding_model.clone(),
+        provider.dimensions,
     );
 
     let embeddings = embedder.embed(chunks.clone()).await?;
@@ -3015,35 +3466,32 @@ pub async fn search_documents(
     let (provider, rag_settings, zvec_settings) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
-
-        let provider = conn
-            .query_row(
-                "SELECT base_url, api_key, embedding_model FROM providers WHERE id = ?",
-                [&provider_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                },
-            )
-            .map_err(|e| e.to_string())?;
+        let provider_record = load_provider_record_by_id(conn, &provider_id)?;
+        let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
+        let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
+            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
         let rag_settings = crate::zvec::load_rag_settings(conn)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, &app_dir)?;
 
-        (provider, rag_settings, zvec_settings)
+        (
+            DirectEmbeddingProvider {
+                base_url: provider_record.base_url,
+                api_key: provider_record.api_key,
+                embedding_model: embed_model.model_name,
+                dimensions: embed_model.config.and_then(|config| config.dimensions),
+            },
+            rag_settings,
+            zvec_settings,
+        )
     };
 
-    let embedding_model = provider
-        .2
-        .clone()
-        .unwrap_or_else(|| "text-embedding-ada-002".to_string());
+    let embedding_model = provider.embedding_model.clone();
 
     let embedder = crate::embedder::Embedder::new(
-        provider.0,
-        provider.1,
+        provider.base_url,
+        provider.api_key,
         embedding_model.clone(),
+        provider.dimensions,
     );
 
     let query_embeddings = embedder.embed(vec![query]).await?;

@@ -1,4 +1,9 @@
-import { channelStore, type ChannelConfig } from "./api"
+import { api } from "./api"
+import {
+  getActiveProviderForType,
+  getPrimaryModelForType,
+  toOpenAiChannelConfig,
+} from "./providers"
 
 export interface ChatAttachment {
   documentId: string
@@ -62,22 +67,6 @@ function isTauri() {
   return !!(window as any).__TAURI_INTERNALS__
 }
 
-function getActiveChannel(channels: ChannelConfig[]): ChannelConfig | null {
-  return channels.find((channel) => channel.isActive) || null
-}
-
-export function getActiveChatChannel() {
-  return getActiveChannel(channelStore.getChatChannels())
-}
-
-export function getActiveEmbedChannel() {
-  return getActiveChannel(channelStore.getEmbedChannels())
-}
-
-export function getActiveRerankChannel() {
-  return getActiveChannel(channelStore.getRerankChannels())
-}
-
 interface StreamRagChatArgs {
   messages: { role: string; content: string }[]
   attachments?: ChatAttachment[]
@@ -92,17 +81,21 @@ export async function* streamRagChat(
     throw new Error("Tauri backend not available. RAG chat requires the desktop app runtime.")
   }
 
-  const chatChannel = getActiveChatChannel()
-  if (!chatChannel) {
+  const providers = await api.getProviders()
+  const chatProvider = getActiveProviderForType(providers, "chat")
+  const chatModel = chatProvider ? getPrimaryModelForType(chatProvider, "chat") : null
+  if (!chatProvider || !chatModel) {
     throw new Error("NO_ACTIVE_CHAT_CHANNEL")
   }
 
-  const embedChannel = getActiveEmbedChannel()
-  if (!embedChannel) {
+  const embedProvider = getActiveProviderForType(providers, "embed")
+  const embedModel = embedProvider ? getPrimaryModelForType(embedProvider, "embed") : null
+  if (!embedProvider || !embedModel) {
     throw new Error("NO_ACTIVE_EMBED_CHANNEL")
   }
 
-  const rerankChannel = getActiveRerankChannel()
+  const rerankProvider = getActiveProviderForType(providers, "rerank")
+  const rerankModel = rerankProvider ? getPrimaryModelForType(rerankProvider, "rerank") : null
 
   const requestId = genId()
   const { invoke } = await import("@tauri-apps/api/core")
@@ -168,9 +161,12 @@ export async function* streamRagChat(
     await invoke("start_rag_chat", {
       request: {
         requestId,
-        chatChannel: chatChannel,
-        embedChannel: embedChannel,
-        rerankChannel: rerankChannel || null,
+        chatChannel: toOpenAiChannelConfig(chatProvider, chatModel),
+        embedChannel: toOpenAiChannelConfig(embedProvider, embedModel),
+        rerankChannel:
+          rerankProvider && rerankModel
+            ? toOpenAiChannelConfig(rerankProvider, rerankModel)
+            : null,
         messages: args.messages,
         attachments: args.attachments ?? [],
         topK: args.topK,

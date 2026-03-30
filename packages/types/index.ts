@@ -176,25 +176,48 @@ export interface DocumentTag {
   created_at: string
 }
 
-export type ProviderType = "chat" | "embedding"
+export type ProviderModelType = "chat" | "translate" | "embed" | "rerank"
+
+export interface ProviderModelConfig {
+  dimensions?: number
+  rerank_top_n?: number
+}
+
+export interface ProviderModel {
+  id: string
+  provider_id: string
+  name: string
+  model_type: ProviderModelType
+  model_name: string
+  supports_vision: boolean
+  is_active: boolean
+  priority: number
+  config?: ProviderModelConfig
+  created_at: string
+  updated_at: string
+}
+
+export interface LlmSamplingConfig {
+  temperature?: number
+  top_p?: number
+  top_k?: number
+  max_tokens?: number
+}
 
 export interface Provider {
   id: string
   name: string
-  provider_type: ProviderType
   base_url: string
   api_key: string
-  model: string
-  chat_model?: string
-  embedding_model?: string
-  rerank_model?: string
-  supports_vision: boolean
   max_retries: number
   priority: number
-  headers?: Record<string, string>
+  models: ProviderModel[]
+  chat_model?: string
+  translate_model?: string
+  embedding_model?: string
+  rerank_model?: string
+  headers?: Record<string, string> | string
   organization?: string
-  max_tokens?: number
-  temperature?: number
   timeout?: number
   concurrency?: number
   is_active: boolean

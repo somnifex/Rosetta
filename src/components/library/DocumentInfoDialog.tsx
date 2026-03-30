@@ -7,7 +7,8 @@ import "react-pdf/dist/Page/TextLayer.css"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog"
 import { api } from "@/lib/api"
-import type { DocumentOutput, Folder, Provider } from "../../../packages/types"
+import { getActiveProviderForType } from "@/lib/providers"
+import type { DocumentOutput, Folder } from "../../../packages/types"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -86,10 +87,6 @@ function StatusDot({ status }: { status: string }) {
   if (status === "failed") return <AlertTriangle className="h-3 w-3 text-destructive" />
   if (["parsing", "translating", "indexing"].includes(status)) return <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
   return <Circle className="h-3 w-3 text-muted-foreground/40" />
-}
-
-function findActiveProvider(providers: Provider[] | undefined) {
-  return providers?.find((provider) => provider.is_active) ?? null
 }
 
 function findOutput(outputs: DocumentOutput[], outputType: DocumentOutput["output_type"]) {
@@ -195,7 +192,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const { data: parseJobs = [] } = useQuery({ queryKey: ["parseJobs"], queryFn: api.getAllParseJobs, enabled: open, refetchInterval: 3000 })
   const { data: translationJobs = [] } = useQuery({ queryKey: ["translationJobs"], queryFn: api.getAllTranslationJobs, enabled: open, refetchInterval: 3000 })
 
-  const activeProvider = findActiveProvider(providers)
+  const activeTranslateProvider = getActiveProviderForType(providers, "translate")
+  const activeEmbedProvider = getActiveProviderForType(providers, "embed")
   const translatedPdf = findOutput(outputs, "translated_pdf")
 
   const updateDocMutation = useMutation({
@@ -222,10 +220,10 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const translationMutation = useMutation({
     mutationFn: () => {
       if (!document) throw new Error("Document not found")
-      if (!activeProvider) throw new Error("未找到可用的激活模型")
+      if (!activeTranslateProvider) throw new Error("未找到可用的翻译模型渠道")
       return api.startTranslationJob({
         documentId: document.id,
-        providerId: activeProvider.id,
+        providerId: activeTranslateProvider.id,
         sourceLanguage: document.source_language || "English",
         targetLanguage: document.target_language || "Chinese",
       })
@@ -240,8 +238,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const indexMutation = useMutation({
     mutationFn: () => {
       if (!document) throw new Error("Document not found")
-      if (!activeProvider) throw new Error("未找到可用的激活模型")
-      return api.startIndexJob(document.id, activeProvider.id)
+      if (!activeEmbedProvider) throw new Error("未找到可用的 embedding 模型渠道")
+      return api.startIndexJob(document.id, activeEmbedProvider.id)
     },
     onSuccess: () => {
       invalidateAll()

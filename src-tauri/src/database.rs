@@ -27,11 +27,25 @@ impl Database {
             include_str!("../migrations/002_vector_indexes.sql"),
             include_str!("../migrations/003_library_upgrade.sql"),
             include_str!("../migrations/004_document_outputs.sql"),
+            include_str!("../migrations/005_provider_models.sql"),
         ];
 
         for schema in schemas {
             self.conn.execute_batch(schema)?;
         }
+
+        ensure_table_column(
+            &self.conn,
+            "providers",
+            "max_retries",
+            "ALTER TABLE providers ADD COLUMN max_retries INTEGER DEFAULT 3",
+        )?;
+        ensure_table_column(
+            &self.conn,
+            "providers",
+            "priority",
+            "ALTER TABLE providers ADD COLUMN priority INTEGER DEFAULT 0",
+        )?;
 
         Ok(())
     }
@@ -97,6 +111,19 @@ impl Database {
 
         Ok(())
     }
+}
+
+fn ensure_table_column(conn: &Connection, table: &str, column: &str, alter_sql: &str) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>>>()?;
+
+    if !columns.iter().any(|existing| existing == column) {
+        conn.execute_batch(alter_sql)?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

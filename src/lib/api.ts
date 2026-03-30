@@ -5,11 +5,13 @@ import type {
   Document,
   DocumentOutput,
   Folder,
+  LlmSamplingConfig,
   ParseJob,
   ParsedContent,
   PermanentDeleteReport,
   Provider,
-  ProviderType,
+  ProviderModelConfig,
+  ProviderModelType,
   Tag,
   TranslatedContent,
   TranslationJob,
@@ -38,6 +40,7 @@ const STORAGE_KEY_EMBED = "pdf-translate:embed-channels"
 const STORAGE_KEY_RERANK = "pdf-translate:rerank-channels"
 const STORAGE_KEY_FAILOVER = "pdf-translate:failover-enabled"
 const STORAGE_KEY_TRANSLATE_PROMPT = "pdf-translate:translate-prompt"
+const STORAGE_KEY_PROVIDER_MIGRATED = "pdf-translate:providers-migrated-v2"
 
 export interface TranslatePromptConfig {
   systemPrompt: string
@@ -61,6 +64,32 @@ export interface ChannelConfig {
   maxRetries: number
   isActive: boolean
 }
+
+export interface ProviderModelInput {
+  id?: string
+  name: string
+  modelType: ProviderModelType
+  modelName: string
+  supportsVision?: boolean
+  isActive?: boolean
+  priority?: number
+  config?: ProviderModelConfig
+}
+
+export interface ProviderUpsertInput {
+  name: string
+  baseUrl: string
+  apiKey: string
+  maxRetries?: number
+  priority?: number
+  timeout?: number
+  concurrency?: number
+  isActive?: boolean
+  models: ProviderModelInput[]
+}
+
+type LegacyChannelType = ProviderModelType
+type LegacyProviderGroup = ProviderUpsertInput
 
 function loadChannels(key: string): ChannelConfig[] {
   try {
@@ -101,6 +130,120 @@ export const channelStore = {
   saveTranslatePrompt: (config: TranslatePromptConfig) => {
     localStorage.setItem(STORAGE_KEY_TRANSLATE_PROMPT, JSON.stringify(config))
   },
+}
+
+function groupLegacyChannels(): LegacyProviderGroup[] {
+  const typedChannels: Array<{ type: LegacyChannelType; channel: ChannelConfig; index: number }> = [
+    ...channelStore.getChatChannels().map((channel, index) => ({ type: "chat" as const, channel, index })),
+    ...channelStore.getTranslateChannels().map((channel, index) => ({ type: "translate" as const, channel, index })),
+    ...channelStore.getEmbedChannels().map((channel, index) => ({ type: "embed" as const, channel, index })),
+    ...channelStore.getRerankChannels().map((channel, index) => ({ type: "rerank" as const, channel, index })),
+  ]
+
+  const groups = new Map<string, LegacyProviderGroup>()
+
+  for (const { type, channel, index } of typedChannels) {
+    const key = [channel.name.trim(), channel.baseUrl.trim(), channel.apiKey.trim()].join("::")
+    const existing = groups.get(key)
+
+    const model: ProviderModelInput = {
+      name: channel.model.trim(),
+      modelType: type,
+      modelName: channel.model.trim(),
+      supportsVision: channel.supportsVision,
+      isActive: channel.isActive,
+      priority: index,
+      config: {},
+    }
+
+    if (!existing) {
+      groups.set(key, {
+        name: channel.name.trim(),
+        baseUrl: channel.baseUrl.trim(),
+        apiKey: channel.apiKey.trim(),
+        maxRetries: channel.maxRetries,
+        priority: index,
+        isActive: channel.isActive,
+        models: [model],
+      })
+      continue
+    }
+
+    existing.priority = Math.min(existing.priority ?? index, index)
+    existing.maxRetries = Math.max(existing.maxRetries ?? channel.maxRetries, channel.maxRetries)
+    existing.isActive = existing.isActive || channel.isActive
+    existing.models.push(model)
+  }
+
+  return [...groups.values()].filter(
+    (group) =>
+      group.name &&
+      group.baseUrl &&
+      group.apiKey &&
+      group.models.some((model) => model.name && model.modelName)
+  )
+}
+
+let legacyProviderMigrationPromise: Promise<void> | null = null
+
+async function ensureLegacyProviderMigration() {
+  if (!isTauri()) return
+
+  const alreadyMigrated = localStorage.getItem(STORAGE_KEY_PROVIDER_MIGRATED) === "true"
+  if (alreadyMigrated) return
+
+  if (!legacyProviderMigrationPromise) {
+    legacyProviderMigrationPromise = (async () => {
+      const groups = groupLegacyChannels()
+      if (groups.length === 0) {
+        localStorage.setItem(STORAGE_KEY_PROVIDER_MIGRATED, "true")
+        return
+      }
+
+      const existingProviders = await safeInvoke<Provider[]>("get_providers")
+      if (existingProviders.length > 0) {
+        localStorage.setItem(STORAGE_KEY_PROVIDER_MIGRATED, "true")
+        return
+      }
+
+      for (const input of groups) {
+        await safeInvoke<Provider>("create_provider", { input })
+      }
+
+      localStorage.setItem(STORAGE_KEY_PROVIDER_MIGRATED, "true")
+    })().finally(() => {
+      legacyProviderMigrationPromise = null
+    })
+  }
+
+  await legacyProviderMigrationPromise
+}
+
+export async function loadLlmSamplingSettings() {
+  const settings = await api.getAllAppSettings()
+  const map = new Map(settings.map((item) => [item.key, item.value]))
+
+  const readScope = (scope: "chat" | "translate"): LlmSamplingConfig => {
+    const numberOrUndefined = (key: string) => {
+      const raw = map.get(key)?.trim()
+      if (!raw) return undefined
+      const parsed = Number(raw)
+      return Number.isFinite(parsed) ? parsed : undefined
+    }
+
+    return {
+      temperature: numberOrUndefined(`llm.${scope}.temperature`),
+      top_p: numberOrUndefined(`llm.${scope}.top_p`),
+      top_k: numberOrUndefined(`llm.${scope}.top_k`),
+      max_tokens: numberOrUndefined(`llm.${scope}.max_tokens`),
+    }
+  }
+
+  return {
+    chat: readScope("chat"),
+    translate: readScope("translate"),
+    failoverEnabled: map.get("llm.failover_enabled") !== "false",
+  }
 }
 
 // --- Tauri API calls ---
@@ -360,43 +503,14 @@ export const api = {
     safeInvoke<Chunk[]>("get_document_chunks", { documentId }),
 
   // Providers
-  getProviders: () => safeInvoke<Provider[]>("get_providers"),
-  createProvider: (data: {
-    name: string
-    baseUrl: string
-    apiKey: string
-    providerType: ProviderType
-    model: string
-    supportsVision?: boolean
-    maxRetries?: number
-    chatModel?: string
-    embeddingModel?: string
-  }) =>
-    safeInvoke<Provider>("create_provider", {
-      name: data.name,
-      baseUrl: data.baseUrl,
-      apiKey: data.apiKey,
-      providerType: data.providerType,
-      model: data.model,
-      supportsVision: data.supportsVision,
-      maxRetries: data.maxRetries,
-      chatModel: data.chatModel,
-      embeddingModel: data.embeddingModel,
-    }),
-  updateProvider: (data: {
-    id: string
-    name?: string
-    baseUrl?: string
-    apiKey?: string
-    isActive?: boolean
-  }) =>
-    safeInvoke<void>("update_provider", {
-      id: data.id,
-      name: data.name,
-      baseUrl: data.baseUrl,
-      apiKey: data.apiKey,
-      isActive: data.isActive,
-    }),
+  getProviders: async () => {
+    await ensureLegacyProviderMigration()
+    return safeInvoke<Provider[]>("get_providers")
+  },
+  createProvider: (input: ProviderUpsertInput) =>
+    safeInvoke<Provider>("create_provider", { input }),
+  updateProvider: (id: string, input: ProviderUpsertInput) =>
+    safeInvoke<Provider>("update_provider", { id, input }),
   deleteProvider: (id: string) => safeInvoke<void>("delete_provider", { id }),
   testProviderConnection: (data: {
     baseUrl: string

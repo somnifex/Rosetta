@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api, channelStore } from "@/lib/api"
+import { api } from "@/lib/api"
+import { countActiveProvidersForType } from "@/lib/providers"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -57,6 +58,11 @@ export default function RagTab() {
     queryKey: ["zvecStatus"],
     queryFn: api.getZvecStatus,
     enabled: ragSettingsLoaded,
+  })
+
+  const { data: providers = [] } = useQuery({
+    queryKey: ["providers"],
+    queryFn: api.getProviders,
   })
 
   // Zvec venv management
@@ -160,8 +166,7 @@ export default function RagTab() {
     },
   })
 
-  // Read rerankChannels from store directly (cross-tab dependency)
-  const rerankChannels = channelStore.getRerankChannels()
+  const activeRerankProviderCount = countActiveProvidersForType(providers, "rerank")
 
   return (
     <div className="space-y-4">
@@ -542,11 +547,11 @@ export default function RagTab() {
                 <p className="font-medium text-sm">{t("rag.reranker.remote_title")}</p>
                 <p className="text-xs text-muted-foreground">{t("rag.reranker.remote_description")}</p>
               </div>
-              {rerankChannels.filter((c) => c.isActive).length === 0 ? (
+              {activeRerankProviderCount === 0 ? (
                 <p className="text-sm text-destructive">{t("rag.reranker.no_channels")}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {t("rag.reranker.channels_configured", { count: String(rerankChannels.filter((c) => c.isActive).length) })}
+                  {t("rag.reranker.channels_configured", { count: String(activeRerankProviderCount) })}
                 </p>
               )}
             </div>

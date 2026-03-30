@@ -37,6 +37,7 @@ pub struct BackupPayload {
     pub document_tags: Option<Vec<serde_json::Value>>,
     pub document_folders: Option<Vec<serde_json::Value>>,
     pub providers: Option<Vec<serde_json::Value>>,
+    pub provider_models: Option<Vec<serde_json::Value>>,
     pub parsed_contents: Option<Vec<serde_json::Value>>,
     pub translated_contents: Option<Vec<serde_json::Value>>,
     pub chunks: Option<Vec<serde_json::Value>>,
@@ -85,10 +86,14 @@ pub fn collect_backup_data(
         document_tags: None,
         document_folders: None,
         providers: None,
+        provider_models: None,
         parsed_contents: None,
         translated_contents: None,
         chunks: None,
     };
+
+    payload.providers = Some(query_table_as_json(conn, "SELECT * FROM providers")?);
+    payload.provider_models = Some(query_table_as_json(conn, "SELECT * FROM provider_models")?);
 
     if scope == "full" {
         payload.documents = Some(query_table_as_json(conn, "SELECT * FROM documents")?);
@@ -97,7 +102,6 @@ pub fn collect_backup_data(
         payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
         payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
         payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
-        payload.providers = Some(query_table_as_json(conn, "SELECT * FROM providers")?);
         payload.parsed_contents = Some(query_table_as_json(conn, "SELECT * FROM parsed_contents")?);
         payload.translated_contents = Some(query_table_as_json(
             conn,
@@ -159,7 +163,7 @@ pub fn apply_backup_data(
     if envelope.scope == "full" {
         // Restore full data - clear and re-insert
         // Order matters due to foreign keys
-        conn.execute_batch("DELETE FROM document_tags; DELETE FROM document_folders; DELETE FROM chunks; DELETE FROM translated_contents; DELETE FROM parsed_contents; DELETE FROM documents; DELETE FROM folders; DELETE FROM categories; DELETE FROM tags; DELETE FROM providers;")
+        conn.execute_batch("DELETE FROM document_tags; DELETE FROM document_folders; DELETE FROM chunks; DELETE FROM translated_contents; DELETE FROM parsed_contents; DELETE FROM documents; DELETE FROM folders; DELETE FROM categories; DELETE FROM tags; DELETE FROM provider_models; DELETE FROM providers;")
             .map_err(|e| format!("Failed to clear tables: {}", e))?;
 
         if let Some(categories) = &envelope.payload.categories {
@@ -175,11 +179,6 @@ pub fn apply_backup_data(
         if let Some(tags) = &envelope.payload.tags {
             for row in tags {
                 insert_json_row(conn, "tags", row)?;
-            }
-        }
-        if let Some(providers) = &envelope.payload.providers {
-            for row in providers {
-                insert_json_row(conn, "providers", row)?;
             }
         }
         if let Some(documents) = &envelope.payload.documents {
@@ -211,6 +210,17 @@ pub fn apply_backup_data(
             for row in doc_folders {
                 insert_json_row(conn, "document_folders", row)?;
             }
+        }
+    }
+
+    if let Some(providers) = &envelope.payload.providers {
+        for row in providers {
+            insert_json_row(conn, "providers", row)?;
+        }
+    }
+    if let Some(provider_models) = &envelope.payload.provider_models {
+        for row in provider_models {
+            insert_json_row(conn, "provider_models", row)?;
         }
     }
 
@@ -303,10 +313,14 @@ pub async fn webdav_upload_backup(
             document_tags: None,
             document_folders: None,
             providers: None,
+            provider_models: None,
             parsed_contents: None,
             translated_contents: None,
             chunks: None,
         };
+
+        payload.providers = Some(query_table_as_json(conn, "SELECT * FROM providers")?);
+        payload.provider_models = Some(query_table_as_json(conn, "SELECT * FROM provider_models")?);
 
         if scope == "full" {
             payload.documents = Some(query_table_as_json(conn, "SELECT * FROM documents")?);
@@ -315,7 +329,6 @@ pub async fn webdav_upload_backup(
             payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
             payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
             payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
-            payload.providers = Some(query_table_as_json(conn, "SELECT * FROM providers")?);
             payload.parsed_contents =
                 Some(query_table_as_json(conn, "SELECT * FROM parsed_contents")?);
             payload.translated_contents = Some(query_table_as_json(
