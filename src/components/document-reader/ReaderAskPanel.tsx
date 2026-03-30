@@ -28,6 +28,7 @@ import { ConversationSettingsDialog } from "@/components/chat/ConversationSettin
 import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
+import { useResizableRightPanel } from "@/hooks/useResizableRightPanel"
 import {
   Bot,
   ExternalLink,
@@ -358,15 +359,38 @@ export function ReaderAskPanel({
   }
 
   const messages = activeConversation?.messages ?? []
+  const {
+    panelStyle,
+    isResizing,
+    startResize,
+  } = useResizableRightPanel({
+    defaultWidth: 400,
+    minWidth: 320,
+    maxWidth: 760,
+    storageKey: "rosetta:reader-ask-panel-width",
+  })
 
   return (
     <>
       <aside
         className={cn(
-          "glass-surface border-l flex flex-col min-h-0",
-          isOpen ? "w-[400px] shrink-0" : "w-0 overflow-hidden border-l-0"
+          "glass-surface border-l relative flex flex-col min-h-0",
+          isOpen ? "shrink-0" : "w-0 overflow-hidden border-l-0"
         )}
+        style={isOpen ? panelStyle : undefined}
       >
+        {isOpen ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize ask panel"
+            className={cn(
+              "absolute left-0 top-0 h-full w-2 -translate-x-1/2 cursor-col-resize",
+              isResizing ? "bg-primary/15" : "hover:bg-primary/10"
+            )}
+            onPointerDown={startResize}
+          />
+        ) : null}
         <div className="flex h-full flex-col flex-1 min-h-0">
           <div className="shrink-0 border-b border-border/60 px-4 py-3">
             <div className="flex items-start justify-between gap-3">

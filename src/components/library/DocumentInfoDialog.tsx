@@ -449,8 +449,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[88vh] max-w-[820px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-xl [&>button]:hidden">
-          <div className="relative flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+        <DialogContent className="h-[88vh] max-h-[88vh] max-w-[820px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-xl [&>button]:hidden">
+          <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
 
             {/* ── Header: Preview + Metadata ── */}
             <div className="flex gap-5 border-b border-border px-6 py-5">
@@ -543,7 +543,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
             </div>
 
             {/* ── Scrollable body ── */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto">
 
               {/* ── Reading Entries (horizontal) ── */}
               <div className="border-b border-border px-6 py-5">

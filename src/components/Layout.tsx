@@ -128,7 +128,12 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </header>
 
-        <main className={cn("flex-1 min-h-0", immersivePage ? "overflow-hidden" : "overflow-auto")}>
+        <main
+          className={cn(
+            "flex-1 min-h-0",
+            immersivePage ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
+          )}
+        >
           {immersivePage ? children : <div className="container mx-auto p-6">{children}</div>}
         </main>
       </div>

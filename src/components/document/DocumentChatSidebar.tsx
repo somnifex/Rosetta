@@ -6,6 +6,7 @@ import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import { MessageSquare, X, SendHorizonal, Square, Bot, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
+import { useResizableRightPanel } from "@/hooks/useResizableRightPanel"
 
 interface DocumentChatSidebarProps {
   documentId: string
@@ -49,6 +50,16 @@ export function DocumentChatSidebar({
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const {
+    panelStyle,
+    isResizing,
+    startResize,
+  } = useResizableRightPanel({
+    defaultWidth: 380,
+    minWidth: 320,
+    maxWidth: 760,
+    storageKey: "rosetta:document-chat-sidebar-width",
+  })
 
   // Persist messages
   useEffect(() => {
@@ -177,7 +188,17 @@ export function DocumentChatSidebar({
   }
 
   return (
-    <div className="w-[380px] border-l bg-card flex flex-col shrink-0">
+    <div className="relative flex shrink-0 flex-col border-l bg-card" style={panelStyle}>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize document chat sidebar"
+        className={cn(
+          "absolute left-0 top-0 h-full w-2 -translate-x-1/2 cursor-col-resize",
+          isResizing ? "bg-primary/15" : "hover:bg-primary/10"
+        )}
+        onPointerDown={startResize}
+      />
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-12 border-b shrink-0">
         <h3 className="text-sm font-semibold flex items-center gap-2">

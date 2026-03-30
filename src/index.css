@@ -61,7 +61,8 @@
   }
   body {
     @apply bg-background text-foreground;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     font-synthesis-weight: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;

@@ -62,6 +62,7 @@ import {
   X,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useResizableRightPanel } from "@/hooks/useResizableRightPanel"
 import { cn } from "@/lib/utils"
 
 function dedupeAttachments(attachments: ChatAttachment[]) {
@@ -767,6 +768,16 @@ export default function Chat() {
     ? getCodeRenderKind(previewCodeBlock.language, previewCodeBlock.code)
     : "none"
   const isPreviewOpen = Boolean(previewDocId || previewCodeBlock)
+  const {
+    panelStyle: previewPanelStyle,
+    isResizing: isPreviewResizing,
+    startResize: startPreviewResize,
+  } = useResizableRightPanel({
+    defaultWidth: 460,
+    minWidth: 340,
+    maxWidth: 860,
+    storageKey: "rosetta:chat-preview-panel-width",
+  })
   const mindmapNodes =
     previewCodeRenderKind === "mindmap" && previewCodeBlock
       ? parseMindmap(previewCodeBlock.code)
@@ -1325,7 +1336,20 @@ export default function Chat() {
                     setPreviewCodeView("code")
                   }}
                 />
-                <aside className="chat-slide-in glass-surface pointer-events-auto flex h-full w-full max-w-[460px] flex-col border-l border-border/60 shadow-2xl">
+                <aside
+                  className="chat-slide-in glass-surface pointer-events-auto relative flex h-full w-full max-w-[92vw] flex-col border-l border-border/60 shadow-2xl"
+                  style={previewPanelStyle}
+                >
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize preview panel"
+                    className={cn(
+                      "absolute left-0 top-0 h-full w-2 -translate-x-1/2 cursor-col-resize",
+                      isPreviewResizing ? "bg-primary/15" : "hover:bg-primary/10"
+                    )}
+                    onPointerDown={startPreviewResize}
+                  />
                   <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
                   <div>
                     <p className="text-sm font-semibold">
