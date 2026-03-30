@@ -8,6 +8,7 @@ const ProvidersTab = lazy(() => import("./ProvidersTab"))
 const MineruTab = lazy(() => import("./MineruTab"))
 const WebDAVTab = lazy(() => import("./WebDAVTab"))
 const RagTab = lazy(() => import("./RagTab"))
+const LogsTab = lazy(() => import("./LogsTab"))
 
 export default function Settings() {
   const { t } = useTranslation("settings")
@@ -27,6 +28,7 @@ export default function Settings() {
           <TabsTrigger value="mineru">{t("tabs.mineru")}</TabsTrigger>
           <TabsTrigger value="webdav">{t("tabs.webdav")}</TabsTrigger>
           <TabsTrigger value="rag">{t("tabs.rag")}</TabsTrigger>
+          <TabsTrigger value="logs">{t("tabs.logs")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -46,6 +48,9 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="rag">
           <Suspense fallback={null}><RagTab /></Suspense>
+        </TabsContent>
+        <TabsContent value="logs">
+          <Suspense fallback={null}><LogsTab /></Suspense>
         </TabsContent>
       </Tabs>
     </div>

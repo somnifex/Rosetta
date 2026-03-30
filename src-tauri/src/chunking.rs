@@ -80,10 +80,6 @@ impl TextChunker {
         Self { config }
     }
 
-    pub fn with_defaults() -> Self {
-        Self::new(ChunkingConfig::default())
-    }
-
     /// 根据tokens大小分片文本，保留句子边界
     pub fn chunk(&self, text: &str) -> Vec<Chunk> {
         if text.is_empty() {
@@ -478,29 +474,6 @@ impl TextChunker {
             || trimmed.contains("<img")
     }
 
-    /// 按句子分割文本
-    fn split_sentences(&self, text: &str) -> Vec<String> {
-        // 简单的句子分割：按。！？等标点
-        let mut sentences = Vec::new();
-        let mut current = String::new();
-
-        for ch in text.chars() {
-            current.push(ch);
-            if matches!(ch, '。' | '！' | '？' | '.' | '!' | '?') {
-                let trimmed = current.trim().to_string();
-                if !trimmed.is_empty() {
-                    sentences.push(trimmed);
-                }
-                current.clear();
-            }
-        }
-
-        if !current.trim().is_empty() {
-            sentences.push(current.trim().to_string());
-        }
-
-        sentences
-    }
 }
 
 #[cfg(test)]
@@ -510,7 +483,7 @@ mod tests {
     #[test]
     fn test_basic_chunking() {
         let text = "这是第一句。这是第二句。这是第三句。";
-        let chunker = TextChunker::with_defaults();
+        let chunker = TextChunker::new(ChunkingConfig::default());
         let chunks = chunker.chunk(text);
         assert!(!chunks.is_empty());
         for chunk in &chunks {
@@ -521,7 +494,7 @@ mod tests {
     #[test]
     fn test_empty_text() {
         let text = "";
-        let chunker = TextChunker::with_defaults();
+        let chunker = TextChunker::new(ChunkingConfig::default());
         let chunks = chunker.chunk(text);
         assert!(chunks.is_empty());
     }

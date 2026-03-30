@@ -99,6 +99,17 @@ export default {
     description: "Inspeccione rápidamente el contenido analizado detrás de los adjuntos y citas.",
     close: "Cerrar vista previa",
     no_content: "No hay contenido analizado disponible",
+    open_code_panel: "Abrir en panel lateral",
+    code_title: "Vista previa de código",
+    code_description: "Viendo un bloque de código en formato {{language}}.",
+    render_tab: "Render",
+    code_tab: "Código",
+  },
+  message: {
+    retry: "Reintentar",
+    edit_and_retry: "Editar y reintentar",
+    save_and_retry: "Guardar y reintentar",
+    cancel: "Cancelar",
   },
   role: {
     user: "Tú",

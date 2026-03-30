@@ -299,18 +299,6 @@ impl Translator {
         Ok(result)
     }
 
-    /// 智能翻译：自动分片长文本，返回带位置的翻译结果
-    /// 支持并发处理和速率限制
-    pub async fn translate_with_chunks(
-        &self,
-        text: &str,
-        source_lang: &str,
-        target_lang: &str,
-    ) -> Result<Vec<TranslationResult>, String> {
-        self.translate_with_chunks_progress(text, source_lang, target_lang, |_completed, _total| {})
-            .await
-    }
-
     /// 智能翻译：自动分片长文本，并在每个分片完成时回调进度
     pub async fn translate_with_chunks_progress<F>(
         &self,
@@ -341,8 +329,27 @@ impl Translator {
             self.rate_limit_config.max_requests_per_minute
         );
 
+        if chunks.len() == 1 {
+            on_chunk_completed(0, 1);
+            let translated_text = self.translate(text, source_lang, target_lang).await?;
+            on_chunk_completed(1, 1);
+            return Ok(vec![TranslationResult {
+                chunk_index: 0,
+                translated_text,
+                start_pos: 0,
+                end_pos: text.len(),
+                success: true,
+                error: None,
+            }]);
+        }
+
         let total_chunks = chunks.len();
         on_chunk_completed(0, total_chunks);
+        let chunk_lookup: HashMap<usize, Chunk> = chunks
+            .iter()
+            .cloned()
+            .map(|chunk| (chunk.index, chunk))
+            .collect();
 
         // 转换为可处理的格式
         let mut translation_tasks = FuturesUnordered::new();
@@ -408,6 +415,28 @@ impl Translator {
                     .map(|r| format!("chunk {}: {}", r.chunk_index, r.error.as_ref().unwrap()))
                     .collect::<Vec<_>>()
             );
+
+            let retried = self
+                .retry_failed_chunks(
+                    failed_chunks.into_iter().cloned().collect(),
+                    &chunk_lookup,
+                    source_lang,
+                    target_lang,
+                )
+                .await?;
+
+            let mut retried_map = HashMap::new();
+            for item in retried {
+                retried_map.insert(item.chunk_index, item);
+            }
+
+            for item in &mut results {
+                if !item.success {
+                    if let Some(retried) = retried_map.remove(&item.chunk_index) {
+                        *item = retried;
+                    }
+                }
+            }
         }
 
         Ok(results)
@@ -584,7 +613,23 @@ impl Translator {
 
         // 按chunk_index排序后拼接
         let mut sorted_results = results.to_vec();
-        sorted_results.sort_by_key(|r| r.chunk_index);
+        sorted_results.sort_by_key(|r| (r.start_pos, r.chunk_index));
+
+        for window in sorted_results.windows(2) {
+            let prev = &window[0];
+            let next = &window[1];
+            if prev.end_pos > next.start_pos {
+                log::warn!(
+                    "Translation chunks overlap: prev={} ({}..{}), next={} ({}..{})",
+                    prev.chunk_index,
+                    prev.start_pos,
+                    prev.end_pos,
+                    next.chunk_index,
+                    next.start_pos,
+                    next.end_pos
+                );
+            }
+        }
 
         let merged = sorted_results
             .iter()

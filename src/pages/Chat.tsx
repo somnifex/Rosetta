@@ -18,7 +18,6 @@ import {
   findDocumentConversation,
   genId,
   generateConversationTitle,
-  getConversationPreview,
   isImageAttachment,
   loadChatBehaviorSettings,
   loadConversations,
@@ -45,17 +44,19 @@ import { ConversationSettingsDialog } from "@/components/chat/ConversationSettin
 import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import {
   Bot,
+  Check,
   FileText,
   Loader2,
   MessageSquare,
   Paperclip,
+  Pencil,
   Plus,
+  RotateCcw,
   Search,
   SendHorizonal,
   Settings2,
   Sparkles,
   Square,
-  Trash2,
   User,
   X,
 } from "lucide-react"
@@ -81,6 +82,103 @@ function formatConversationTime(timestamp: number) {
   })
 }
 
+function normalizeCodeLanguage(language: string) {
+  const value = language.trim().toLowerCase()
+  if (!value) return "text"
+  if (value === "js") return "javascript"
+  if (value === "ts") return "typescript"
+  if (value === "py") return "python"
+  if (value === "yml") return "yaml"
+  if (value === "sh") return "bash"
+  return value
+}
+
+interface MindmapNode {
+  text: string
+  children: MindmapNode[]
+}
+
+function parseMindmap(code: string): MindmapNode[] {
+  const lines = code
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\t/g, "  "))
+    .filter((line) => line.trim().length > 0 && !line.trim().startsWith("%%"))
+
+  const normalized = lines[0]?.trim().toLowerCase() === "mindmap" ? lines.slice(1) : lines
+  if (!normalized.length) return []
+
+  const roots: MindmapNode[] = []
+  const stack: Array<{ level: number; node: MindmapNode }> = []
+
+  for (const line of normalized) {
+    const indent = line.match(/^\s*/)?.[0].length ?? 0
+    const level = Math.floor(indent / 2)
+    const text = line
+      .trim()
+      .replace(/^[-*+]\s*/, "")
+      .replace(/^::icon\([^)]*\)\s*/, "")
+      .replace(/^\w+\((.*)\)$/, "$1")
+      .trim()
+
+    if (!text) continue
+
+    const node: MindmapNode = { text, children: [] }
+
+    while (stack.length && stack[stack.length - 1].level >= level) {
+      stack.pop()
+    }
+
+    if (stack.length === 0) {
+      roots.push(node)
+    } else {
+      stack[stack.length - 1].node.children.push(node)
+    }
+
+    stack.push({ level, node })
+  }
+
+  return roots
+}
+
+function getCodeRenderKind(language: string, code: string) {
+  const normalized = normalizeCodeLanguage(language)
+  const trimmed = code.trim().toLowerCase()
+
+  if (["html", "htm", "svg", "xml"].includes(normalized)) {
+    return "html"
+  }
+
+  if (normalized === "mindmap" || normalized === "mermaid" || trimmed.startsWith("mindmap")) {
+    return "mindmap"
+  }
+
+  return "none"
+}
+
+function MindmapTree({ nodes }: { nodes: MindmapNode[] }) {
+  if (!nodes.length) {
+    return <p className="text-xs text-muted-foreground">No mindmap nodes found.</p>
+  }
+
+  return (
+    <ul className="space-y-2">
+      {nodes.map((node, index) => (
+        <li key={`${node.text}-${index}`} className="relative pl-4">
+          <span className="absolute left-0 top-2 h-2 w-2 rounded-full bg-primary/50" />
+          <div className="rounded-lg border border-border/70 bg-background px-3 py-2 text-sm">
+            {node.text}
+          </div>
+          {node.children.length ? (
+            <div className="mt-2 border-l border-dashed border-border/70 pl-3">
+              <MindmapTree nodes={node.children} />
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function Chat() {
   const { t } = useTranslation("chat")
   const { toast } = useToast()
@@ -97,8 +195,16 @@ export default function Chat() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [useLocalRagForNextTurn, setUseLocalRagForNextTurn] = useState(false)
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
+  const [previewCodeBlock, setPreviewCodeBlock] = useState<{
+    code: string
+    language: string
+  } | null>(null)
+  const [previewCodeView, setPreviewCodeView] = useState<"code" | "render">("code")
   const [historyQuery, setHistoryQuery] = useState("")
   const [titleGeneratingId, setTitleGeneratingId] = useState<string | null>(null)
+  const [isComposerFocused, setIsComposerFocused] = useState(false)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState("")
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -199,8 +305,32 @@ export default function Chat() {
       setActiveId(id)
       setAttachments([])
       setPreviewDocId(null)
+      setPreviewCodeBlock(null)
+      setPreviewCodeView("code")
+      setEditingMessageId(null)
+      setEditingText("")
       setInput("")
     })
+  }
+
+  function togglePreviewDocument(documentId: string) {
+    setPreviewCodeBlock(null)
+    setPreviewDocId((current) =>
+      current === documentId
+        ? null
+        : documentId
+    )
+  }
+
+  function openCodePreview(payload: { code: string; language: string }) {
+    setPreviewDocId(null)
+    const normalizedLanguage = normalizeCodeLanguage(payload.language)
+    const renderKind = getCodeRenderKind(normalizedLanguage, payload.code)
+    setPreviewCodeBlock({
+      code: payload.code,
+      language: normalizedLanguage,
+    })
+    setPreviewCodeView(renderKind === "none" ? "code" : "render")
   }
 
   function handleCreateConversation() {
@@ -253,26 +383,13 @@ export default function Chat() {
     }
   }
 
-  async function handleSend() {
-    if (!input.trim() && attachments.length === 0) return
-
-    let conversation = activeConversation
-    let nextConversations = conversations
-    if (!conversation) {
-      conversation = createConversation(t("new_chat"), {
-        title: t("new_chat"),
-        titleSource: "fallback",
-        scope: "general",
-      })
-      nextConversations = replaceConversation(nextConversations, conversation)
-      persist(nextConversations)
-      setActiveId(conversation.id)
-    }
-
-    const messageContent = input.trim() || t("attachment_default_prompt")
-    const composerAttachments =
-      conversation.scope === "document" ? [] : [...attachments]
-
+  async function runAssistantTurn(
+    conversation: ChatConversation,
+    updatedMessages: ChatMessage[],
+    userMessage: ChatMessage,
+    composerAttachments: ChatAttachment[],
+    options?: { forceLocalRag?: boolean }
+  ) {
     const alwaysIncludeFullDocument =
       conversation.alwaysIncludeFullDocument ??
       chatBehaviorSettings?.defaultAlwaysIncludeFullDocument ??
@@ -293,7 +410,7 @@ export default function Chat() {
         ? conversation.contextAttachments[0]
         : null
 
-    let requestUserContent = messageContent
+    let requestUserContent = userMessage.content
 
     const fetchDocumentFullContent = async (documentId: string) => {
       try {
@@ -314,7 +431,7 @@ export default function Chat() {
     }
 
     let shouldEnableRetrieval =
-      useLocalRagForNextTurn ||
+      (options?.forceLocalRag ?? useLocalRagForNextTurn) ||
       conversation.scope === "document" ||
       composerAttachments.length > 0 ||
       conversation.contextAttachments.length > 0
@@ -324,7 +441,7 @@ export default function Chat() {
       if (fullDocument.length > effectiveBehavior.longTextThreshold) {
         shouldEnableRetrieval = true
         requestUserContent = renderPromptTemplate(effectiveBehavior.longTextRagPrompt, {
-          user_input: messageContent,
+          user_input: userMessage.content,
         })
         toast({
           title: t("composer.long_text_rag_enabled"),
@@ -332,37 +449,22 @@ export default function Chat() {
         })
       } else if (fullDocument.trim()) {
         requestUserContent = renderPromptTemplate(effectiveBehavior.documentAppendPrompt, {
-          user_input: messageContent,
+          user_input: userMessage.content,
           document_content: fullDocument,
         })
       }
     }
 
-    if (!shouldEnableRetrieval && messageContent.length > effectiveBehavior.longTextThreshold) {
+    if (!shouldEnableRetrieval && userMessage.content.length > effectiveBehavior.longTextThreshold) {
       shouldEnableRetrieval = true
       requestUserContent = renderPromptTemplate(effectiveBehavior.longTextRagPrompt, {
-        user_input: messageContent,
+        user_input: userMessage.content,
       })
       toast({
         title: t("composer.long_text_rag_enabled"),
         description: t("composer.long_text_rag_enabled_desc"),
       })
     }
-
-    const userMessage: ChatMessage = {
-      id: genId(),
-      role: "user",
-      content: messageContent,
-      timestamp: Date.now(),
-      attachments:
-        composerAttachments.length > 0 ? dedupeAttachments(composerAttachments) : undefined,
-    }
-
-    const updatedMessages = [...conversation.messages, userMessage]
-    const fallbackTitle =
-      conversation.titleSource === "manual"
-        ? conversation.title
-        : deriveConversationTitleCandidate(messageContent, t("new_chat"))
 
     const requestAttachments = dedupeAttachments([
       ...conversation.contextAttachments,
@@ -376,22 +478,7 @@ export default function Chat() {
         : []),
     ])
 
-    applyConversationUpdates(conversation.id, {
-      messages: updatedMessages,
-      title:
-        conversation.messages.length === 0 && conversation.titleSource !== "manual"
-          ? fallbackTitle
-          : conversation.title,
-      titleSource:
-        conversation.messages.length === 0 && conversation.titleSource !== "manual"
-          ? "fallback"
-          : conversation.titleSource,
-    })
-
-    setInput("")
-    setAttachments([])
     setIsStreaming(true)
-
     const controller = new AbortController()
     abortRef.current = controller
 
@@ -517,6 +604,121 @@ export default function Chat() {
     }
   }
 
+  async function handleSend() {
+    if (!input.trim() && attachments.length === 0) return
+    if (isStreaming) return
+
+    let conversation = activeConversation
+    let nextConversations = conversations
+    if (!conversation) {
+      conversation = createConversation(t("new_chat"), {
+        title: t("new_chat"),
+        titleSource: "fallback",
+        scope: "general",
+      })
+      nextConversations = replaceConversation(nextConversations, conversation)
+      persist(nextConversations)
+      setActiveId(conversation.id)
+    }
+
+    const messageContent = input.trim() || t("attachment_default_prompt")
+    const composerAttachments =
+      conversation.scope === "document" ? [] : [...attachments]
+
+    const userMessage: ChatMessage = {
+      id: genId(),
+      role: "user",
+      content: messageContent,
+      timestamp: Date.now(),
+      attachments:
+        composerAttachments.length > 0 ? dedupeAttachments(composerAttachments) : undefined,
+    }
+
+    const updatedMessages = [...conversation.messages, userMessage]
+    const fallbackTitle =
+      conversation.titleSource === "manual"
+        ? conversation.title
+        : deriveConversationTitleCandidate(messageContent, t("new_chat"))
+
+    applyConversationUpdates(conversation.id, {
+      messages: updatedMessages,
+      title:
+        conversation.messages.length === 0 && conversation.titleSource !== "manual"
+          ? fallbackTitle
+          : conversation.title,
+      titleSource:
+        conversation.messages.length === 0 && conversation.titleSource !== "manual"
+          ? "fallback"
+          : conversation.titleSource,
+    })
+
+    setInput("")
+    setAttachments([])
+    setEditingMessageId(null)
+    setEditingText("")
+
+    await runAssistantTurn(conversation, updatedMessages, userMessage, composerAttachments)
+  }
+
+  async function handleRetryFromUserMessage(messageId: string, editedContent?: string) {
+    if (!activeConversation || isStreaming) return
+
+    const targetIndex = activeConversation.messages.findIndex(
+      (message) => message.id === messageId && message.role === "user"
+    )
+    if (targetIndex < 0) return
+
+    const sourceMessage = activeConversation.messages[targetIndex]
+    const baseMessages = activeConversation.messages.slice(0, targetIndex)
+    const nextContent = (editedContent ?? sourceMessage.content).trim()
+    const sourceAttachments = sourceMessage.attachments ?? []
+    const composerAttachments =
+      activeConversation.scope === "document" ? [] : dedupeAttachments(sourceAttachments)
+
+    if (!nextContent && composerAttachments.length === 0) return
+
+    const retryUserMessage: ChatMessage = {
+      id: genId(),
+      role: "user",
+      content: nextContent || t("attachment_default_prompt"),
+      timestamp: Date.now(),
+      attachments: composerAttachments.length ? composerAttachments : undefined,
+    }
+
+    const updatedMessages = [...baseMessages, retryUserMessage]
+    const userCountBeforeRetry = baseMessages.filter((message) => message.role === "user").length
+
+    applyConversationUpdates(activeConversation.id, {
+      messages: updatedMessages,
+      title:
+        userCountBeforeRetry === 0 && activeConversation.titleSource !== "manual"
+          ? deriveConversationTitleCandidate(retryUserMessage.content, t("new_chat"))
+          : activeConversation.title,
+      titleSource:
+        userCountBeforeRetry === 0 && activeConversation.titleSource !== "manual"
+          ? "fallback"
+          : activeConversation.titleSource,
+    })
+
+    setEditingMessageId(null)
+    setEditingText("")
+    setInput("")
+    setAttachments([])
+
+    await runAssistantTurn(
+      activeConversation,
+      updatedMessages,
+      retryUserMessage,
+      composerAttachments,
+      { forceLocalRag: false }
+    )
+  }
+
+  function startEditMessage(message: ChatMessage) {
+    setEditingMessageId(message.id)
+    setEditingText(message.content)
+  }
+
   function handleStop() {
     abortRef.current?.abort()
   }
@@ -541,24 +743,25 @@ export default function Chat() {
 
   const activeMessages = activeConversation?.messages ?? []
   const contextAttachments = activeConversation?.contextAttachments ?? []
+  const canSend = Boolean(input.trim() || attachments.length > 0)
+  const previewCodeRenderKind = previewCodeBlock
+    ? getCodeRenderKind(previewCodeBlock.language, previewCodeBlock.code)
+    : "none"
+  const mindmapNodes =
+    previewCodeRenderKind === "mindmap" && previewCodeBlock
+      ? parseMindmap(previewCodeBlock.code)
+      : []
 
   return (
     <>
       <div className="app-page-surface relative flex h-full min-h-0 overflow-hidden">
-        <aside className="relative z-10 flex w-[320px] shrink-0 flex-col border-r border-border bg-background">
+        <aside className="relative z-10 flex w-[300px] shrink-0 flex-col border-r border-border bg-background/95">
           <div className="border-b border-border px-4 py-4">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  {t("history.label")}
-                </p>
-                <h1 className="mt-1 text-xl font-semibold tracking-tight">
-                  {t("title")}
-                </h1>
-              </div>
+              <h1 className="text-lg font-semibold tracking-tight">{t("title")}</h1>
               <Button
                 size="icon"
-                className="h-9 w-9 rounded-md"
+                className="h-8 w-8 rounded-md"
                 onClick={handleCreateConversation}
                 title={t("new_chat")}
               >
@@ -566,112 +769,86 @@ export default function Chat() {
               </Button>
             </div>
 
-            <div className="relative mt-4">
+            <div className="relative mt-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={historyQuery}
                 onChange={(event) => setHistoryQuery(event.target.value)}
                 placeholder={t("history.search_placeholder")}
-                className="h-11 rounded-2xl border-border/70 bg-background/85 pl-10 shadow-sm"
+                className="h-10 rounded-full border-border/70 bg-background pl-10 shadow-none"
               />
-            </div>
-
-            <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{t("history.count", { count: conversations.length })}</span>
-              {deferredHistoryQuery.trim() ? (
-                <span>{t("history.results", { count: filteredConversations.length })}</span>
-              ) : null}
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto px-3 py-3">
+          <div className="flex-1 overflow-auto px-2 py-2">
             {filteredConversations.length === 0 ? (
-              <div className="desktop-panel flex h-full flex-col items-center justify-center rounded-[28px] border border-border/60 px-6 text-center">
-                <MessageSquare className="mb-4 h-10 w-10 text-muted-foreground/40" />
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                <MessageSquare className="mb-3 h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm font-medium">{t("history.empty_title")}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <p className="mt-1 text-xs leading-6 text-muted-foreground">
                   {deferredHistoryQuery.trim()
                     ? t("history.empty_search")
                     : t("no_conversations_desc")}
                 </p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {filteredConversations.map((conversation) => (
                   <button
                     key={conversation.id}
                     type="button"
                     onClick={() => openConversation(conversation.id)}
                     className={cn(
-                      "group relative flex w-full flex-col items-start gap-3 rounded-lg border bg-background px-4 py-4 text-left transition-all hover:shadow-md hover:border-border/90",
+                      "group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition duration-200 motion-safe:hover:translate-x-0.5",
                       activeId === conversation.id
-                        ? "border-primary shadow-sm ring-1 ring-primary"
-                        : "border-border"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-foreground hover:bg-muted"
                     )}
+                    title={conversation.title}
                   >
-                    <div className="flex w-full items-start gap-3">
-                      <div
-                        className={cn(
-                          "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
-                          conversation.scope === "document"
+                    <span
+                      className={cn(
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+                        activeId === conversation.id
+                          ? "bg-primary-foreground/15 text-primary-foreground"
+                          : conversation.scope === "document"
                             ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                            : "bg-primary/12 text-primary"
+                            : "bg-primary/10 text-primary"
+                      )}
+                    >
+                      {conversation.scope === "document" ? (
+                        <FileText className="h-3.5 w-3.5" />
+                      ) : (
+                        <MessageSquare className="h-3.5 w-3.5" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {conversation.title}
+                    </span>
+                    {titleGeneratingId === conversation.id ? (
+                      <Loader2
+                        className={cn(
+                          "h-3.5 w-3.5 animate-spin",
+                          activeId === conversation.id ? "text-primary-foreground" : "text-primary"
                         )}
-                      >
-                        {conversation.scope === "document" ? (
-                          <FileText className="h-4 w-4" />
-                        ) : (
-                          <MessageSquare className="h-4 w-4" />
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-semibold">
-                            {conversation.title}
-                          </p>
-                          {titleGeneratingId === conversation.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                          ) : null}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                          {getConversationPreview(conversation) || t("history.no_preview")}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDeleteConversation(conversation.id)
-                        }}
-                        className="rounded-xl p-2 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
-                        title={t("history.delete")}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Badge variant="outline" className="rounded-full bg-background/80">
-                          {conversation.scope === "document"
-                            ? t("scope.document")
-                            : t("scope.general")}
-                        </Badge>
-                        {conversation.contextAttachments[0] ? (
-                          <Badge
-                            variant="outline"
-                            className="max-w-[160px] truncate rounded-full bg-background/80"
-                          >
-                            {conversation.contextAttachments[0].title}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {formatConversationTime(conversation.updatedAt)}
-                      </span>
-                    </div>
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleDeleteConversation(conversation.id)
+                      }}
+                      className={cn(
+                        "rounded-md p-1.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100",
+                        activeId === conversation.id
+                          ? "hover:bg-primary-foreground/20"
+                          : "hover:bg-destructive/10 hover:text-destructive"
+                      )}
+                      title={t("history.delete")}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </button>
                 ))}
               </div>
@@ -680,27 +857,13 @@ export default function Chat() {
         </aside>
 
         <section className="relative z-10 flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-border/60 bg-background/80 px-5 py-4 backdrop-blur-xl">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          <header className="border-b border-border/70 bg-background/90 px-5 py-3">
+            <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-2xl font-semibold tracking-tight">
-                    {activeConversation?.title ?? t("new_chat")}
-                  </h2>
-                  {activeConversation ? (
-                    <Badge variant="outline" className="rounded-full bg-background/80">
-                      {activeConversation.scope === "document"
-                        ? t("scope.document")
-                        : t("scope.general")}
-                    </Badge>
-                  ) : null}
-                  {activeConversation?.systemPrompt ? (
-                    <Badge variant="outline" className="rounded-full bg-background/80">
-                      {t("settings.system_prompt_badge")}
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <h2 className="truncate text-base font-semibold tracking-tight">
+                  {activeConversation?.title ?? t("new_chat")}
+                </h2>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {activeConversation
                     ? activeConversation.scope === "document" &&
                       activeConversation.contextAttachments[0]
@@ -715,35 +878,37 @@ export default function Chat() {
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
-                  className="rounded-full bg-background/80"
+                  size="icon"
+                  className="h-8 w-8 rounded-md bg-background"
                   onClick={() => setPickerOpen(true)}
                   disabled={activeConversation?.scope === "document"}
+                  title={t("attach_document")}
                 >
-                  <Paperclip className="mr-2 h-4 w-4" />
-                  {t("attach_document")}
+                  <Paperclip className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
-                  className="rounded-full bg-background/80"
+                  size="icon"
+                  className="h-8 w-8 rounded-md bg-background"
                   onClick={() => setSettingsOpen(true)}
                   disabled={!activeConversation}
+                  title={t("settings.title")}
                 >
-                  <Settings2 className="mr-2 h-4 w-4" />
-                  {t("settings.title")}
+                  <Settings2 className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
             {contextAttachments.length ? (
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mx-auto mt-3 flex w-full max-w-4xl flex-wrap gap-2">
                 {contextAttachments.map((attachment) => (
                   <Badge
                     key={attachment.documentId}
                     variant="outline"
-                    className="gap-2 rounded-full bg-background/80 px-3 py-1.5"
+                    className="gap-2 rounded-full bg-background px-3 py-1"
                   >
                     <FileText className="h-3.5 w-3.5" />
-                    <span className="max-w-[240px] truncate">{attachment.title}</span>
+                    <span className="max-w-[220px] truncate">{attachment.title}</span>
                   </Badge>
                 ))}
               </div>
@@ -752,22 +917,20 @@ export default function Chat() {
 
           <div className="flex min-h-0 flex-1">
             <main className="flex min-w-0 flex-1 flex-col">
-              <div className="flex-1 overflow-auto px-5 py-5">
+              <div className="flex-1 overflow-auto px-4">
                 {activeMessages.length === 0 ? (
-                  <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center text-center">
-                    <div className="desktop-panel rounded-[32px] border border-border/60 px-8 py-10 shadow-[0_28px_80px_rgba(15,23,42,0.12)]">
-                      <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-primary/12 text-primary">
-                        <Bot className="h-9 w-9" />
+                  <div className="mx-auto flex h-full w-full max-w-4xl flex-col items-center justify-center py-10 text-center">
+                    <div className="w-full rounded-3xl border border-border bg-background/85 px-6 py-10">
+                      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <Bot className="h-7 w-7" />
                       </div>
-                      <h3 className="text-2xl font-semibold tracking-tight">
-                        {t("empty.title")}
-                      </h3>
-                      <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-muted-foreground">
+                      <h3 className="text-xl font-semibold tracking-tight">{t("empty.title")}</h3>
+                      <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">
                         {activeConversation?.scope === "document"
                           ? t("empty.document_desc")
                           : t("empty.general_desc")}
                       </p>
-                      <div className="mt-6 grid gap-3 text-left sm:grid-cols-2">
+                      <div className="mt-5 grid gap-2 text-left sm:grid-cols-2">
                         {(activeConversation?.scope === "document"
                           ? [
                               t("empty.suggestion_document_1"),
@@ -785,9 +948,9 @@ export default function Chat() {
                             key={suggestion}
                             type="button"
                             onClick={() => setInput(suggestion)}
-                            className="rounded-[24px] border border-border/70 bg-background/80 px-4 py-4 text-sm transition hover:-translate-y-0.5 hover:border-primary/20"
+                            className="rounded-xl border border-border/80 bg-background px-4 py-3 text-sm transition hover:bg-muted"
                           >
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-start gap-2.5">
                               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                               <span>{suggestion}</span>
                             </div>
@@ -797,70 +960,160 @@ export default function Chat() {
                     </div>
                   </div>
                 ) : (
-                  <div className="mx-auto max-w-3xl space-y-5">
+                  <div className="mx-auto w-full max-w-4xl divide-y divide-border/55 pb-6">
                     {activeMessages.map((message, index) => (
-                      <div
+                      <article
                         key={message.id}
-                        className={cn(
-                          "flex gap-4 rounded-lg px-4 py-4 transition-all hover:shadow-md",
-                          message.role === "assistant"
-                            ? "bg-background border border-border hover:border-border/90"
-                            : "bg-background border border-primary shadow-sm ring-1 ring-primary"
-                        )}
+                        className="group chat-fade-in flex gap-3 px-2 py-6 sm:px-4"
+                        style={{ animationDelay: `${Math.min(index * 36, 260)}ms` }}
                       >
                         <div
                           className={cn(
-                            "mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
+                            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
                             message.role === "user"
-                              ? "bg-primary text-primary-foreground"
+                              ? "border-primary bg-primary text-primary-foreground"
                               : message.role === "system"
-                                ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                                : "border border-border/70 bg-background text-primary"
+                                ? "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                                : "border-border bg-background text-primary"
                           )}
                         >
                           {message.role === "user" ? (
-                            <User className="h-4 w-4" />
+                            <User className="h-3.5 w-3.5" />
                           ) : (
-                            <Bot className="h-4 w-4" />
+                            <Bot className="h-3.5 w-3.5" />
                           )}
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex items-center gap-2">
-                            <p className="text-sm font-semibold">
-                              {message.role === "user"
-                                ? t("role.user")
-                                : message.role === "system"
-                                  ? t("role.system")
-                                  : t("role.assistant")}
-                            </p>
-                            <span className="text-xs text-muted-foreground">
-                              {formatConversationTime(message.timestamp)}
-                            </span>
+                          <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-foreground">
+                                {message.role === "user"
+                                  ? t("role.user")
+                                  : message.role === "system"
+                                    ? t("role.system")
+                                    : t("role.assistant")}
+                              </p>
+                              <span>{formatConversationTime(message.timestamp)}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                              {message.role === "user" ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                    title={t("message.edit_and_retry")}
+                                    onClick={() => startEditMessage(message)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                    title={t("message.retry")}
+                                    onClick={() => void handleRetryFromUserMessage(message.id)}
+                                    disabled={isStreaming}
+                                  >
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              ) : null}
+                              {message.role === "assistant" ? (
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+                                  title={t("message.retry")}
+                                  disabled={
+                                    isStreaming ||
+                                    !activeMessages
+                                      .slice(0, index)
+                                      .reverse()
+                                      .find((item) => item.role === "user")
+                                  }
+                                  onClick={() => {
+                                    const previousUser = activeMessages
+                                      .slice(0, index)
+                                      .reverse()
+                                      .find((item) => item.role === "user")
+                                    if (!previousUser) return
+                                    void handleRetryFromUserMessage(previousUser.id)
+                                  }}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
 
-                          <div className="min-w-0 flex-1">
-                            <ChatMarkdown content={message.content + (isStreaming && index === activeMessages.length - 1 && message.role === "assistant" ? " ▍" : "")} />
+                          <div
+                            className={cn(
+                              "min-w-0",
+                              message.role === "user" &&
+                                "rounded-2xl border border-border bg-muted/45 px-4 py-3"
+                            )}
+                          >
+                            {message.role === "user" && editingMessageId === message.id ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={editingText}
+                                  onChange={(event) => setEditingText(event.target.value)}
+                                  className="min-h-[88px] w-full resize-y rounded-xl border border-border bg-background px-3 py-2 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                />
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => {
+                                      setEditingMessageId(null)
+                                      setEditingText("")
+                                    }}
+                                  >
+                                    <X className="mr-1 h-3.5 w-3.5" />
+                                    {t("message.cancel")}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => void handleRetryFromUserMessage(message.id, editingText)}
+                                    disabled={!editingText.trim() || isStreaming}
+                                  >
+                                    <Check className="mr-1 h-3.5 w-3.5" />
+                                    {t("message.save_and_retry")}
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <ChatMarkdown
+                                content={
+                                  message.content +
+                                  (isStreaming &&
+                                  index === activeMessages.length - 1 &&
+                                  message.role === "assistant"
+                                    ? " ▍"
+                                    : "")
+                                }
+                                onCodeBlockOpen={openCodePreview}
+                                openCodeLabel={t("preview.open_code_panel")}
+                              />
+                            )}
                           </div>
 
                           {message.attachments?.length ? (
-                            <div className="mt-4 flex flex-wrap gap-2">
+                            <div className="mt-3 flex flex-wrap gap-2">
                               {message.attachments.map((attachment) => (
                                 <button
                                   key={attachment.documentId}
                                   type="button"
-                                  onClick={() =>
-                                    setPreviewDocId((current) =>
-                                      current === attachment.documentId
-                                        ? null
-                                        : attachment.documentId
-                                    )
-                                  }
+                                  onClick={() => togglePreviewDocument(attachment.documentId)}
                                   className={cn(
-                                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition duration-200 motion-safe:hover:-translate-y-0.5",
                                     previewDocId === attachment.documentId
-                                      ? "border-primary/25 bg-primary/10 text-primary"
-                                      : "border-border/70 bg-background/80 hover:border-primary/15"
+                                      ? "border-primary/30 bg-primary/10 text-primary"
+                                      : "border-border bg-background hover:bg-muted"
                                   )}
                                 >
                                   <FileText className="h-3.5 w-3.5" />
@@ -871,7 +1124,7 @@ export default function Chat() {
                           ) : null}
 
                           {message.sources?.length ? (
-                            <div className="mt-4 space-y-2">
+                            <div className="mt-3 space-y-2">
                               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                                 {t("sources.label")}
                               </p>
@@ -880,8 +1133,8 @@ export default function Chat() {
                                   <button
                                     key={source.chunkId}
                                     type="button"
-                                    onClick={() => setPreviewDocId(source.documentId)}
-                                    className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium transition hover:border-primary/15"
+                                    onClick={() => togglePreviewDocument(source.documentId)}
+                                    className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium transition duration-200 motion-safe:hover:-translate-y-0.5 hover:bg-muted"
                                   >
                                     <FileText className="h-3.5 w-3.5" />
                                     <span>{source.documentTitle}</span>
@@ -897,22 +1150,22 @@ export default function Chat() {
                             </div>
                           ) : null}
                         </div>
-                      </div>
+                      </article>
                     ))}
                     <div ref={messagesEndRef} />
                   </div>
                 )}
               </div>
 
-              <div className="border-t border-border/60 bg-background/80 px-5 py-4 backdrop-blur-xl">
-                <div className="mx-auto max-w-3xl">
+              <div className="border-t border-border/70 bg-background/92 px-4 py-3">
+                <div className="mx-auto w-full max-w-4xl">
                   {attachments.length ? (
-                    <div className="mb-3 flex flex-wrap gap-2">
+                    <div className="mb-2 flex flex-wrap gap-2">
                       {attachments.map((attachment) => (
                         <Badge
                           key={attachment.documentId}
                           variant="outline"
-                          className="gap-2 rounded-full bg-background/80 px-3 py-1.5"
+                          className="gap-2 rounded-full bg-background px-3 py-1.5"
                         >
                           <FileText className="h-3.5 w-3.5" />
                           <span className="max-w-[180px] truncate">{attachment.title}</span>
@@ -928,7 +1181,7 @@ export default function Chat() {
                     </div>
                   ) : null}
 
-                  <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                     <span>{t("composer.shortcut")}</span>
                     <div className="flex items-center gap-2">
                       <Button
@@ -950,15 +1203,22 @@ export default function Chat() {
                     </div>
                   </div>
 
-                  <div className="desktop-panel flex items-end gap-0 rounded-[28px] border border-border/70 bg-background/85 p-1.5">
+                  <div
+                    className={cn(
+                      "flex items-end gap-1 rounded-3xl border bg-background p-1.5 shadow-sm transition-all duration-200",
+                      isComposerFocused
+                        ? "border-primary/35 shadow-[0_0_0_3px_hsl(var(--primary)/0.10)]"
+                        : "border-border"
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => setPickerOpen(true)}
                       disabled={activeConversation?.scope === "document"}
-                      className="m-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      className="m-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition duration-200 motion-safe:hover:-translate-y-0.5 hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                       title={t("attach_document")}
                     >
-                      <Paperclip className="h-5 w-5" />
+                      <Paperclip className="h-4.5 w-4.5" />
                     </button>
 
                     <textarea
@@ -966,20 +1226,22 @@ export default function Chat() {
                       value={input}
                       onChange={(event) => setInput(event.target.value)}
                       onKeyDown={handleKeyDown}
+                      onFocus={() => setIsComposerFocused(true)}
+                      onBlur={() => setIsComposerFocused(false)}
                       rows={1}
                       placeholder={
                         activeConversation?.scope === "document"
                           ? t("composer.document_placeholder")
                           : t("input_placeholder")
                       }
-                      className="min-h-[52px] flex-1 resize-none bg-transparent px-3 py-3 text-sm leading-7 placeholder:text-muted-foreground focus:outline-none"
+                      className="min-h-[48px] flex-1 resize-none bg-transparent px-2.5 py-2.5 text-sm leading-7 placeholder:text-muted-foreground focus:outline-none"
                     />
 
                     {isStreaming ? (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="m-1 h-11 w-11 shrink-0 rounded-2xl text-destructive hover:bg-destructive/10"
+                        className="m-1 h-10 w-10 shrink-0 rounded-xl text-destructive transition duration-200 hover:bg-destructive/10"
                         onClick={handleStop}
                       >
                         <Square className="h-4 w-4 fill-current" />
@@ -987,9 +1249,12 @@ export default function Chat() {
                     ) : (
                       <Button
                         size="icon"
-                        className="m-1 h-11 w-11 shrink-0 rounded-2xl shadow-[0_18px_40px_rgba(37,99,235,0.22)]"
+                        className={cn(
+                          "m-1 h-10 w-10 shrink-0 rounded-xl transition duration-200",
+                          canSend && "chat-soft-pulse motion-safe:hover:-translate-y-0.5"
+                        )}
                         onClick={() => void handleSend()}
-                        disabled={!input.trim() && attachments.length === 0}
+                        disabled={!canSend}
                       >
                         <SendHorizonal className="h-4 w-4" />
                       </Button>
@@ -999,26 +1264,92 @@ export default function Chat() {
               </div>
             </main>
 
-            {previewDocId ? (
-              <aside className="glass-surface hidden w-[360px] shrink-0 border-l border-border/60 xl:flex xl:flex-col">
+            {previewDocId || previewCodeBlock ? (
+              <aside className="chat-slide-in glass-surface hidden w-[360px] shrink-0 border-l border-border/60 xl:flex xl:flex-col">
                 <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
                   <div>
-                    <p className="text-sm font-semibold">{t("preview.title")}</p>
+                    <p className="text-sm font-semibold">
+                      {previewCodeBlock ? t("preview.code_title") : t("preview.title")}
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      {t("preview.description")}
+                      {previewCodeBlock
+                        ? t("preview.code_description", {
+                            language: previewCodeBlock.language,
+                          })
+                        : t("preview.description")}
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-2xl"
-                    onClick={() => setPreviewDocId(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {previewCodeBlock && previewCodeRenderKind !== "none" ? (
+                      <div className="inline-flex items-center rounded-lg border border-border/70 bg-background p-0.5">
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md px-2 py-1 text-xs transition",
+                            previewCodeView === "render"
+                              ? "bg-muted text-foreground"
+                              : "text-muted-foreground"
+                          )}
+                          onClick={() => setPreviewCodeView("render")}
+                        >
+                          {t("preview.render_tab")}
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md px-2 py-1 text-xs transition",
+                            previewCodeView === "code"
+                              ? "bg-muted text-foreground"
+                              : "text-muted-foreground"
+                          )}
+                          onClick={() => setPreviewCodeView("code")}
+                        >
+                          {t("preview.code_tab")}
+                        </button>
+                      </div>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-2xl"
+                      onClick={() => {
+                        setPreviewDocId(null)
+                        setPreviewCodeBlock(null)
+                        setPreviewCodeView("code")
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-auto p-4">
-                  {previewContent?.markdown_content ? (
+                  {previewCodeBlock ? (
+                    previewCodeView === "render" && previewCodeRenderKind === "html" ? (
+                      <div className="h-full overflow-hidden rounded-2xl border border-border/80 bg-background">
+                        <iframe
+                          title="html-preview"
+                          srcDoc={previewCodeBlock.code}
+                          sandbox="allow-scripts"
+                          className="h-full w-full"
+                        />
+                      </div>
+                    ) : previewCodeView === "render" && previewCodeRenderKind === "mindmap" ? (
+                      <div className="rounded-2xl border border-border/80 bg-muted/25 p-3">
+                        <MindmapTree nodes={mindmapNodes} />
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-2xl border border-border/80 bg-background">
+                        <div className="border-b border-border/70 bg-muted/45 px-3 py-2">
+                          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                            {previewCodeBlock.language}
+                          </span>
+                        </div>
+                        <pre className="max-h-full overflow-auto p-3 text-xs leading-6 text-foreground">
+                          <code>{previewCodeBlock.code}</code>
+                        </pre>
+                      </div>
+                    )
+                  ) : previewContent?.markdown_content ? (
                     <div className="whitespace-pre-wrap text-sm leading-7 text-foreground">
                       {previewContent.markdown_content}
                     </div>

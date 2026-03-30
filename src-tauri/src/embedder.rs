@@ -30,6 +30,8 @@ struct EmbeddingData {
 pub struct EmbedResult {
     /// 分片的索引
     pub chunk_index: usize,
+    /// 分片文本
+    pub text: String,
     /// 嵌入向量
     pub embedding: Vec<f32>,
     /// 原始文本位置
@@ -189,6 +191,16 @@ impl Embedder {
             self.rate_limit_config.max_requests_per_minute
         );
 
+        let estimated_tokens: usize = chunks
+            .iter()
+            .map(|chunk| chunk.estimate_tokens(self.chunking_config.tokens_per_char_estimate))
+            .sum();
+        log::debug!(
+            "Embedding chunk plan: estimated_total_tokens={} tokens_per_char_estimate={}",
+            estimated_tokens,
+            self.chunking_config.tokens_per_char_estimate
+        );
+
         // 转换为可处理的格式
         let mut embed_tasks = Vec::new();
 
@@ -207,6 +219,7 @@ impl Embedder {
                 match result {
                     Ok(embedding) => EmbedResult {
                         chunk_index: chunk.index,
+                        text: chunk.text.clone(),
                         embedding,
                         start_pos: chunk.start_pos,
                         end_pos: chunk.end_pos,
@@ -215,6 +228,7 @@ impl Embedder {
                         log::error!("Failed to embed chunk {}: {}", chunk.index, e);
                         EmbedResult {
                             chunk_index: chunk.index,
+                            text: chunk.text.clone(),
                             embedding: Vec::new(),  // 返回空向量表示失败
                             start_pos: chunk.start_pos,
                             end_pos: chunk.end_pos,
@@ -341,23 +355,4 @@ fn openai_compatible_url(base_url: &str, path: &str) -> String {
     } else {
         format!("{trimmed}/v1/{path}")
     }
-}
-
-pub fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut chunks = Vec::new();
-    let mut start = 0;
-
-    while start < words.len() {
-        let end = (start + chunk_size).min(words.len());
-        let chunk = words[start..end].join(" ");
-        chunks.push(chunk);
-
-        if end >= words.len() {
-            break;
-        }
-        start += chunk_size - overlap;
-    }
-
-    chunks
 }

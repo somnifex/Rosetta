@@ -28,6 +28,7 @@ impl Database {
             include_str!("../migrations/003_library_upgrade.sql"),
             include_str!("../migrations/004_document_outputs.sql"),
             include_str!("../migrations/005_provider_models.sql"),
+            include_str!("../migrations/006_mineru_processed_files.sql"),
         ];
 
         for schema in schemas {

@@ -21,35 +21,11 @@ impl Default for RateLimitConfig {
 }
 
 impl RateLimitConfig {
-    /// 保守的限制（网络环境差）
-    pub fn conservative() -> Self {
-        Self {
-            max_requests_per_minute: 20,
-            max_concurrent_requests: 1,
-        }
-    }
-
     /// 普通的限制（网络环境一般）
     pub fn moderate() -> Self {
         Self {
             max_requests_per_minute: 60,
             max_concurrent_requests: 3,
-        }
-    }
-
-    /// 激进的限制（网络环境好）
-    pub fn aggressive() -> Self {
-        Self {
-            max_requests_per_minute: 240,   // 4个/秒
-            max_concurrent_requests: 10,
-        }
-    }
-
-    /// 无限制（测试用）
-    pub fn unlimited() -> Self {
-        Self {
-            max_requests_per_minute: 0,
-            max_concurrent_requests: 100,
         }
     }
 }
@@ -79,6 +55,8 @@ impl RateLimiter {
             return Duration::from_secs(0); // 不限制
         }
 
+        let mut waited = Duration::from_secs(0);
+
         loop {
             let wait_time = {
                 let mut window_start = self.window_start.lock().unwrap();
@@ -106,10 +84,11 @@ impl RateLimiter {
             if let Some(wait_time) = wait_time {
                 log::debug!("Rate limit reached, waiting {:?}", wait_time);
                 tokio::time::sleep(wait_time).await;
+                waited += wait_time;
                 continue;
             }
 
-            return Duration::from_secs(0);
+            return waited;
         }
     }
 
@@ -191,7 +170,6 @@ impl RequestLimiter {
         let wait_time = self.rate_limiter.acquire().await;
         if wait_time.as_secs() > 0 {
             log::debug!("Waiting {:?} for rate limit", wait_time);
-            tokio::time::sleep(wait_time).await;
         }
 
         // 然后获取并发许可
@@ -226,13 +204,16 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_config() {
-        let conservative = RateLimitConfig::conservative();
-        assert_eq!(conservative.max_requests_per_minute, 20);
-        assert_eq!(conservative.max_concurrent_requests, 1);
+        let moderate = RateLimitConfig::moderate();
+        assert_eq!(moderate.max_requests_per_minute, 60);
+        assert_eq!(moderate.max_concurrent_requests, 3);
 
-        let aggressive = RateLimitConfig::aggressive();
-        assert_eq!(aggressive.max_requests_per_minute, 240);
-        assert_eq!(aggressive.max_concurrent_requests, 10);
+        let custom = RateLimitConfig {
+            max_requests_per_minute: 240,
+            max_concurrent_requests: 10,
+        };
+        assert_eq!(custom.max_requests_per_minute, 240);
+        assert_eq!(custom.max_concurrent_requests, 10);
     }
 
     #[tokio::test]

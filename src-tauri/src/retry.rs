@@ -93,12 +93,6 @@ pub enum RetryDecision {
     Fail,
 }
 
-/// 重试谓词 - 判断是否应该重试的函数
-pub trait RetryPredicate: Fn(&str) -> RetryDecision {
-}
-
-impl<F> RetryPredicate for F where F: Fn(&str) -> RetryDecision {}
-
 /// 默认的网络错误重试判断
 pub fn should_retry_network_error(error: &str) -> RetryDecision {
     let lower = error.to_lowercase();
@@ -167,51 +161,6 @@ where
                 );
 
                 tokio::time::sleep(delay).await;
-            }
-        }
-    }
-
-    Err(format!(
-        "Operation failed after {} retries: {}",
-        config.max_retries + 1,
-        last_error
-    ))
-}
-
-/// 执行带重试的操作（同步版本）
-pub fn with_retry_sync<F, T>(
-    config: &RetryConfig,
-    mut operation: F,
-    predicate: fn(&str) -> RetryDecision,
-) -> Result<T, String>
-where
-    F: FnMut() -> Result<T, String>,
-{
-    let mut last_error = String::new();
-
-    for attempt in 0..=config.max_retries {
-        match operation() {
-            Ok(result) => return Ok(result),
-            Err(error) => {
-                last_error = error.clone();
-
-                if attempt >= config.max_retries {
-                    break;
-                }
-
-                if predicate(&error) == RetryDecision::Fail {
-                    return Err(error);
-                }
-
-                let delay = config.delay_for_attempt(attempt + 1);
-                log::warn!(
-                    "Operation failed (attempt {}): {}. Retrying after {:?}",
-                    attempt + 1,
-                    error,
-                    delay
-                );
-
-                std::thread::sleep(delay);
             }
         }
     }

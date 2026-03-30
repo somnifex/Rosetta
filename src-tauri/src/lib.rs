@@ -11,6 +11,7 @@ mod rag_chat;
 mod rate_limiter;
 mod reranker;
 mod retry;
+mod runtime_logs;
 mod sync_backup;
 mod translator;
 mod webdav;
@@ -57,7 +58,7 @@ impl Clone for AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    let _ = runtime_logs::init_runtime_logger();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -83,6 +84,17 @@ pub fn run() {
                 log::error!("Failed to initialize database: {}", e);
                 e
             })?;
+
+            let logger_level = db
+                .get_connection()
+                .query_row(
+                    "SELECT value FROM app_settings WHERE key = 'logs.level'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| "info".to_string());
+            runtime_logs::configure_runtime_logger(db_path.clone(), &logger_level);
+
             if let Err(e) = db.recover_incomplete_tasks() {
                 log::error!("Failed to recover incomplete tasks: {}", e);
             }
@@ -223,6 +235,22 @@ pub fn run() {
                 }
             });
 
+            let cleanup_db = Arc::clone(&db_arc);
+            let cleanup_app_dir = app_dir.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
+                    let Ok(db_guard) = cleanup_db.lock() else {
+                        continue;
+                    };
+                    if let Err(error) =
+                        commands::run_periodic_cleanup(db_guard.get_connection(), &cleanup_app_dir)
+                    {
+                        log::warn!("Periodic cleanup failed: {}", error);
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -286,6 +314,10 @@ pub fn run() {
             commands::export_document,
             commands::export_document_asset,
             commands::test_mineru_connection,
+            commands::get_runtime_logs,
+            commands::export_runtime_logs,
+            commands::run_cleanup_now,
+            commands::get_mineru_processed_storage_dir,
             commands::get_document_file_path,
             commands::duplicate_document,
             commands::reveal_in_os,

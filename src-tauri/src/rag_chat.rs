@@ -624,6 +624,8 @@ async fn retrieve_context(
         api_key: embed_channel.api_key.clone(),
         embedding_model: embed_channel.model.clone(),
         dimensions: embed_channel.dimensions,
+        max_retries: embed_channel.max_retries.unwrap_or(3).max(0) as usize,
+        max_concurrent_requests: 3,
     };
     let top_k = request.top_k.unwrap_or(6).clamp(1, 12);
 
@@ -632,7 +634,12 @@ async fn retrieve_context(
         provider.api_key.clone(),
         provider.embedding_model.clone(),
         provider.dimensions,
-    );
+    )
+    .with_retry_config({
+        let mut config = crate::retry::RetryConfig::for_batch_processing();
+        config.max_retries = provider.max_retries;
+        config
+    });
     let query_embeddings = embedder.embed(vec![query.clone()]).await?;
     let query_embedding = query_embeddings
         .first()

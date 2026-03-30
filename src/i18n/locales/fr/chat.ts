@@ -100,6 +100,17 @@ export default {
     description: "Inspectez rapidement le contenu analysé derrière les pièces jointes et les citations.",
     close: "Fermer l'aperçu",
     no_content: "Aucun contenu analysé disponible",
+    open_code_panel: "Ouvrir dans le panneau latéral",
+    code_title: "Aperçu du code",
+    code_description: "Affichage d'un bloc de code au format {{language}}.",
+    render_tab: "Rendu",
+    code_tab: "Code",
+  },
+  message: {
+    retry: "Relancer",
+    edit_and_retry: "Modifier et relancer",
+    save_and_retry: "Enregistrer et relancer",
+    cancel: "Annuler",
   },
   role: {
     user: "Vous",

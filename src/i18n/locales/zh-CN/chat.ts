@@ -105,6 +105,17 @@ export default {
     description: "快速查看附加文档或引用分块背后的解析内容。",
     close: "关闭预览",
     no_content: "暂无已解析内容",
+    open_code_panel: "在右侧看板打开",
+    code_title: "代码预览",
+    code_description: "正在查看 {{language}} 格式代码块。",
+    render_tab: "渲染",
+    code_tab: "代码",
+  },
+  message: {
+    retry: "重试",
+    edit_and_retry: "修改并重试",
+    save_and_retry: "保存并重试",
+    cancel: "取消",
   },
   role: {
     user: "你",

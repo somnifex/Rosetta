@@ -3,8 +3,10 @@ use crate::models::*;
 use crate::AppState;
 use chrono::Utc;
 use rusqlite::OptionalExtension;
-use serde::Serialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -22,6 +24,145 @@ const DEFAULT_TRANSLATION_CHUNK_SIZE: usize = 4000;
 const DEFAULT_TRANSLATION_CHUNK_OVERLAP: usize = 0;
 const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 3;
 const DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE: u32 = 60;
+const DEFAULT_LOG_RETENTION_DAYS: i64 = 30;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RuntimeLogEntry {
+    pub id: String,
+    pub level: String,
+    pub message: String,
+    pub context: Option<String>,
+    pub created_at: String,
+}
+
+fn normalize_log_level_input(raw: &str) -> Option<&'static str> {
+    crate::runtime_logs::normalize_level_for_query(raw)
+}
+
+fn load_log_retention_days(conn: &rusqlite::Connection) -> i64 {
+    let parsed = get_setting_value(conn, "logs.retention_days")
+        .ok()
+        .flatten()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .unwrap_or(DEFAULT_LOG_RETENTION_DAYS);
+    parsed.clamp(1, 3650)
+}
+
+fn cleanup_expired_logs(conn: &rusqlite::Connection, retention_days: i64) -> Result<usize, String> {
+    let threshold = format!("-{retention_days} days");
+    conn.execute(
+        "DELETE FROM logs WHERE datetime(created_at) < datetime('now', ?1)",
+        [&threshold],
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn cleanup_deleted_document_job_logs(
+    conn: &rusqlite::Connection,
+    retention_days: i64,
+) -> Result<(usize, usize), String> {
+    let threshold = format!("-{retention_days} days");
+
+    let parse_deleted = conn
+        .execute(
+            "DELETE FROM parse_jobs
+             WHERE document_id IN (
+               SELECT id FROM documents WHERE deleted_at IS NOT NULL
+             )
+             AND datetime(created_at) < datetime('now', ?1)",
+            [&threshold],
+        )
+        .map_err(|e| e.to_string())?;
+
+    let translation_deleted = conn
+        .execute(
+            "DELETE FROM translation_jobs
+             WHERE document_id IN (
+               SELECT id FROM documents WHERE deleted_at IS NOT NULL
+             )
+             AND datetime(created_at) < datetime('now', ?1)",
+            [&threshold],
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok((parse_deleted, translation_deleted))
+}
+
+fn cleanup_output_cache_files(
+    conn: &rusqlite::Connection,
+    app_dir: &Path,
+) -> Result<usize, String> {
+    let output_dir = app_dir.join("outputs");
+    if !output_dir.exists() {
+        return Ok(0);
+    }
+
+    let mut referenced_paths: HashSet<String> = HashSet::new();
+
+    let mut export_stmt = conn
+        .prepare("SELECT file_path FROM export_records")
+        .map_err(|e| e.to_string())?;
+    let export_paths = export_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    referenced_paths.extend(export_paths);
+
+    let mut output_stmt = conn
+        .prepare("SELECT file_path FROM document_outputs")
+        .map_err(|e| e.to_string())?;
+    let document_output_paths = output_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    referenced_paths.extend(document_output_paths);
+
+    let mut removed = 0usize;
+    for entry in fs::read_dir(&output_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let path_str = path.to_string_lossy().to_string();
+        if referenced_paths.contains(&path_str) {
+            continue;
+        }
+
+        if fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+
+    Ok(removed)
+}
+
+pub(crate) fn run_periodic_cleanup(conn: &rusqlite::Connection, app_dir: &Path) -> Result<(), String> {
+    let retention_days = load_log_retention_days(conn);
+    let removed_logs = cleanup_expired_logs(conn, retention_days)?;
+    let (removed_parse_jobs, removed_translation_jobs) =
+        cleanup_deleted_document_job_logs(conn, retention_days)?;
+    let removed_cache_files = cleanup_output_cache_files(conn, app_dir)?;
+
+    if removed_logs > 0
+        || removed_parse_jobs > 0
+        || removed_translation_jobs > 0
+        || removed_cache_files > 0
+    {
+        log::info!(
+            "Periodic cleanup removed {} log rows, {} parse job rows, {} translation job rows, {} orphan cache files",
+            removed_logs,
+            removed_parse_jobs,
+            removed_translation_jobs,
+            removed_cache_files
+        );
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 struct TranslationRuntimeSettings {
@@ -45,6 +186,8 @@ pub(crate) struct DirectEmbeddingProvider {
     pub api_key: String,
     pub embedding_model: String,
     pub dimensions: Option<usize>,
+    pub max_retries: usize,
+    pub max_concurrent_requests: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -733,6 +876,85 @@ fn next_content_version(
         .map_err(|e| e.to_string())
 }
 
+fn delete_mineru_processed_records_and_files(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT file_path FROM mineru_processed_files WHERE document_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let paths = stmt
+        .query_map([document_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for path in paths {
+        let path_ref = Path::new(&path);
+        if path_ref.exists() {
+            let _ = fs::remove_file(path_ref);
+        }
+    }
+
+    conn.execute(
+        "DELETE FROM mineru_processed_files WHERE document_id = ?1",
+        [document_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn persist_mineru_processed_files(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    markdown: &str,
+    json_content: &str,
+    structure_json: &str,
+    now: &str,
+) -> Result<(), String> {
+    let base_dir = crate::app_dirs::mineru_processed_dir()?;
+    let document_dir = base_dir.join(document_id);
+    fs::create_dir_all(&document_dir).map_err(|e| e.to_string())?;
+
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let markdown_path = document_dir.join(format!("parsed-{timestamp}.md"));
+    let json_path = document_dir.join(format!("parsed-{timestamp}.json"));
+    let structure_path = document_dir.join(format!("structure-{timestamp}.json"));
+
+    fs::write(&markdown_path, markdown).map_err(|e| e.to_string())?;
+    fs::write(&json_path, json_content).map_err(|e| e.to_string())?;
+    fs::write(&structure_path, structure_json).map_err(|e| e.to_string())?;
+
+    let records = [
+        ("markdown", markdown_path),
+        ("json", json_path),
+        ("structure", structure_path),
+    ];
+
+    for (artifact_type, path) in records {
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO mineru_processed_files (id, document_id, artifact_type, file_path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+             ON CONFLICT(document_id, artifact_type)
+             DO UPDATE SET
+               file_path = excluded.file_path,
+               updated_at = excluded.updated_at",
+            (
+                &id,
+                document_id,
+                artifact_type,
+                path.to_str().ok_or("File path contains invalid characters")?,
+                now,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 fn delete_document_output_record_and_file(
     conn: &rusqlite::Connection,
     output_type: &str,
@@ -768,6 +990,8 @@ fn clear_document_derived_data(
     remove_parsed_content: bool,
     now: &str,
 ) -> Result<(), String> {
+    delete_mineru_processed_records_and_files(conn, document_id)?;
+
     if let Some(app_dir) = app_dir {
         remove_document_from_vector_store(conn, app_dir, document_id)?;
     } else {
@@ -1078,6 +1302,8 @@ pub(crate) fn remove_document_from_vector_store(
 }
 
 fn cleanup_document_records(conn: &rusqlite::Connection, document_id: &str) -> Result<(), String> {
+    delete_mineru_processed_records_and_files(conn, document_id)?;
+
     conn.execute(
         "DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?1)",
         [document_id],
@@ -2509,6 +2735,15 @@ async fn execute_parse_job(
             let version = next_content_version(conn, "parsed_contents", document_id)?;
             clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
 
+            persist_mineru_processed_files(
+                conn,
+                document_id,
+                &parse_result.markdown,
+                &parse_result.json,
+                &parse_result.structure.to_string(),
+                &now,
+            )?;
+
             conn.execute(
                 "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 (&content_id, document_id, &version, &parse_result.markdown, &parse_result.json, &parse_result.structure.to_string(), &now),
@@ -2961,9 +3196,24 @@ async fn execute_translation_job(
         max_concurrent_requests: runtime_settings.max_concurrent_requests,
     };
 
+    let mut retry_config = crate::retry::RetryConfig::for_batch_processing();
+    retry_config.max_retries = provider_record.max_retries.max(0) as usize;
+
     let mut translator = translator
+        .with_retry_config(retry_config)
         .with_chunking_config(chunking_config)
         .with_rate_limit_config(rate_limit_config);
+
+    let limiter_status = translator.limiter_status();
+    let limiter_cfg = translator.rate_limit_config();
+    log::info!(
+        "Translator limiter configured: concurrency={}, rpm={}, current_window_count={}, window_elapsed_ms={}, available_concurrency={}",
+        limiter_cfg.max_concurrent_requests,
+        limiter_cfg.max_requests_per_minute,
+        limiter_status.current_request_count,
+        limiter_status.window_elapsed.as_millis(),
+        limiter_status.available_concurrency
+    );
 
     if runtime_settings.smart_optimize_enabled {
         if let Some(chat_model) = chat_model {
@@ -3386,6 +3636,7 @@ pub async fn replace_parsed_markdown(
     .map_err(|e| e.to_string())?;
 
     clear_document_derived_data(conn, Some(&app_dir), &document_id, false, &now)?;
+    persist_mineru_processed_files(conn, &document_id, &markdown_content, "{}", "null", &now)?;
     let version = next_content_version(conn, "parsed_contents", &document_id)?;
 
     conn.execute(
@@ -3505,6 +3756,8 @@ async fn execute_index_job(
             api_key: provider_record.api_key,
             embedding_model: embed_model.model_name,
             dimensions: embed_model.config.and_then(|config| config.dimensions),
+            max_retries: provider_record.max_retries.max(0) as usize,
+            max_concurrent_requests: provider_record.concurrency.max(1) as usize,
         }
     };
 
@@ -3540,27 +3793,59 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
 
     let embedding_model = provider.embedding_model.clone();
 
-    let chunks = crate::embedder::chunk_text(
-        &markdown_content,
-        rag_settings.chunk_size,
-        rag_settings.chunk_overlap,
-    );
+    let mut retry_config = crate::retry::RetryConfig::for_batch_processing();
+    retry_config.max_retries = provider.max_retries;
 
-    if chunks.is_empty() {
-        return Err("No text was available to index".to_string());
-    }
+    let chunking_config = crate::chunking::ChunkingConfig {
+        max_tokens_per_chunk: rag_settings.chunk_size,
+        overlap_tokens: rag_settings.chunk_overlap,
+        preserve_sentences: true,
+        tokens_per_char_estimate: 0.25,
+    };
+    let rate_limit_config = crate::rate_limiter::RateLimitConfig {
+        max_requests_per_minute: crate::rate_limiter::RateLimitConfig::moderate()
+            .max_requests_per_minute,
+        max_concurrent_requests: provider.max_concurrent_requests,
+    };
 
     let embedder = crate::embedder::Embedder::new(
         provider.base_url.clone(),
         provider.api_key.clone(),
         embedding_model.clone(),
         provider.dimensions,
+    )
+    .with_retry_config(retry_config)
+    .with_chunking_config(chunking_config)
+    .with_rate_limit_config(rate_limit_config);
+
+    let limiter_status = embedder.limiter_status();
+    let limiter_cfg = embedder.rate_limit_config();
+    log::info!(
+        "Embedder limiter configured: concurrency={}, rpm={}, current_window_count={}, window_elapsed_ms={}, available_concurrency={}",
+        limiter_cfg.max_concurrent_requests,
+        limiter_cfg.max_requests_per_minute,
+        limiter_status.current_request_count,
+        limiter_status.window_elapsed.as_millis(),
+        limiter_status.available_concurrency
     );
 
-    let embeddings = embedder.embed(chunks.clone()).await?;
+    let mut embeddings = embedder.embed_with_chunks(&markdown_content).await?;
+    if embeddings.is_empty() {
+        return Err("No text was available to index".to_string());
+    }
+
+    embeddings.sort_by_key(|chunk| chunk.chunk_index);
+    if let (Some(first), Some(last)) = (embeddings.first(), embeddings.last()) {
+        log::debug!(
+            "Embedding chunks cover byte range {}..{}",
+            first.start_pos,
+            last.end_pos
+        );
+    }
+
     let vector_dimension = embeddings
         .first()
-        .map(|embedding| embedding.len())
+        .map(|embedding| embedding.embedding.len())
         .ok_or_else(|| "Embedding provider returned no vectors".to_string())?;
 
     let use_zvec = crate::zvec::should_use_zvec(
@@ -3585,15 +3870,13 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         None
     };
 
-    let indexed_chunks = chunks
+    let indexed_chunks = embeddings
         .into_iter()
-        .zip(embeddings.into_iter())
-        .enumerate()
-        .map(|(idx, (content, embedding))| IndexedChunk {
+        .map(|chunk| IndexedChunk {
             id: Uuid::new_v4().to_string(),
-            content,
-            chunk_index: idx as i32,
-            embedding,
+            content: chunk.text,
+            chunk_index: chunk.chunk_index as i32,
+            embedding: chunk.embedding,
         })
         .collect::<Vec<_>>();
 
@@ -3726,6 +4009,8 @@ pub async fn search_documents(
                 api_key: provider_record.api_key,
                 embedding_model: embed_model.model_name,
                 dimensions: embed_model.config.and_then(|config| config.dimensions),
+                max_retries: provider_record.max_retries.max(0) as usize,
+                max_concurrent_requests: provider_record.concurrency.max(1) as usize,
             },
             rag_settings,
             zvec_settings,
@@ -3739,7 +4024,12 @@ pub async fn search_documents(
         provider.api_key,
         embedding_model.clone(),
         provider.dimensions,
-    );
+    )
+    .with_retry_config({
+        let mut config = crate::retry::RetryConfig::for_batch_processing();
+        config.max_retries = provider.max_retries;
+        config
+    });
 
     let query_embeddings = embedder.embed(vec![query]).await?;
     let query_embedding = &query_embeddings[0];
@@ -4353,6 +4643,158 @@ pub fn delete_tag(state: State<AppState>, id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRuntimeLogsOptions {
+    pub min_level: Option<String>,
+    pub days: Option<i64>,
+}
+
+#[tauri::command]
+pub fn get_runtime_logs(
+    state: State<AppState>,
+    limit: Option<i64>,
+    min_level: Option<String>,
+) -> Result<Vec<RuntimeLogEntry>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    let normalized_limit = limit.unwrap_or(500).clamp(10, 5000);
+    let normalized_level = min_level
+        .as_deref()
+        .and_then(normalize_log_level_input)
+        .map(|v| v.to_string());
+
+    let rank_sql = "CASE level WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END";
+
+    let sql = if normalized_level.is_some() {
+        format!(
+            "SELECT id, level, message, context, created_at
+             FROM logs
+             WHERE {rank_sql} <= CASE ?1 WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END
+             ORDER BY created_at DESC
+             LIMIT ?2"
+        )
+    } else {
+        "SELECT id, level, message, context, created_at
+         FROM logs
+         ORDER BY created_at DESC
+         LIMIT ?1"
+            .to_string()
+    };
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+
+    if let Some(level) = normalized_level {
+        let rows = stmt
+            .query_map((level, normalized_limit), |row| {
+                Ok(RuntimeLogEntry {
+                    id: row.get(0)?,
+                    level: row.get(1)?,
+                    message: row.get(2)?,
+                    context: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        return rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string());
+    }
+
+    let rows = stmt
+        .query_map([normalized_limit], |row| {
+            Ok(RuntimeLogEntry {
+                id: row.get(0)?,
+                level: row.get(1)?,
+                message: row.get(2)?,
+                context: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn export_runtime_logs(
+    state: State<AppState>,
+    file_path: String,
+    options: Option<ExportRuntimeLogsOptions>,
+) -> Result<String, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    let min_level = options
+        .as_ref()
+        .and_then(|opt| opt.min_level.as_deref())
+        .and_then(normalize_log_level_input)
+        .unwrap_or("debug");
+    let days = options
+        .as_ref()
+        .and_then(|opt| opt.days)
+        .unwrap_or(7)
+        .clamp(1, 3650);
+    let threshold = format!("-{days} days");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT created_at, level, message, context
+             FROM logs
+             WHERE datetime(created_at) >= datetime('now', ?1)
+               AND CASE level WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END
+                   <= CASE ?2 WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END
+             ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map((&threshold, min_level), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut output = fs::File::create(&file_path).map_err(|e| e.to_string())?;
+    writeln!(output, "# Rosetta Runtime Logs").map_err(|e| e.to_string())?;
+    writeln!(output, "# min_level={min_level}, days={days}").map_err(|e| e.to_string())?;
+    writeln!(output).map_err(|e| e.to_string())?;
+
+    for (created_at, level, message, context) in rows {
+        if let Some(context) = context {
+            writeln!(output, "[{created_at}] [{level}] {message} | {context}")
+                .map_err(|e| e.to_string())?;
+        } else {
+            writeln!(output, "[{created_at}] [{level}] {message}").map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(file_path)
+}
+
+#[tauri::command]
+pub fn run_cleanup_now(app: AppHandle, state: State<AppState>) -> Result<String, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    run_periodic_cleanup(db.get_connection(), &app_dir)?;
+    Ok("Cleanup completed".to_string())
+}
+
+#[tauri::command]
+pub fn get_mineru_processed_storage_dir() -> Result<String, String> {
+    let path = crate::app_dirs::mineru_processed_dir()?;
+    path.to_str()
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Storage path contains invalid characters".to_string())
 }
 
 // --- Multi-format Import ---

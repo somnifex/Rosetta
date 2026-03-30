@@ -99,6 +99,17 @@ export default {
     description: "افحص بسرعة المحتوى المحلل خلف المرفقات والاقتباسات.",
     close: "إغلاق المعاينة",
     no_content: "لا يوجد محتوى محلل متاح",
+    open_code_panel: "فتح في اللوحة الجانبية",
+    code_title: "معاينة الشيفرة",
+    code_description: "يتم عرض مقطع شيفرة بتنسيق {{language}}.",
+    render_tab: "عرض",
+    code_tab: "الشيفرة",
+  },
+  message: {
+    retry: "إعادة المحاولة",
+    edit_and_retry: "تعديل ثم إعادة المحاولة",
+    save_and_retry: "حفظ وإعادة المحاولة",
+    cancel: "إلغاء",
   },
   role: {
     user: "أنت",

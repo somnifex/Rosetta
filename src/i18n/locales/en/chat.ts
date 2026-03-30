@@ -105,6 +105,17 @@ export default {
     description: "Quickly inspect the parsed content behind attachments and cited chunks.",
     close: "Close Preview",
     no_content: "No parsed content available",
+    open_code_panel: "Open in side panel",
+    code_title: "Code Preview",
+    code_description: "Viewing a code block in {{language}} format.",
+    render_tab: "Render",
+    code_tab: "Code",
+  },
+  message: {
+    retry: "Retry",
+    edit_and_retry: "Edit and retry",
+    save_and_retry: "Save and retry",
+    cancel: "Cancel",
   },
   role: {
     user: "You",

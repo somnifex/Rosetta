@@ -55,6 +55,14 @@ export interface TranslationRuntimeSettings {
   smartOptimizeEnabled: boolean
 }
 
+export interface RuntimeLogEntry {
+  id: string
+  level: string
+  message: string
+  context: string | null
+  created_at: string
+}
+
 export const DEFAULT_TRANSLATION_RUNTIME_SETTINGS: TranslationRuntimeSettings = {
   chunkSize: 4000,
   chunkOverlap: 0,
@@ -608,6 +616,17 @@ export const api = {
     safeInvoke<void>("set_app_setting", { key, value }),
   getAllAppSettings: () =>
     safeInvoke<Array<{ key: string; value: string }>>("get_all_app_settings"),
+
+  // Runtime Logs
+  getRuntimeLogs: (limit?: number, minLevel?: string) =>
+    safeInvoke<RuntimeLogEntry[]>("get_runtime_logs", { limit, minLevel }),
+  exportRuntimeLogs: (
+    filePath: string,
+    options?: { minLevel?: string; days?: number }
+  ) => safeInvoke<string>("export_runtime_logs", { filePath, options }),
+  runCleanupNow: () => safeInvoke<string>("run_cleanup_now"),
+  getMineruProcessedStorageDir: () =>
+    safeInvoke<string>("get_mineru_processed_storage_dir"),
 
   // MinerU Lifecycle
   startMinerU: () => safeInvoke<string>("start_mineru"),

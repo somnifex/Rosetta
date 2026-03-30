@@ -100,6 +100,17 @@ export default {
     description: "Быстро просматривайте разобранный контент за вложениями и цитатами.",
     close: "Закрыть предпросмотр",
     no_content: "Нет доступного разобранного содержимого",
+    open_code_panel: "Открыть в боковой панели",
+    code_title: "Предпросмотр кода",
+    code_description: "Просмотр блока кода в формате {{language}}.",
+    render_tab: "Рендер",
+    code_tab: "Код",
+  },
+  message: {
+    retry: "Повторить",
+    edit_and_retry: "Изменить и повторить",
+    save_and_retry: "Сохранить и повторить",
+    cancel: "Отмена",
   },
   role: {
     user: "Вы",

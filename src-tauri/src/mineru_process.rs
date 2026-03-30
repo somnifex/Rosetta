@@ -1340,6 +1340,8 @@ pub fn set_app_setting(state: State<AppState>, key: String, value: String) -> Re
     )
     .map_err(|e| e.to_string())?;
 
+    crate::runtime_logs::handle_setting_change(&key, &value);
+
     Ok(())
 }
 
