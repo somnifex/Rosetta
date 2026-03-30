@@ -58,6 +58,19 @@ pub struct RagChatRequest {
     #[serde(default)]
     pub attachments: Vec<RagChatAttachment>,
     pub top_k: Option<usize>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub sampling_override: Option<LlmSamplingConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateChatTitleRequest {
+    pub chat_channel: OpenAiChannelConfig,
+    pub messages: Vec<RagChatMessageInput>,
+    #[serde(default)]
+    pub sampling_override: Option<LlmSamplingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +118,21 @@ struct ChatCompletionChoice {
 #[derive(Debug, Default, Deserialize)]
 struct ChatCompletionDelta {
     content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCompletionResponse {
+    choices: Vec<ChatCompletionResponseChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCompletionResponseChoice {
+    message: ChatCompletionResponseMessage,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ChatCompletionResponseMessage {
+    content: String,
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +208,22 @@ fn latest_user_message(messages: &[RagChatMessageInput]) -> Result<&str, String>
         .find(|message| message.role == "user" && !message.content.trim().is_empty())
         .map(|message| message.content.trim())
         .ok_or_else(|| "No user message was provided for the chat request".to_string())
+}
+
+fn merge_sampling_config(
+    base: LlmSamplingConfig,
+    override_sampling: Option<&LlmSamplingConfig>,
+) -> LlmSamplingConfig {
+    let Some(override_sampling) = override_sampling else {
+        return base;
+    };
+
+    LlmSamplingConfig {
+        temperature: override_sampling.temperature.or(base.temperature),
+        top_p: override_sampling.top_p.or(base.top_p),
+        top_k: override_sampling.top_k.or(base.top_k),
+        max_tokens: override_sampling.max_tokens.or(base.max_tokens),
+    }
 }
 
 fn dedupe_document_ids(attachments: &[RagChatAttachment]) -> Vec<String> {
@@ -686,6 +730,19 @@ async fn retrieve_context(
 }
 
 fn build_system_prompt(request: &RagChatRequest, sources: &[RagChatSource]) -> String {
+    let custom_instructions = request
+        .system_prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            format!(
+                "Conversation-specific instructions from the user:\n{}\n\n",
+                value
+            )
+        })
+        .unwrap_or_default();
+
     let attachment_scope = if request.attachments.is_empty() {
         "The user did not attach specific documents for this turn. Search results may come from any indexed document in the library.".to_string()
     } else {
@@ -725,6 +782,7 @@ fn build_system_prompt(request: &RagChatRequest, sources: &[RagChatSource]) -> S
          If the retrieved context is insufficient, say so clearly before using cautious general knowledge.\n\
          Do not fabricate citations, quotes, or claims about a document that are not supported by the retrieved context.\n\
          When you cite retrieved context, mention the document title in square brackets.\n\n\
+         {custom_instructions}\
          {attachment_scope}\n\n\
          Retrieved context:\n{retrieved_context}"
     )
@@ -774,6 +832,70 @@ fn build_chat_payload(
     }
 
     payload
+}
+
+fn build_title_generation_payload(
+    request: &GenerateChatTitleRequest,
+    sampling: &LlmSamplingConfig,
+) -> serde_json::Value {
+    let transcript = request
+        .messages
+        .iter()
+        .filter_map(|message| {
+            let content = message.content.trim();
+            if content.is_empty() {
+                return None;
+            }
+
+            let speaker = match message.role.as_str() {
+                "assistant" => "Assistant",
+                "system" => "System",
+                _ => "User",
+            };
+
+            Some(format!("{speaker}: {content}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut payload = json!({
+        "model": request.chat_channel.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You generate concise conversation titles. Return only the title, with no quotes, labels, markdown, or trailing punctuation. Match the user's language when possible. Keep it under 18 Chinese characters or 6 English words."
+            },
+            {
+                "role": "user",
+                "content": format!("Create a short title for this conversation:\n\n{transcript}")
+            }
+        ],
+        "stream": false,
+    });
+
+    if let Some(temperature) = sampling.temperature {
+        payload["temperature"] = json!(temperature);
+    }
+    if let Some(top_p) = sampling.top_p {
+        payload["top_p"] = json!(top_p);
+    }
+    if let Some(top_k) = sampling.top_k {
+        payload["top_k"] = json!(top_k);
+    }
+    if let Some(max_tokens) = sampling.max_tokens {
+        payload["max_tokens"] = json!(max_tokens);
+    }
+
+    payload
+}
+
+fn sanitize_title_output(title: &str) -> String {
+    title
+        .trim()
+        .trim_matches(|c| matches!(c, '"' | '\'' | '`' | '“' | '”' | '‘' | '’'))
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 async fn stream_chat_completion(
@@ -859,6 +981,43 @@ async fn stream_chat_completion(
     Ok(())
 }
 
+async fn request_chat_completion_once(
+    channel: &OpenAiChannelConfig,
+    payload: serde_json::Value,
+) -> Result<String, String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let url = openai_compatible_url(&channel.base_url, "chat/completions");
+    let response = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", channel.api_key))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Chat request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("Chat API returned {}: {}", status, text));
+    }
+
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    let parsed: ChatCompletionResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse chat response: {e}"))?;
+
+    parsed
+        .choices
+        .first()
+        .map(|choice| choice.message.content.trim().to_string())
+        .filter(|content| !content.is_empty())
+        .ok_or_else(|| "Chat API returned an empty completion".to_string())
+}
+
 async fn run_rag_chat(
     app: &AppHandle,
     state: &AppState,
@@ -866,10 +1025,11 @@ async fn run_rag_chat(
 ) -> Result<(), String> {
     let app_dir = crate::app_dirs::runtime_app_dir(app)?;
     let sources = retrieve_context(state, &app_dir, request).await?;
-    let sampling = {
+    let base_sampling = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         load_llm_sampling_config(db.get_connection(), "chat")?
     };
+    let sampling = merge_sampling_config(base_sampling, request.sampling_override.as_ref());
     stream_chat_completion(app, request, sources, sampling).await
 }
 
@@ -923,4 +1083,30 @@ pub fn cancel_rag_chat(state: State<'_, AppState>, request_id: String) -> Result
         handle.abort();
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn generate_chat_title(request: GenerateChatTitleRequest) -> Result<String, String> {
+    if request.messages.is_empty() {
+        return Err("No chat messages were provided".to_string());
+    }
+
+    let sampling = merge_sampling_config(
+        LlmSamplingConfig {
+            temperature: Some(0.2),
+            top_p: Some(0.95),
+            top_k: None,
+            max_tokens: Some(40),
+        },
+        request.sampling_override.as_ref(),
+    );
+    let payload = build_title_generation_payload(&request, &sampling);
+    let title = request_chat_completion_once(&request.chat_channel, payload).await?;
+    let sanitized = sanitize_title_output(&title);
+
+    if sanitized.is_empty() {
+        return Err("Chat title generation returned an empty title".to_string());
+    }
+
+    Ok(sanitized)
 }

@@ -1,21 +1,85 @@
 export default {
   title: "Chat IA",
   new_chat: "Nueva conversación",
-  input_placeholder: "Escribe un mensaje...",
+  input_placeholder: "Haz una pregunta, desarrolla una idea o añade documentos al hilo...",
   send: "Enviar",
   stop: "Detener",
   attach_document: "Adjuntar documento",
   no_conversations: "Sin conversaciones",
-  no_conversations_desc: "Iniciar una nueva conversación",
+  no_conversations_desc: "Inicia una nueva conversación o continúa un hilo desde el lector de documentos.",
   no_messages: "Comenzar a chatear",
   no_messages_desc: "Envía un mensaje para iniciar una conversación con el asistente de IA",
   no_provider: {
     title: "No hay proveedor de chat configurado",
     description: "Configure un canal de chat activo en Configuración",
   },
+  no_embed_provider: {
+    title: "No hay proveedor de embeddings configurado",
+    description: "Configure un canal de embedding activo en Configuración",
+  },
+  attachment_default_prompt: "Resume los documentos adjuntos y destaca los puntos clave.",
   error: {
     stream_failed: "Error en la solicitud de chat",
     empty_message: "El mensaje no puede estar vacío",
+  },
+  history: {
+    label: "Historial",
+    search_placeholder: "Buscar títulos, prompts, mensajes o documentos adjuntos...",
+    count: "{{count}} conversaciones",
+    results: "{{count}} coincidencias",
+    empty_title: "No hay conversaciones coincidentes",
+    empty_search: "Pruebe otra palabra clave o limpie la búsqueda.",
+    no_preview: "Aún no hay mensajes",
+    delete: "Eliminar conversación",
+    document_conversation_exists: "Este documento ya tiene un hilo",
+    document_conversation_hint: "Ábrelo desde el historial para continuar la conversación existente.",
+  },
+  scope: {
+    general: "General",
+    document: "Documento",
+  },
+  header: {
+    document_context: "Las respuestas se basarán en {{document}}.",
+    general_context: "Usa este espacio para chat libre, análisis de varios documentos o ideas transversales.",
+    no_active: "Crea una conversación para empezar.",
+  },
+  empty: {
+    title: "Haz que cada conversación sea más fácil de controlar",
+    general_desc:
+      "Busca hilos anteriores, añade un prompt temporal del sistema o ajusta parámetros solo para esta conversación.",
+    document_desc:
+      "Este hilo queda vinculado al documento actual y se añade automáticamente al historial global para futuras búsquedas.",
+    suggestion_general_1: "Resume los documentos adjuntos y compara sus diferencias",
+    suggestion_general_2: "Convierte esta discusión en una lista de acciones",
+    suggestion_general_3: "¿Cuáles son las tres mejores preguntas de seguimiento basadas en este material?",
+    suggestion_general_4: "Reescribe la respuesta de forma más concisa sin perder la evidencia",
+    suggestion_document_1: "Resume la idea principal de esta página",
+    suggestion_document_2: "Explica los términos clave de este párrafo",
+    suggestion_document_3: "Encuentra los fragmentos que respaldan esta afirmación",
+    suggestion_document_4: "Compara aquí el original y la traducción",
+  },
+  composer: {
+    shortcut: "Enter para enviar, Shift + Enter para nueva línea",
+    retrieval_top_k: "Retrieval top_k: {{count}}",
+    retrieval_default: "Retrieval top_k usa el valor global",
+    document_placeholder: "Pregunta por conceptos, afirmaciones, pruebas, estructura o dónde aparece algo en este documento",
+  },
+  settings: {
+    title: "Configuración de la conversación",
+    description: "Solo afecta a esta conversación. La configuración global no cambia.",
+    active_model: "Modelo activo: {{model}}",
+    system_prompt: "Prompt temporal del sistema",
+    system_prompt_placeholder:
+      "Ejemplo: cita primero los fragmentos recuperados y luego responde con claridad; si la evidencia es débil, dilo explícitamente.",
+    system_prompt_hint:
+      "Este prompt se inyecta solo en la conversación actual y sirve para cambiar temporalmente el comportamiento.",
+    model_params: "Parámetros del modelo por conversación",
+    model_params_hint: "Deje los campos vacíos para heredar la configuración global del chat.",
+    reset: "Restablecer",
+    inherit_global: "Usar valor global",
+    retrieval_top_k: "Retrieval Top K",
+    done: "Hecho",
+    system_prompt_badge: "Prompt personalizado",
   },
   picker: {
     title: "Seleccionar documentos",
@@ -32,11 +96,35 @@ export default {
   },
   preview: {
     title: "Vista previa del documento",
+    description: "Inspeccione rápidamente el contenido analizado detrás de los adjuntos y citas.",
     close: "Cerrar vista previa",
     no_content: "No hay contenido analizado disponible",
   },
   role: {
     user: "Tú",
     assistant: "IA",
+    system: "Sistema",
+  },
+  sources: {
+    label: "Fuentes",
+    chunk: "Fragmento {{index}}",
+  },
+  document_panel: {
+    title: "Hilo del documento",
+    generating_title: "Generando título...",
+    subtitle: "Este hilo de preguntas y respuestas se añade automáticamente al historial global.",
+    open_history: "Abrir historial completo",
+    reset: "Reiniciar hilo",
+    empty_desc:
+      "Pregunta por todo el documento, continúa desde un fragmento seleccionado o compara el original con la traducción.",
+    suggestion_1: "Resume la idea principal de esta página",
+    suggestion_2: "Explica los términos clave de este párrafo",
+    suggestion_3: "Compara aquí el original y la traducción",
+    composer_shortcut: "Enter para enviar, Shift + Enter para nueva línea",
+    streaming_hint: "Buscando en el documento actual y redactando la respuesta",
+    ready_hint: "Las respuestas priorizarán la evidencia del documento actual",
+    placeholder:
+      "Pregunta por conceptos, conclusiones, evidencia, citas o el contexto actual de lectura",
+    error_title: "Error en el chat del documento",
   },
 }

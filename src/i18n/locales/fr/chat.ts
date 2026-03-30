@@ -1,21 +1,86 @@
 export default {
   title: "Chat IA",
   new_chat: "Nouvelle conversation",
-  input_placeholder: "Tapez un message...",
+  input_placeholder: "Posez une question, développez une idée ou ajoutez des documents au fil...",
   send: "Envoyer",
   stop: "Arrêter",
   attach_document: "Joindre un document",
   no_conversations: "Aucune conversation",
-  no_conversations_desc: "Démarrer une nouvelle conversation",
+  no_conversations_desc: "Démarrez une nouvelle conversation ou poursuivez un fil depuis le lecteur de documents.",
   no_messages: "Commencer à discuter",
   no_messages_desc: "Envoyez un message pour commencer une conversation avec l'assistant IA",
   no_provider: {
     title: "Aucun fournisseur de chat configuré",
     description: "Veuillez configurer un canal de chat actif dans les paramètres",
   },
+  no_embed_provider: {
+    title: "Aucun fournisseur d'embedding configuré",
+    description: "Veuillez configurer un canal d'embedding actif dans les paramètres",
+  },
+  attachment_default_prompt: "Résumez les documents joints et mettez en avant les points clés.",
   error: {
     stream_failed: "Échec de la requête de chat",
     empty_message: "Le message ne peut pas être vide",
+  },
+  history: {
+    label: "Historique",
+    search_placeholder: "Rechercher des titres, prompts, messages ou documents joints...",
+    count: "{{count}} conversations",
+    results: "{{count}} résultats",
+    empty_title: "Aucune conversation correspondante",
+    empty_search: "Essayez un autre mot-clé ou effacez la recherche.",
+    no_preview: "Pas encore de messages",
+    delete: "Supprimer la conversation",
+    document_conversation_exists: "Ce document a déjà un fil dédié",
+    document_conversation_hint: "Ouvrez-le depuis l'historique pour poursuivre le fil existant.",
+  },
+  scope: {
+    general: "Général",
+    document: "Document",
+  },
+  header: {
+    document_context: "Les réponses resteront ancrées dans {{document}}.",
+    general_context: "Utilisez cet espace pour un chat libre, une analyse multi-documents ou des idées transversales.",
+    no_active: "Créez une conversation pour commencer.",
+  },
+  empty: {
+    title: "Rendez chaque conversation plus facile à piloter",
+    general_desc:
+      "Recherchez d'anciens fils, ajoutez un prompt système temporaire ou ajustez les paramètres uniquement pour cette conversation.",
+    document_desc:
+      "Ce fil reste lié au document courant et est automatiquement ajouté à l'historique global pour les recherches futures.",
+    suggestion_general_1: "Résumez les documents joints et comparez leurs différences",
+    suggestion_general_2: "Transformez notre discussion actuelle en checklist d'action",
+    suggestion_general_3: "Quelles sont les trois meilleures questions de suivi à partir de ce contenu ?",
+    suggestion_general_4: "Réécrivez la réponse de façon plus concise en gardant les preuves",
+    suggestion_document_1: "Résumez l'idée clé de cette page",
+    suggestion_document_2: "Expliquez les termes clés de ce paragraphe",
+    suggestion_document_3: "Trouvez les passages qui soutiennent cette affirmation",
+    suggestion_document_4: "Comparez ici l'original et la traduction",
+  },
+  composer: {
+    shortcut: "Entrée pour envoyer, Maj + Entrée pour une nouvelle ligne",
+    retrieval_top_k: "Retrieval top_k : {{count}}",
+    retrieval_default: "Retrieval top_k suit la valeur globale",
+    document_placeholder:
+      "Interrogez les concepts, affirmations, preuves, la structure ou l'endroit où quelque chose apparaît dans ce document",
+  },
+  settings: {
+    title: "Paramètres de la conversation",
+    description: "N'affecte que cette conversation. Les paramètres globaux restent inchangés.",
+    active_model: "Modèle actif : {{model}}",
+    system_prompt: "Prompt système temporaire",
+    system_prompt_placeholder:
+      "Exemple : citez d'abord les passages retrouvés, puis répondez clairement ; si les preuves sont faibles, dites-le explicitement.",
+    system_prompt_hint:
+      "Ce prompt n'est injecté que dans la conversation courante et sert à modifier temporairement le comportement.",
+    model_params: "Paramètres du modèle par conversation",
+    model_params_hint: "Laissez les champs vides pour hériter des paramètres globaux du chat.",
+    reset: "Réinitialiser",
+    inherit_global: "Utiliser la valeur globale",
+    retrieval_top_k: "Retrieval Top K",
+    done: "Terminé",
+    system_prompt_badge: "Prompt personnalisé",
   },
   picker: {
     title: "Sélectionner des documents",
@@ -32,11 +97,35 @@ export default {
   },
   preview: {
     title: "Aperçu du document",
+    description: "Inspectez rapidement le contenu analysé derrière les pièces jointes et les citations.",
     close: "Fermer l'aperçu",
     no_content: "Aucun contenu analysé disponible",
   },
   role: {
     user: "Vous",
     assistant: "IA",
+    system: "Système",
+  },
+  sources: {
+    label: "Sources",
+    chunk: "Bloc {{index}}",
+  },
+  document_panel: {
+    title: "Fil du document",
+    generating_title: "Génération du titre...",
+    subtitle: "Ce fil de questions-réponses est ajouté automatiquement à l'historique global.",
+    open_history: "Ouvrir l'historique complet",
+    reset: "Réinitialiser le fil",
+    empty_desc:
+      "Posez des questions sur l'ensemble du document, continuez depuis un passage sélectionné ou comparez l'original et la traduction.",
+    suggestion_1: "Résumez l'idée clé de cette page",
+    suggestion_2: "Expliquez les termes clés de ce paragraphe",
+    suggestion_3: "Comparez ici l'original et la traduction",
+    composer_shortcut: "Entrée pour envoyer, Maj + Entrée pour une nouvelle ligne",
+    streaming_hint: "Recherche dans le document courant et rédaction de la réponse",
+    ready_hint: "Les réponses privilégieront les preuves du document courant",
+    placeholder:
+      "Interrogez les concepts, conclusions, preuves, citations ou le contexte de lecture actuel",
+    error_title: "Échec du chat documentaire",
   },
 }

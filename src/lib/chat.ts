@@ -1,3 +1,4 @@
+import type { LlmSamplingConfig } from "../../packages/types"
 import { api } from "./api"
 import {
   getActiveProviderForType,
@@ -29,48 +30,559 @@ export interface ChatMessage {
   sources?: ChatSource[]
 }
 
+export type ChatConversationScope = "general" | "document"
+export type ChatTitleSource = "fallback" | "ai" | "manual"
+
 export interface ChatConversation {
   id: string
   title: string
+  titleSource?: ChatTitleSource
+  scope: ChatConversationScope
+  contextAttachments: ChatAttachment[]
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  systemPrompt?: string
+  sampling?: LlmSamplingConfig
+  retrievalTopK?: number
 }
 
 export type ChatStreamEvent =
   | { type: "delta"; delta: string }
   | { type: "done"; sources: ChatSource[] }
 
-const CONVERSATIONS_KEY = "pdf-translate:chat-conversations"
+const CONVERSATIONS_KEY = "rosetta:chat-conversations:v2"
+const LEGACY_CONVERSATIONS_KEY = "pdf-translate:chat-conversations"
+export const LEGACY_READER_CHAT_PREFIX = "rosetta:reader-chat:"
+export const LEGACY_DOCUMENT_CHAT_PREFIX = "pdf-translate:document-chat:"
+
 const EVENT_CHAT_CHUNK = "rag-chat-chunk"
 const EVENT_CHAT_DONE = "rag-chat-done"
 const EVENT_CHAT_ERROR = "rag-chat-error"
+
+function cleanString(value: unknown) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function clampNumber(value: unknown, min: number, max: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return Math.min(max, Math.max(min, value))
+}
+
+function normalizeSamplingConfig(value: unknown): LlmSamplingConfig | undefined {
+  if (!value || typeof value !== "object") return undefined
+
+  const sampling = value as Record<string, unknown>
+  const normalized: LlmSamplingConfig = {
+    temperature: clampNumber(sampling.temperature, 0, 2),
+    top_p: clampNumber(sampling.top_p, 0, 1),
+    top_k: clampNumber(sampling.top_k, 1, 200),
+    max_tokens: clampNumber(sampling.max_tokens, 1, 32768),
+  }
+
+  if (
+    normalized.temperature == null &&
+    normalized.top_p == null &&
+    normalized.top_k == null &&
+    normalized.max_tokens == null
+  ) {
+    return undefined
+  }
+
+  return normalized
+}
+
+function normalizeAttachment(value: unknown): ChatAttachment | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+  const documentId = cleanString(raw.documentId ?? raw.document_id)
+  if (!documentId) return null
+
+  return {
+    documentId,
+    title: cleanString(raw.title) || cleanString(raw.documentTitle) || documentId,
+    filename: cleanString(raw.filename),
+  }
+}
+
+function normalizeAttachments(value: unknown) {
+  if (!Array.isArray(value)) return [] as ChatAttachment[]
+  return value.map(normalizeAttachment).filter(Boolean) as ChatAttachment[]
+}
+
+function dedupeAttachments(attachments: ChatAttachment[]) {
+  const seen = new Set<string>()
+  return attachments.filter((attachment) => {
+    if (seen.has(attachment.documentId)) return false
+    seen.add(attachment.documentId)
+    return true
+  })
+}
+
+function normalizeSource(value: unknown): ChatSource | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+  const chunkId = cleanString(raw.chunkId ?? raw.chunk_id)
+  const documentId = cleanString(raw.documentId ?? raw.document_id)
+  if (!chunkId || !documentId) return null
+
+  return {
+    documentId,
+    documentTitle:
+      cleanString(raw.documentTitle ?? raw.document_title) || documentId,
+    chunkId,
+    chunkIndex:
+      typeof raw.chunkIndex === "number"
+        ? raw.chunkIndex
+        : typeof raw.chunk_index === "number"
+          ? raw.chunk_index
+          : 0,
+    score: typeof raw.score === "number" ? raw.score : 0,
+    content: cleanString(raw.content),
+  }
+}
+
+function normalizeSources(value: unknown) {
+  if (!Array.isArray(value)) return [] as ChatSource[]
+  return value.map(normalizeSource).filter(Boolean) as ChatSource[]
+}
+
+function normalizeMessage(value: unknown): ChatMessage | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+  const role = cleanString(raw.role)
+  if (role !== "user" && role !== "assistant" && role !== "system") return null
+
+  return {
+    id: cleanString(raw.id) || genId(),
+    role,
+    content: typeof raw.content === "string" ? raw.content : "",
+    timestamp:
+      typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)
+        ? raw.timestamp
+        : Date.now(),
+    attachments: normalizeAttachments(raw.attachments),
+    sources: normalizeSources(raw.sources),
+  }
+}
+
+function normalizeMessages(value: unknown) {
+  if (!Array.isArray(value)) return [] as ChatMessage[]
+  return value.map(normalizeMessage).filter(Boolean) as ChatMessage[]
+}
+
+function normalizeConversation(value: unknown): ChatConversation | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+
+  const messages = normalizeMessages(raw.messages)
+  const contextAttachments = normalizeAttachments(
+    raw.contextAttachments ?? raw.context_attachments
+  )
+  const legacyDocumentId = cleanString(raw.documentId ?? raw.document_id)
+  const legacyDocumentTitle = cleanString(raw.documentTitle ?? raw.document_title)
+  const legacyTitle = cleanString(raw.title)
+  const firstUserMessage = messages.find((message) => message.role === "user")
+  const fallbackTitle =
+    legacyTitle ||
+    deriveConversationTitleCandidate(firstUserMessage?.content ?? "", "New Chat")
+
+  const scope =
+    raw.scope === "document" || legacyDocumentId ? "document" : "general"
+
+  const migratedAttachments =
+    legacyDocumentId && contextAttachments.length === 0
+      ? [
+          {
+            documentId: legacyDocumentId,
+            title: legacyDocumentTitle || fallbackTitle,
+            filename: "",
+          },
+        ]
+      : contextAttachments
+
+  return {
+    id: cleanString(raw.id) || genId(),
+    title: fallbackTitle,
+    titleSource:
+      raw.titleSource === "manual" || raw.titleSource === "ai"
+        ? raw.titleSource
+        : "fallback",
+    scope,
+    contextAttachments: migratedAttachments,
+    messages,
+    createdAt:
+      typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
+        ? raw.createdAt
+        : Date.now(),
+    updatedAt:
+      typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt)
+        ? raw.updatedAt
+        : Date.now(),
+    systemPrompt: cleanString(raw.systemPrompt ?? raw.system_prompt) || undefined,
+    sampling: normalizeSamplingConfig(raw.sampling),
+    retrievalTopK: clampNumber(raw.retrievalTopK ?? raw.retrieval_top_k, 1, 12),
+  }
+}
+
+function sortConversations(conversations: ChatConversation[]) {
+  return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+function serializeConversations(conversations: ChatConversation[]) {
+  return JSON.stringify(sortConversations(conversations))
+}
+
+function readConversationStorage() {
+  const next = window.localStorage.getItem(CONVERSATIONS_KEY)
+  if (next) {
+    return next
+  }
+  return window.localStorage.getItem(LEGACY_CONVERSATIONS_KEY)
+}
+
+function getLegacyDocumentStorageKeys() {
+  const keys: string[] = []
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index)
+    if (!key) continue
+    if (
+      key.startsWith(LEGACY_READER_CHAT_PREFIX) ||
+      key.startsWith(LEGACY_DOCUMENT_CHAT_PREFIX)
+    ) {
+      keys.push(key)
+    }
+  }
+  return keys
+}
+
+function readLegacyDocumentMessages(key: string) {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return [] as ChatMessage[]
+    return normalizeMessages(JSON.parse(raw))
+  } catch {
+    return [] as ChatMessage[]
+  }
+}
+
+function extractDocumentIdFromLegacyKey(key: string) {
+  if (key.startsWith(LEGACY_READER_CHAT_PREFIX)) {
+    return key.slice(LEGACY_READER_CHAT_PREFIX.length)
+  }
+  if (key.startsWith(LEGACY_DOCUMENT_CHAT_PREFIX)) {
+    return key.slice(LEGACY_DOCUMENT_CHAT_PREFIX.length)
+  }
+  return ""
+}
+
+function removeLegacyDocumentConversationStorage(documentId: string) {
+  window.localStorage.removeItem(`${LEGACY_READER_CHAT_PREFIX}${documentId}`)
+  window.localStorage.removeItem(`${LEGACY_DOCUMENT_CHAT_PREFIX}${documentId}`)
+}
+
+function migrateLegacyDocumentConversations(conversations: ChatConversation[]) {
+  const next = [...conversations]
+  const existingDocumentIds = new Set(
+    next.flatMap((conversation) =>
+      conversation.scope === "document"
+        ? conversation.contextAttachments.map((attachment) => attachment.documentId)
+        : []
+    )
+  )
+
+  for (const key of getLegacyDocumentStorageKeys()) {
+    const documentId = extractDocumentIdFromLegacyKey(key)
+    if (!documentId) {
+      continue
+    }
+
+    if (existingDocumentIds.has(documentId)) {
+      removeLegacyDocumentConversationStorage(documentId)
+      continue
+    }
+
+    const messages = readLegacyDocumentMessages(key)
+    if (messages.length === 0) {
+      removeLegacyDocumentConversationStorage(documentId)
+      continue
+    }
+
+    const firstUserMessage = messages.find((message) => message.role === "user")
+    const createdAt = messages[0]?.timestamp ?? Date.now()
+    const updatedAt = messages[messages.length - 1]?.timestamp ?? createdAt
+    next.push(
+      createConversation(
+        deriveConversationTitleCandidate(firstUserMessage?.content ?? "", documentId),
+        {
+          scope: "document",
+          contextAttachments: [
+            {
+              documentId,
+              title: documentId,
+              filename: "",
+            },
+          ],
+          messages,
+          createdAt,
+          updatedAt,
+        }
+      )
+    )
+    existingDocumentIds.add(documentId)
+    removeLegacyDocumentConversationStorage(documentId)
+  }
+
+  return next
+}
 
 export function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
+export function deriveConversationTitleCandidate(content: string, fallback: string) {
+  const normalized = content.replace(/\s+/g, " ").trim()
+  if (!normalized) return fallback
+  return normalized.slice(0, 48)
+}
+
+export function sanitizeGeneratedTitle(title: string, fallback: string) {
+  const normalized = title
+    .replace(/^[\s"'`“”‘’]+|[\s"'`“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return normalized ? normalized.slice(0, 48) : fallback
+}
+
+export function getConversationPreview(conversation: ChatConversation) {
+  const lastMessage = [...conversation.messages]
+    .reverse()
+    .find((message) => message.role !== "system" && message.content.trim())
+
+  if (!lastMessage) {
+    if (conversation.scope === "document" && conversation.contextAttachments[0]) {
+      return conversation.contextAttachments[0].title
+    }
+    return ""
+  }
+
+  return lastMessage.content.replace(/\s+/g, " ").trim()
+}
+
+export function getConversationSearchText(conversation: ChatConversation) {
+  return [
+    conversation.title,
+    conversation.systemPrompt ?? "",
+    ...conversation.contextAttachments.map((attachment) => attachment.title),
+    ...conversation.messages.map((message) => message.content),
+  ]
+    .join(" \n ")
+    .toLowerCase()
+}
+
+export function conversationMatchesQuery(conversation: ChatConversation, query: string) {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+  return getConversationSearchText(conversation).includes(normalized)
+}
+
 export function loadConversations(): ChatConversation[] {
   try {
-    const raw = localStorage.getItem(CONVERSATIONS_KEY)
-    return raw ? JSON.parse(raw) : []
+    const raw = readConversationStorage()
+    const parsed = raw ? JSON.parse(raw) : []
+    const base = Array.isArray(parsed)
+      ? (parsed.map(normalizeConversation).filter(Boolean) as ChatConversation[])
+      : []
+    const conversations = sortConversations(migrateLegacyDocumentConversations(base))
+
+    window.localStorage.setItem(CONVERSATIONS_KEY, serializeConversations(conversations))
+    window.localStorage.removeItem(LEGACY_CONVERSATIONS_KEY)
+    return conversations
   } catch {
     return []
   }
 }
 
 export function saveConversations(conversations: ChatConversation[]) {
-  localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations))
+  window.localStorage.setItem(CONVERSATIONS_KEY, serializeConversations(conversations))
+  window.localStorage.removeItem(LEGACY_CONVERSATIONS_KEY)
+}
+
+export function createConversation(
+  fallbackTitle: string,
+  overrides: Partial<ChatConversation> = {}
+): ChatConversation {
+  return normalizeConversation({
+    id: overrides.id ?? genId(),
+    title: overrides.title ?? fallbackTitle,
+    titleSource: overrides.titleSource ?? "fallback",
+    scope: overrides.scope ?? "general",
+    contextAttachments: overrides.contextAttachments ?? [],
+    messages: overrides.messages ?? [],
+    createdAt: overrides.createdAt ?? Date.now(),
+    updatedAt: overrides.updatedAt ?? Date.now(),
+    systemPrompt: overrides.systemPrompt,
+    sampling: overrides.sampling,
+    retrievalTopK: overrides.retrievalTopK,
+  })!
+}
+
+export function replaceConversation(
+  conversations: ChatConversation[],
+  conversation: ChatConversation
+) {
+  const next = conversations.filter((item) => item.id !== conversation.id)
+  return sortConversations([conversation, ...next])
+}
+
+export function patchConversation(
+  conversations: ChatConversation[],
+  id: string,
+  updates: Partial<ChatConversation>
+) {
+  return sortConversations(
+    conversations.map((conversation) =>
+      conversation.id === id
+        ? normalizeConversation({
+            ...conversation,
+            ...updates,
+            id: conversation.id,
+            updatedAt: Date.now(),
+          })!
+        : conversation
+    )
+  )
+}
+
+export function removeConversation(conversations: ChatConversation[], id: string) {
+  return sortConversations(conversations.filter((conversation) => conversation.id !== id))
+}
+
+export function findDocumentConversation(
+  conversations: ChatConversation[],
+  documentId: string
+) {
+  return conversations.find(
+    (conversation) =>
+      conversation.scope === "document" &&
+      conversation.contextAttachments.some(
+        (attachment) => attachment.documentId === documentId
+      )
+  )
+}
+
+export function ensureDocumentConversation(
+  conversations: ChatConversation[],
+  attachment: ChatAttachment
+) {
+  const existing = findDocumentConversation(conversations, attachment.documentId)
+  if (!existing) {
+    const created = createConversation(attachment.title, {
+      scope: "document",
+      contextAttachments: [attachment],
+      title: attachment.title,
+      titleSource: "fallback",
+    })
+    return {
+      conversation: created,
+      conversations: replaceConversation(conversations, created),
+      created: true,
+    }
+  }
+
+  const shouldRefreshTitle =
+    existing.titleSource !== "manual" &&
+    (!existing.messages.length ||
+      existing.title === existing.contextAttachments[0]?.title ||
+      existing.title === attachment.documentId)
+
+  const nextConversation = normalizeConversation({
+    ...existing,
+    contextAttachments: dedupeAttachments([
+      attachment,
+      ...existing.contextAttachments.filter(
+        (item) => item.documentId !== attachment.documentId
+      ),
+    ]),
+    title: shouldRefreshTitle ? attachment.title : existing.title,
+    updatedAt: existing.updatedAt,
+  })!
+
+  return {
+    conversation: nextConversation,
+    conversations: replaceConversation(conversations, nextConversation),
+    created: false,
+  }
+}
+
+export function clearDocumentConversationLegacyStorage(documentId: string) {
+  removeLegacyDocumentConversationStorage(documentId)
 }
 
 function isTauri() {
   return !!(window as any).__TAURI_INTERNALS__
 }
 
+function mergeSampling(
+  base: LlmSamplingConfig | undefined,
+  override: LlmSamplingConfig | undefined
+) {
+  const merged = {
+    temperature: override?.temperature ?? base?.temperature,
+    top_p: override?.top_p ?? base?.top_p,
+    top_k: override?.top_k ?? base?.top_k,
+    max_tokens: override?.max_tokens ?? base?.max_tokens,
+  }
+
+  return normalizeSamplingConfig(merged)
+}
+
 interface StreamRagChatArgs {
   messages: { role: string; content: string }[]
   attachments?: ChatAttachment[]
   topK?: number
+  systemPrompt?: string
+  sampling?: LlmSamplingConfig
+}
+
+export async function generateConversationTitle(
+  messages: Array<Pick<ChatMessage, "role" | "content">>,
+  sampling?: LlmSamplingConfig
+) {
+  if (!isTauri()) {
+    throw new Error("Tauri backend not available. Chat titles require the desktop app runtime.")
+  }
+
+  const providers = await api.getProviders()
+  const chatProvider = getActiveProviderForType(providers, "chat")
+  const chatModel = chatProvider ? getPrimaryModelForType(chatProvider, "chat") : null
+  if (!chatProvider || !chatModel) {
+    throw new Error("NO_ACTIVE_CHAT_CHANNEL")
+  }
+
+  const { invoke } = await import("@tauri-apps/api/core")
+  const title = await invoke<string>("generate_chat_title", {
+    request: {
+      chatChannel: toOpenAiChannelConfig(chatProvider, chatModel),
+      messages: messages
+        .filter((message) => message.content.trim())
+        .slice(-8)
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      samplingOverride: mergeSampling(
+        {
+          temperature: 0.2,
+          max_tokens: 40,
+        },
+        sampling
+      ),
+    },
+  })
+
+  return sanitizeGeneratedTitle(title, "New Chat")
 }
 
 export async function* streamRagChat(
@@ -170,6 +682,8 @@ export async function* streamRagChat(
         messages: args.messages,
         attachments: args.attachments ?? [],
         topK: args.topK,
+        systemPrompt: args.systemPrompt?.trim() || null,
+        samplingOverride: normalizeSamplingConfig(args.sampling),
       },
     })
 

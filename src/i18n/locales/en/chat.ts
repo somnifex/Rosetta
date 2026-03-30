@@ -1,12 +1,12 @@
 export default {
   title: "AI Chat",
   new_chat: "New Chat",
-  input_placeholder: "Type a message...",
+  input_placeholder: "Ask a question, sketch an idea, or bring documents into the thread...",
   send: "Send",
   stop: "Stop",
   attach_document: "Attach Document",
   no_conversations: "No conversations",
-  no_conversations_desc: "Start a new conversation",
+  no_conversations_desc: "Start a new conversation or continue a thread from the document reader.",
   no_messages: "Start chatting",
   no_messages_desc: "Send a message to begin a conversation with the AI assistant",
   no_provider: {
@@ -21,6 +21,65 @@ export default {
   error: {
     stream_failed: "Chat request failed",
     empty_message: "Message cannot be empty",
+  },
+  history: {
+    label: "History",
+    search_placeholder: "Search titles, prompts, messages, or attached documents...",
+    count: "{{count}} conversations",
+    results: "{{count}} matches",
+    empty_title: "No matching conversations",
+    empty_search: "Try a different keyword or clear the search.",
+    no_preview: "No messages yet",
+    delete: "Delete conversation",
+    document_conversation_exists: "This document already has a thread",
+    document_conversation_hint: "Open it from history to continue the existing document conversation.",
+  },
+  scope: {
+    general: "General",
+    document: "Document",
+  },
+  header: {
+    document_context: "Replies will stay grounded in {{document}}.",
+    general_context: "Use this space for free-form chat, multi-document analysis, or cross-topic thinking.",
+    no_active: "Create a conversation to get started.",
+  },
+  empty: {
+    title: "Make every conversation easier to steer",
+    general_desc:
+      "Search old threads, add a temporary system prompt, or tune model parameters only for this conversation.",
+    document_desc:
+      "This thread stays tied to the current document and is automatically added to global chat history for later search.",
+    suggestion_general_1: "Summarize the attached documents and compare their differences",
+    suggestion_general_2: "Turn our current discussion into an action checklist",
+    suggestion_general_3: "Based on the current material, what are the three best follow-up questions?",
+    suggestion_general_4: "Rewrite the answer more concisely while keeping the evidence",
+    suggestion_document_1: "Summarize the key point of this page",
+    suggestion_document_2: "Explain the key terms in this paragraph",
+    suggestion_document_3: "Find the passages that support this claim",
+    suggestion_document_4: "Compare the original and translated text here",
+  },
+  composer: {
+    shortcut: "Enter to send, Shift + Enter for a new line",
+    retrieval_top_k: "Retrieval top_k: {{count}}",
+    retrieval_default: "Retrieval top_k follows the global default",
+    document_placeholder: "Ask about concepts, claims, evidence, structure, or where something appears in this document",
+  },
+  settings: {
+    title: "Conversation Settings",
+    description: "Only affects this conversation. Global provider settings stay unchanged.",
+    active_model: "Active model: {{model}}",
+    system_prompt: "Temporary system prompt",
+    system_prompt_placeholder:
+      "Example: cite retrieved passages first, then answer clearly; if evidence is weak, say so explicitly.",
+    system_prompt_hint:
+      "This prompt is injected only for the current conversation and is useful for temporary behavior changes.",
+    model_params: "Per-conversation model parameters",
+    model_params_hint: "Leave fields empty to inherit the global chat defaults from Settings.",
+    reset: "Reset overrides",
+    inherit_global: "Use global default",
+    retrieval_top_k: "Retrieval Top K",
+    done: "Done",
+    system_prompt_badge: "Custom prompt",
   },
   picker: {
     title: "Select Documents",
@@ -37,15 +96,35 @@ export default {
   },
   preview: {
     title: "Document Preview",
+    description: "Quickly inspect the parsed content behind attachments and cited chunks.",
     close: "Close Preview",
     no_content: "No parsed content available",
   },
   role: {
     user: "You",
     assistant: "AI",
+    system: "System",
   },
   sources: {
     label: "Sources",
     chunk: "Chunk {{index}}",
+  },
+  document_panel: {
+    title: "Document Thread",
+    generating_title: "Generating title...",
+    subtitle: "This Q&A thread is automatically added to global history.",
+    open_history: "Open full history",
+    reset: "Reset thread",
+    empty_desc:
+      "Ask about the whole document, continue from a selected passage, or compare the original with the translation.",
+    suggestion_1: "Summarize the key point of this page",
+    suggestion_2: "Explain the key terms in this paragraph",
+    suggestion_3: "Compare the original and translated text here",
+    composer_shortcut: "Enter to send, Shift + Enter for a new line",
+    streaming_hint: "Searching the current document and drafting a reply",
+    ready_hint: "Replies will prioritize evidence from the current document",
+    placeholder:
+      "Ask about concepts, conclusions, evidence, cited passages, or the current reading context",
+    error_title: "Document chat failed",
   },
 }

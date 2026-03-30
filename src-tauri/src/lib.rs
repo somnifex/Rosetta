@@ -277,6 +277,7 @@ pub fn run() {
             commands::search_documents,
             rag_chat::start_rag_chat,
             rag_chat::cancel_rag_chat,
+            rag_chat::generate_chat_title,
             commands::test_webdav_connection,
             commands::sync_document,
             commands::export_document,
