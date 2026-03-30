@@ -27,6 +27,7 @@ pub struct AppState {
     pub model_manager: Arc<MinerUModelManager>,
     pub reranker_model_manager: Arc<zvec::RerankerModelManager>,
     pub zvec_venv_manager: Arc<zvec::ZvecVenvManager>,
+    pub zvec_availability_cache: Arc<zvec::ZvecAvailabilityCache>,
     pub parse_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub translation_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub index_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
@@ -42,6 +43,7 @@ impl Clone for AppState {
             model_manager: Arc::clone(&self.model_manager),
             reranker_model_manager: Arc::clone(&self.reranker_model_manager),
             zvec_venv_manager: Arc::clone(&self.zvec_venv_manager),
+            zvec_availability_cache: Arc::clone(&self.zvec_availability_cache),
             parse_job_handles: Arc::clone(&self.parse_job_handles),
             translation_job_handles: Arc::clone(&self.translation_job_handles),
             index_job_handles: Arc::clone(&self.index_job_handles),
@@ -58,6 +60,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .setup(|app| {
             let app_dir = app_dirs::runtime_app_dir(app).map_err(|e| {
                 log::error!("Failed to get runtime app dir: {}", e);
@@ -86,6 +89,7 @@ pub fn run() {
             let model_manager = Arc::new(MinerUModelManager::new());
             let reranker_model_manager = Arc::new(zvec::RerankerModelManager::new());
             let zvec_venv_manager = Arc::new(zvec::ZvecVenvManager::new());
+            let zvec_availability_cache = Arc::new(zvec::ZvecAvailabilityCache::new());
 
             let db_arc = Arc::new(Mutex::new(db));
 
@@ -104,11 +108,34 @@ pub fn run() {
                 model_manager: Arc::clone(&model_manager),
                 reranker_model_manager: Arc::clone(&reranker_model_manager),
                 zvec_venv_manager: Arc::clone(&zvec_venv_manager),
+                zvec_availability_cache: Arc::clone(&zvec_availability_cache),
                 parse_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 translation_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 index_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 chat_request_handles: Arc::new(Mutex::new(HashMap::new())),
             });
+
+            // First-launch optimal window sizing
+            {
+                let state_marker = app_dir.join(".window-initialized");
+                if !state_marker.exists() {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Ok(Some(monitor)) = window.current_monitor() {
+                            let screen = monitor.size();
+                            let scale = monitor.scale_factor();
+                            let lw = (screen.width as f64 / scale) * 0.80;
+                            let lh = (screen.height as f64 / scale) * 0.80;
+                            let w = lw.clamp(900.0, 1600.0);
+                            let h = lh.clamp(600.0, 1100.0);
+                            let _ = window.set_size(tauri::Size::Logical(
+                                tauri::LogicalSize { width: w, height: h },
+                            ));
+                            let _ = window.center();
+                        }
+                    }
+                    let _ = std::fs::write(&state_marker, b"1");
+                }
+            }
 
             // Auto-start MinerU if configured
             let db_for_autostart = Arc::clone(&db_arc);
@@ -197,10 +224,20 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_documents,
+            commands::get_library_documents,
             commands::get_document_by_id,
             commands::create_document,
             commands::update_document,
             commands::delete_document,
+            commands::move_documents_to_trash,
+            commands::restore_documents,
+            commands::batch_update_documents,
+            commands::permanently_delete_documents,
+            commands::empty_trash,
+            commands::get_folders,
+            commands::create_folder,
+            commands::update_folder,
+            commands::delete_folder,
             commands::get_categories,
             commands::create_category,
             commands::update_category,
@@ -231,6 +268,10 @@ pub fn run() {
             commands::get_translation_job,
             commands::get_all_translation_jobs,
             commands::get_translated_content,
+            commands::get_document_outputs,
+            commands::replace_original_document_file,
+            commands::replace_translated_pdf,
+            commands::replace_parsed_markdown,
             commands::start_index_job,
             commands::cancel_index_job,
             commands::search_documents,
@@ -239,6 +280,7 @@ pub fn run() {
             commands::test_webdav_connection,
             commands::sync_document,
             commands::export_document,
+            commands::export_document_asset,
             commands::test_mineru_connection,
             commands::get_document_file_path,
             commands::get_document_chunks,

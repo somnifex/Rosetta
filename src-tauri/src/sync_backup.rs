@@ -32,8 +32,10 @@ pub struct BackupPayload {
     /// Only in "full" scope
     pub documents: Option<Vec<serde_json::Value>>,
     pub categories: Option<Vec<serde_json::Value>>,
+    pub folders: Option<Vec<serde_json::Value>>,
     pub tags: Option<Vec<serde_json::Value>>,
     pub document_tags: Option<Vec<serde_json::Value>>,
+    pub document_folders: Option<Vec<serde_json::Value>>,
     pub providers: Option<Vec<serde_json::Value>>,
     pub parsed_contents: Option<Vec<serde_json::Value>>,
     pub translated_contents: Option<Vec<serde_json::Value>>,
@@ -78,8 +80,10 @@ pub fn collect_backup_data(
         local_config,
         documents: None,
         categories: None,
+        folders: None,
         tags: None,
         document_tags: None,
+        document_folders: None,
         providers: None,
         parsed_contents: None,
         translated_contents: None,
@@ -87,13 +91,12 @@ pub fn collect_backup_data(
     };
 
     if scope == "full" {
-        payload.documents = Some(query_table_as_json(
-            conn,
-            "SELECT * FROM documents WHERE deleted_at IS NULL",
-        )?);
+        payload.documents = Some(query_table_as_json(conn, "SELECT * FROM documents")?);
         payload.categories = Some(query_table_as_json(conn, "SELECT * FROM categories")?);
+        payload.folders = Some(query_table_as_json(conn, "SELECT * FROM folders")?);
         payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
         payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
+        payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
         payload.providers = Some(query_table_as_json(conn, "SELECT * FROM providers")?);
         payload.parsed_contents = Some(query_table_as_json(conn, "SELECT * FROM parsed_contents")?);
         payload.translated_contents = Some(query_table_as_json(
@@ -156,12 +159,17 @@ pub fn apply_backup_data(
     if envelope.scope == "full" {
         // Restore full data - clear and re-insert
         // Order matters due to foreign keys
-        conn.execute_batch("DELETE FROM document_tags; DELETE FROM chunks; DELETE FROM translated_contents; DELETE FROM parsed_contents; DELETE FROM documents; DELETE FROM categories; DELETE FROM tags; DELETE FROM providers;")
+        conn.execute_batch("DELETE FROM document_tags; DELETE FROM document_folders; DELETE FROM chunks; DELETE FROM translated_contents; DELETE FROM parsed_contents; DELETE FROM documents; DELETE FROM folders; DELETE FROM categories; DELETE FROM tags; DELETE FROM providers;")
             .map_err(|e| format!("Failed to clear tables: {}", e))?;
 
         if let Some(categories) = &envelope.payload.categories {
             for row in categories {
                 insert_json_row(conn, "categories", row)?;
+            }
+        }
+        if let Some(folders) = &envelope.payload.folders {
+            for row in folders {
+                insert_json_row(conn, "folders", row)?;
             }
         }
         if let Some(tags) = &envelope.payload.tags {
@@ -197,6 +205,11 @@ pub fn apply_backup_data(
         if let Some(doc_tags) = &envelope.payload.document_tags {
             for row in doc_tags {
                 insert_json_row(conn, "document_tags", row)?;
+            }
+        }
+        if let Some(doc_folders) = &envelope.payload.document_folders {
+            for row in doc_folders {
+                insert_json_row(conn, "document_folders", row)?;
             }
         }
     }
@@ -285,8 +298,10 @@ pub async fn webdav_upload_backup(
             local_config,
             documents: None,
             categories: None,
+            folders: None,
             tags: None,
             document_tags: None,
+            document_folders: None,
             providers: None,
             parsed_contents: None,
             translated_contents: None,
@@ -294,13 +309,12 @@ pub async fn webdav_upload_backup(
         };
 
         if scope == "full" {
-            payload.documents = Some(query_table_as_json(
-                conn,
-                "SELECT * FROM documents WHERE deleted_at IS NULL",
-            )?);
+            payload.documents = Some(query_table_as_json(conn, "SELECT * FROM documents")?);
             payload.categories = Some(query_table_as_json(conn, "SELECT * FROM categories")?);
+            payload.folders = Some(query_table_as_json(conn, "SELECT * FROM folders")?);
             payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
             payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
+            payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
             payload.providers = Some(query_table_as_json(conn, "SELECT * FROM providers")?);
             payload.parsed_contents =
                 Some(query_table_as_json(conn, "SELECT * FROM parsed_contents")?);

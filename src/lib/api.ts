@@ -1,4 +1,19 @@
-import type { Document, Category, Tag, Provider, ProviderType, ParseJob, ParsedContent, TranslationJob, TranslatedContent, Chunk } from "../../packages/types"
+import type {
+  BatchActionReport,
+  Category,
+  Chunk,
+  Document,
+  DocumentOutput,
+  Folder,
+  ParseJob,
+  ParsedContent,
+  PermanentDeleteReport,
+  Provider,
+  ProviderType,
+  Tag,
+  TranslatedContent,
+  TranslationJob,
+} from "../../packages/types"
 
 // Check if running inside Tauri
 const isTauri = () => !!(window as any).__TAURI_INTERNALS__
@@ -93,6 +108,7 @@ export const channelStore = {
 export const api = {
   // Documents
   getDocuments: () => safeInvoke<Document[]>("get_documents"),
+  getLibraryDocuments: () => safeInvoke<Document[]>("get_library_documents"),
   getDocumentById: (id: string) => safeInvoke<Document>("get_document_by_id", { id }),
   createDocument: (data: {
     title: string
@@ -121,6 +137,23 @@ export const api = {
       targetLanguage: data.targetLanguage,
     }),
   deleteDocument: (id: string) => safeInvoke<void>("delete_document", { id }),
+  moveDocumentsToTrash: (documentIds: string[]) =>
+    safeInvoke<BatchActionReport>("move_documents_to_trash", { documentIds }),
+  restoreDocuments: (documentIds: string[]) =>
+    safeInvoke<BatchActionReport>("restore_documents", { documentIds }),
+  batchUpdateDocuments: (data: {
+    documentIds: string[]
+    categoryId?: string
+    folderId?: string
+  }) =>
+    safeInvoke<BatchActionReport>("batch_update_documents", {
+      documentIds: data.documentIds,
+      categoryId: data.categoryId,
+      folderId: data.folderId,
+    }),
+  permanentlyDeleteDocuments: (documentIds: string[]) =>
+    safeInvoke<PermanentDeleteReport>("permanently_delete_documents", { documentIds }),
+  emptyTrash: () => safeInvoke<PermanentDeleteReport>("empty_trash"),
   importPdf: (filePath: string) => safeInvoke<Document>("import_pdf", { filePath }),
   importDocument: (filePath: string, fileType: string) =>
     safeInvoke<Document>("import_document", { filePath, fileType }),
@@ -162,6 +195,13 @@ export const api = {
     created_at: string; updated_at: string;
   }>>("get_all_translation_jobs"),
   getTranslatedContent: (documentId: string) => safeInvoke<TranslatedContent>("get_translated_content", { documentId }),
+  getDocumentOutputs: (documentId: string) => safeInvoke<DocumentOutput[]>("get_document_outputs", { documentId }),
+  replaceOriginalDocumentFile: (documentId: string, filePath: string) =>
+    safeInvoke<Document>("replace_original_document_file", { documentId, filePath }),
+  replaceTranslatedPdf: (documentId: string, filePath: string) =>
+    safeInvoke<DocumentOutput>("replace_translated_pdf", { documentId, filePath }),
+  replaceParsedMarkdown: (documentId: string, filePath: string) =>
+    safeInvoke<ParsedContent>("replace_parsed_markdown", { documentId, filePath }),
 
   // RAG & Search
   startIndexJob: (documentId: string, providerId: string) => safeInvoke<string>("start_index_job", { documentId, providerId }),
@@ -234,6 +274,16 @@ export const api = {
       contentType: data.contentType,
       outputPath: data.outputPath,
     }),
+  exportDocumentAsset: (data: {
+    documentId: string
+    assetType: string
+    outputPath: string
+  }) =>
+    safeInvoke<string>("export_document_asset", {
+      documentId: data.documentId,
+      assetType: data.assetType,
+      outputPath: data.outputPath,
+    }),
 
   // Categories
   getCategories: () => safeInvoke<Category[]>("get_categories"),
@@ -260,6 +310,21 @@ export const api = {
       parentId: data.parentId,
     }),
   deleteCategory: (id: string) => safeInvoke<void>("delete_category", { id }),
+
+  // Folders
+  getFolders: () => safeInvoke<Folder[]>("get_folders"),
+  createFolder: (data: { name: string; parentId?: string }) =>
+    safeInvoke<Folder>("create_folder", {
+      name: data.name,
+      parentId: data.parentId,
+    }),
+  updateFolder: (data: { id: string; name?: string; parentId?: string }) =>
+    safeInvoke<Folder>("update_folder", {
+      id: data.id,
+      name: data.name,
+      parentId: data.parentId,
+    }),
+  deleteFolder: (id: string) => safeInvoke<void>("delete_folder", { id }),
 
   // Tags
   getTags: () => safeInvoke<Tag[]>("get_tags"),

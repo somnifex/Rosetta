@@ -6,6 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
 const DEFAULT_CHUNK_OVERLAP: usize = 50;
@@ -47,6 +48,7 @@ pub struct VectorIndexRecord {
     pub backend: String,
     pub collection_key: Option<String>,
     pub embedding_model: Option<String>,
+    pub vector_dimension: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,6 +107,81 @@ pub fn default_collections_dir(app_dir: &Path) -> PathBuf {
 
 pub fn platform_supported() -> bool {
     cfg!(target_os = "linux") || cfg!(target_os = "macos")
+}
+
+// --- Zvec runtime availability cache ---
+
+pub struct ZvecAvailabilityCache {
+    cached: Mutex<Option<bool>>,
+    last_checked: Mutex<Option<std::time::Instant>>,
+}
+
+impl ZvecAvailabilityCache {
+    pub fn new() -> Self {
+        Self {
+            cached: Mutex::new(None),
+            last_checked: Mutex::new(None),
+        }
+    }
+
+    pub fn invalidate(&self) {
+        if let Ok(mut c) = self.cached.lock() {
+            *c = None;
+        }
+        if let Ok(mut t) = self.last_checked.lock() {
+            *t = None;
+        }
+    }
+
+    fn check_or_probe(&self, app_dir: &Path, python_path: &str) -> bool {
+        const TTL_SECS: u64 = 60;
+
+        if let (Ok(cached), Ok(last)) = (self.cached.lock(), self.last_checked.lock()) {
+            if let (Some(result), Some(ts)) = (*cached, *last) {
+                if ts.elapsed().as_secs() < TTL_SECS {
+                    return result;
+                }
+            }
+        }
+
+        let probe: ProbeResponse =
+            match run_bridge(app_dir, python_path, "probe", None) {
+                Ok(p) => p,
+                Err(e) => {
+                    log::warn!("zvec availability probe failed: {e}");
+                    ProbeResponse {
+                        available: false,
+                        version: None,
+                        message: e,
+                    }
+                }
+            };
+
+        let result = probe.available;
+        if let Ok(mut c) = self.cached.lock() {
+            *c = Some(result);
+        }
+        if let Ok(mut t) = self.last_checked.lock() {
+            *t = Some(std::time::Instant::now());
+        }
+        result
+    }
+}
+
+/// Check if zvec should actually be used: configured + platform + runtime availability.
+pub fn should_use_zvec(
+    rag_settings: &RagSettings,
+    app_dir: &Path,
+    zvec_settings: &ZvecSettings,
+    cache: &ZvecAvailabilityCache,
+) -> bool {
+    if !vector_backend_is_zvec(rag_settings) {
+        return false;
+    }
+    if !platform_supported() {
+        return false;
+    }
+    cache.check_or_probe(app_dir, &zvec_settings.python_path)
 }
 
 fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> {
@@ -207,6 +284,83 @@ pub fn collection_path(settings: &ZvecSettings, collection_key: &str) -> PathBuf
     settings.collections_dir.join(collection_key)
 }
 
+// --- sqlite-vec (vec0) helpers ---
+
+pub fn vec0_table_name(dimension: usize) -> String {
+    format!("vec_embeddings_{}", dimension)
+}
+
+pub fn ensure_vec0_table(conn: &Connection, dimension: usize) -> Result<(), String> {
+    let table = vec0_table_name(dimension);
+    let sql = format!(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS [{table}] USING vec0(
+            embedding float[{dimension}] distance_metric=cosine,
+            model text,
+            +chunk_id text
+        )"
+    );
+    conn.execute_batch(&sql).map_err(|e| e.to_string())
+}
+
+pub fn vec0_insert(
+    conn: &Connection,
+    dimension: usize,
+    chunk_id: &str,
+    embedding_bytes: &[u8],
+    model: &str,
+) -> Result<(), String> {
+    let table = vec0_table_name(dimension);
+    let sql = format!("INSERT INTO [{table}](embedding, model, chunk_id) VALUES (?1, ?2, ?3)");
+    conn.execute(&sql, rusqlite::params![embedding_bytes, model, chunk_id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn vec0_search(
+    conn: &Connection,
+    dimension: usize,
+    query_bytes: &[u8],
+    model: &str,
+    limit: usize,
+) -> Result<Vec<(String, f32)>, String> {
+    let table = vec0_table_name(dimension);
+    let sql = format!(
+        "SELECT chunk_id, distance FROM [{table}]
+         WHERE embedding MATCH ?1 AND k = ?2 AND model = ?3"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![query_bytes, limit as i32, model],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?)),
+        )
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+pub fn vec0_delete_by_chunk_ids(
+    conn: &Connection,
+    dimension: usize,
+    chunk_ids: &[String],
+) -> Result<(), String> {
+    if chunk_ids.is_empty() {
+        return Ok(());
+    }
+    let table = vec0_table_name(dimension);
+    for chunk_id in chunk_ids {
+        let sql = format!(
+            "DELETE FROM [{table}] WHERE rowid IN (
+                SELECT rowid FROM [{table}] WHERE chunk_id = ?1
+            )"
+        );
+        conn.execute(&sql, [chunk_id])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn upsert_document_index_record(
     conn: &Connection,
     document_id: &str,
@@ -263,6 +417,7 @@ pub fn load_document_index_record(
     conn.query_row(
         "SELECT backend, collection_key
          , embedding_model
+         , vector_dimension
          FROM document_vector_indexes
          WHERE document_id = ?1",
         [document_id],
@@ -271,6 +426,8 @@ pub fn load_document_index_record(
                 backend: row.get(0)?,
                 collection_key: row.get(1)?,
                 embedding_model: row.get(2)?,
+                vector_dimension: row.get::<_, Option<i64>>(3)?
+                    .map(|v| v as usize),
             })
         },
     )
@@ -537,6 +694,7 @@ pub fn get_zvec_status(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ZvecStatusResponse, String> {
+    state.zvec_availability_cache.invalidate();
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
     probe_status(db.get_connection(), &app_dir)
@@ -592,8 +750,6 @@ pub async fn install_reranker_deps(
 }
 
 // --- Reranker Model Manager ---
-
-use std::sync::Mutex;
 
 pub struct RerankerModelManager {
     status: Mutex<String>,

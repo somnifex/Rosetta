@@ -11,6 +11,7 @@ pub struct Document {
     pub source_language: Option<String>,
     pub target_language: Option<String>,
     pub category_id: Option<String>,
+    pub folder_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -18,6 +19,10 @@ pub struct Document {
     pub translation_status: String,
     pub index_status: String,
     pub sync_status: String,
+    pub category_name: Option<String>,
+    pub folder_name: Option<String>,
+    pub tags: Option<Vec<Tag>>,
+    pub is_file_missing: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +86,15 @@ pub struct Category {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Folder {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub id: String,
     pub name: String,
@@ -119,4 +133,54 @@ pub struct TranslatedContent {
     pub version: i32,
     pub content: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentOutput {
+    pub id: String,
+    pub document_id: String,
+    pub output_type: String,
+    pub file_path: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub is_file_missing: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchActionFailure {
+    pub document_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchActionReport {
+    pub requested: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+    pub failures: Vec<BatchActionFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentCleanupIssue {
+    pub resource_type: String,
+    pub path: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermanentDeleteOutcome {
+    pub document_id: String,
+    pub title: String,
+    pub deleted: bool,
+    pub resources_deleted: usize,
+    pub resources_missing: usize,
+    pub issues: Vec<DocumentCleanupIssue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermanentDeleteReport {
+    pub requested: usize,
+    pub deleted: usize,
+    pub failed: usize,
+    pub outcomes: Vec<PermanentDeleteOutcome>,
 }

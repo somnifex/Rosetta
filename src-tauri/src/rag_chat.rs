@@ -203,7 +203,13 @@ async fn ensure_documents_indexed(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let rag_settings = crate::zvec::load_rag_settings(conn)?;
-        if crate::zvec::vector_backend_is_zvec(&rag_settings) {
+        let zvec_settings = crate::zvec::load_zvec_settings(conn, app_dir)?;
+        if crate::zvec::should_use_zvec(
+            &rag_settings,
+            app_dir,
+            &zvec_settings,
+            &state.zvec_availability_cache,
+        ) {
             "zvec"
         } else {
             "sqlite"
@@ -332,6 +338,54 @@ fn search_sqlite_chunks(
     document_filter: &Option<HashSet<String>>,
     limit: usize,
 ) -> Result<Vec<RagChatSource>, String> {
+    let dimension = query_embedding.len();
+    let fetch_limit = if document_filter.is_some() {
+        limit.saturating_mul(8)
+    } else {
+        limit.saturating_mul(4)
+    }
+    .max(limit);
+
+    let query_bytes: Vec<u8> = query_embedding
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+
+    // Try vec0 KNN search first
+    if let Ok(hits) =
+        crate::zvec::vec0_search(conn, dimension, &query_bytes, embedding_model, fetch_limit)
+    {
+        if !hits.is_empty() {
+            let chunk_ids: Vec<String> = hits.iter().map(|(id, _)| id.clone()).collect();
+            let row_map = load_chunk_rows_by_ids(conn, &chunk_ids)?;
+
+            let mut results: Vec<RagChatSource> = hits
+                .into_iter()
+                .filter_map(|(chunk_id, distance)| {
+                    row_map.get(&chunk_id).and_then(|row| {
+                        if !row_matches_filter(row, document_filter) {
+                            return None;
+                        }
+                        Some(RagChatSource {
+                            document_id: row.document_id.clone(),
+                            document_title: row.document_title.clone(),
+                            chunk_id: row.chunk_id.clone(),
+                            chunk_index: row.chunk_index,
+                            score: 1.0 - distance,
+                            content: row.content.clone(),
+                        })
+                    })
+                })
+                .collect();
+
+            results.truncate(limit);
+            return Ok(results);
+        }
+    }
+
+    // Fallback: brute-force cosine similarity over embeddings BLOB
+    log::info!("vec0 search returned no results, falling back to brute-force cosine similarity");
+
     let mut stmt = conn
         .prepare(
             "SELECT c.id, c.document_id, d.title, c.content, c.chunk_index, e.vector
@@ -494,12 +548,18 @@ async fn retrieve_context(
         Some(document_ids.iter().cloned().collect::<HashSet<_>>())
     };
 
-    let (rag_settings, zvec_settings, expected_collection_key) = {
+    let (rag_settings, zvec_settings, use_zvec_retrieval, expected_collection_key) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let rag_settings = crate::zvec::load_rag_settings(conn)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, app_dir)?;
-        let expected_collection_key = if crate::zvec::vector_backend_is_zvec(&rag_settings) {
+        let use_zvec = crate::zvec::should_use_zvec(
+            &rag_settings,
+            app_dir,
+            &zvec_settings,
+            &state.zvec_availability_cache,
+        );
+        let expected_collection_key = if use_zvec {
             Some(crate::zvec::collection_key_for_model(
                 &provider.embedding_model,
                 query_embedding.len(),
@@ -508,14 +568,11 @@ async fn retrieve_context(
             None
         };
 
-        (rag_settings, zvec_settings, expected_collection_key)
+        (rag_settings, zvec_settings, use_zvec, expected_collection_key)
     };
 
-    if crate::zvec::vector_backend_is_zvec(&rag_settings) && !crate::zvec::platform_supported() {
-        return Err(
-            "ZVEC backend is enabled, but the current platform is not supported by the configured runtime."
-                .to_string(),
-        );
+    if crate::zvec::vector_backend_is_zvec(&rag_settings) && !use_zvec_retrieval {
+        log::warn!("zvec unavailable; falling back to sqlite-vec for RAG retrieval");
     }
 
     let reranker_mode = rag_settings.reranker_mode.clone();
@@ -542,7 +599,7 @@ async fn retrieve_context(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
-        if crate::zvec::vector_backend_is_zvec(&rag_settings) {
+        if use_zvec_retrieval {
             search_zvec_chunks(
                 conn,
                 app_dir,

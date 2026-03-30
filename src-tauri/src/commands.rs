@@ -5,7 +5,7 @@ use chrono::Utc;
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
@@ -13,6 +13,7 @@ const TASK_CANCELLED_BY_USER: &str = "Cancelled by user";
 const TASK_REMOVED_BY_USER: &str = "Removed by user";
 const TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED: &str =
     "Cancelled because the document was deleted";
+const DOCUMENT_SELECT_FIELDS: &str = "d.id, d.title, d.filename, d.file_path, d.file_size, d.page_count, d.source_language, d.target_language, d.category_id, df.folder_id, d.created_at, d.updated_at, d.deleted_at, d.parse_status, d.translation_status, d.index_status, d.sync_status, c.name, f.name";
 
 struct IndexedChunk {
     id: String,
@@ -35,6 +36,415 @@ fn openai_compatible_url(base_url: &str, path: &str) -> String {
     } else {
         format!("{trimmed}/v1/{path}")
     }
+}
+
+#[derive(Debug, Clone)]
+struct ManagedFileTarget {
+    resource_type: String,
+    path: String,
+}
+
+#[derive(Debug, Clone)]
+struct DocumentDeletionPlan {
+    document: Document,
+    parse_job_ids: Vec<String>,
+    translation_job_ids: Vec<String>,
+    managed_files: Vec<ManagedFileTarget>,
+}
+
+fn map_document_row(row: &rusqlite::Row<'_>) -> Result<Document, rusqlite::Error> {
+    Ok(Document {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        filename: row.get(2)?,
+        file_path: row.get(3)?,
+        file_size: row.get(4)?,
+        page_count: row.get(5)?,
+        source_language: row.get(6)?,
+        target_language: row.get(7)?,
+        category_id: row.get(8)?,
+        folder_id: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        deleted_at: row.get(12)?,
+        parse_status: row.get(13)?,
+        translation_status: row.get(14)?,
+        index_status: row.get(15)?,
+        sync_status: row.get(16)?,
+        category_name: row.get(17)?,
+        folder_name: row.get(18)?,
+        tags: None,
+        is_file_missing: None,
+    })
+}
+
+fn path_is_within(base_dir: &Path, candidate: &Path) -> bool {
+    candidate.is_absolute() && candidate.starts_with(base_dir)
+}
+
+fn load_document_tags_map(
+    conn: &rusqlite::Connection,
+    document_ids: &[String],
+) -> Result<HashMap<String, Vec<Tag>>, String> {
+    if document_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let placeholders = (1..=document_ids.len())
+        .map(|idx| format!("?{idx}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT dt.document_id, t.id, t.name, t.color, t.created_at
+         FROM document_tags dt
+         JOIN tags t ON t.id = dt.tag_id
+         WHERE dt.document_id IN ({placeholders})
+         ORDER BY t.name"
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(document_ids.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                Tag {
+                    id: row.get(1)?,
+                    name: row.get(2)?,
+                    color: row.get(3)?,
+                    created_at: row.get(4)?,
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut tag_map: HashMap<String, Vec<Tag>> = HashMap::new();
+    for (document_id, tag) in rows {
+        tag_map.entry(document_id).or_default().push(tag);
+    }
+
+    Ok(tag_map)
+}
+
+fn enrich_documents(
+    conn: &rusqlite::Connection,
+    documents: &mut [Document],
+) -> Result<(), String> {
+    let ids = documents
+        .iter()
+        .map(|document| document.id.clone())
+        .collect::<Vec<_>>();
+    let mut tag_map = load_document_tags_map(conn, &ids)?;
+
+    for document in documents.iter_mut() {
+        document.tags = tag_map.remove(&document.id);
+        document.is_file_missing = Some(!Path::new(&document.file_path).exists());
+    }
+
+    Ok(())
+}
+
+fn load_documents_with_scope(
+    conn: &rusqlite::Connection,
+    include_deleted: bool,
+) -> Result<Vec<Document>, String> {
+    let where_sql = if include_deleted {
+        ""
+    } else {
+        "WHERE d.deleted_at IS NULL"
+    };
+    let sql = format!(
+        "SELECT {DOCUMENT_SELECT_FIELDS}
+         FROM documents d
+         LEFT JOIN document_folders df ON df.document_id = d.id
+         LEFT JOIN categories c ON c.id = d.category_id
+         LEFT JOIN folders f ON f.id = df.folder_id
+         {where_sql}
+         ORDER BY d.updated_at DESC, d.created_at DESC"
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut documents = stmt
+        .query_map([], map_document_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    enrich_documents(conn, &mut documents)?;
+    Ok(documents)
+}
+
+fn load_document_by_id_internal(
+    conn: &rusqlite::Connection,
+    id: &str,
+    include_deleted: bool,
+) -> Result<Document, String> {
+    let deleted_clause = if include_deleted {
+        String::new()
+    } else {
+        "AND d.deleted_at IS NULL".to_string()
+    };
+    let sql = format!(
+        "SELECT {DOCUMENT_SELECT_FIELDS}
+         FROM documents d
+         LEFT JOIN document_folders df ON df.document_id = d.id
+         LEFT JOIN categories c ON c.id = d.category_id
+         LEFT JOIN folders f ON f.id = df.folder_id
+         WHERE d.id = ?1 {deleted_clause}"
+    );
+
+    let mut document = conn
+        .query_row(&sql, [id], map_document_row)
+        .map_err(|e| e.to_string())?;
+
+    let mut single = vec![document];
+    enrich_documents(conn, &mut single)?;
+    document = single
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Document not found".to_string())?;
+
+    Ok(document)
+}
+
+fn map_document_output_row(row: &rusqlite::Row<'_>) -> Result<DocumentOutput, rusqlite::Error> {
+    Ok(DocumentOutput {
+        id: row.get(0)?,
+        document_id: row.get(1)?,
+        output_type: row.get(2)?,
+        file_path: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+        is_file_missing: None,
+    })
+}
+
+fn load_document_outputs_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<Vec<DocumentOutput>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, document_id, output_type, file_path, created_at, updated_at
+             FROM document_outputs
+             WHERE document_id = ?1
+             ORDER BY output_type",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut outputs = stmt
+        .query_map([document_id], map_document_output_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for output in outputs.iter_mut() {
+        output.is_file_missing = Some(!Path::new(&output.file_path).exists());
+    }
+
+    Ok(outputs)
+}
+
+fn next_content_version(
+    conn: &rusqlite::Connection,
+    table_name: &str,
+    document_id: &str,
+) -> Result<i32, String> {
+    let sql = format!(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM {table_name} WHERE document_id = ?1"
+    );
+    conn.query_row(&sql, [document_id], |row| row.get::<_, i32>(0))
+        .map_err(|e| e.to_string())
+}
+
+fn delete_document_output_record_and_file(
+    conn: &rusqlite::Connection,
+    output_type: &str,
+    document_id: &str,
+) -> Result<(), String> {
+    let existing = conn
+        .query_row(
+            "SELECT file_path FROM document_outputs WHERE document_id = ?1 AND output_type = ?2",
+            (document_id, output_type),
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(file_path) = existing {
+        if Path::new(&file_path).exists() {
+            let _ = std::fs::remove_file(&file_path);
+        }
+        conn.execute(
+            "DELETE FROM document_outputs WHERE document_id = ?1 AND output_type = ?2",
+            (document_id, output_type),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn clear_document_derived_data(
+    conn: &rusqlite::Connection,
+    app_dir: Option<&Path>,
+    document_id: &str,
+    remove_parsed_content: bool,
+    now: &str,
+) -> Result<(), String> {
+    if let Some(app_dir) = app_dir {
+        remove_document_from_vector_store(conn, app_dir, document_id)?;
+    } else {
+        conn.execute(
+            "DELETE FROM document_vector_indexes WHERE document_id = ?1",
+            [document_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    conn.execute(
+        "DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?1)",
+        [document_id],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM chunks WHERE document_id = ?1", [document_id])
+        .map_err(|e| e.to_string())?;
+
+    if remove_parsed_content {
+        conn.execute("DELETE FROM parsed_contents WHERE document_id = ?1", [document_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE documents
+             SET parse_status = 'pending', translation_status = 'pending', index_status = 'pending', updated_at = ?1
+             WHERE id = ?2",
+            (now, document_id),
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "UPDATE documents
+             SET translation_status = 'pending', index_status = 'pending', updated_at = ?1
+             WHERE id = ?2",
+            (now, document_id),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    conn.execute(
+        "DELETE FROM translated_contents WHERE document_id = ?1",
+        [document_id],
+    )
+    .map_err(|e| e.to_string())?;
+    delete_document_output_record_and_file(conn, "translated_pdf", document_id)?;
+
+    Ok(())
+}
+
+fn collect_document_deletion_plan(
+    conn: &rusqlite::Connection,
+    app_dir: &Path,
+    id: &str,
+) -> Result<DocumentDeletionPlan, String> {
+    let document = load_document_by_id_internal(conn, id, true)?;
+
+    let mut parse_stmt = conn
+        .prepare(
+            "SELECT id FROM parse_jobs WHERE document_id = ?1 AND status IN ('pending', 'parsing')",
+        )
+        .map_err(|e| e.to_string())?;
+    let parse_job_ids = parse_stmt
+        .query_map([id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut translation_stmt = conn
+        .prepare(
+            "SELECT id FROM translation_jobs WHERE document_id = ?1 AND status IN ('pending', 'translating')",
+        )
+        .map_err(|e| e.to_string())?;
+    let translation_job_ids = translation_stmt
+        .query_map([id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut managed_files = vec![ManagedFileTarget {
+        resource_type: "original_file".to_string(),
+        path: document.file_path.clone(),
+    }];
+
+    let mut export_stmt = conn
+        .prepare("SELECT file_path FROM export_records WHERE document_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let export_paths = export_stmt
+        .query_map([id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for export_path in export_paths {
+        let path = Path::new(&export_path);
+        if path_is_within(app_dir, path) {
+            managed_files.push(ManagedFileTarget {
+                resource_type: "export_cache".to_string(),
+                path: export_path,
+            });
+        }
+    }
+
+    let mut output_stmt = conn
+        .prepare("SELECT output_type, file_path FROM document_outputs WHERE document_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let output_paths = output_stmt
+        .query_map([id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for (output_type, output_path) in output_paths {
+        let path = Path::new(&output_path);
+        if path_is_within(app_dir, path) {
+            managed_files.push(ManagedFileTarget {
+                resource_type: format!("output_{output_type}"),
+                path: output_path,
+            });
+        }
+    }
+
+    Ok(DocumentDeletionPlan {
+        document,
+        parse_job_ids,
+        translation_job_ids,
+        managed_files,
+    })
+}
+
+fn cancel_document_workflows(
+    state: &AppState,
+    app_dir: &Path,
+    document_id: &str,
+) -> Result<(), String> {
+    let plan = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        collect_document_deletion_plan(conn, app_dir, document_id)?
+    };
+
+    for job_id in plan.parse_job_ids.iter() {
+        let _ = cancel_parse_job_internal(state, job_id, TASK_CANCELLED_BY_USER)?;
+    }
+    for job_id in plan.translation_job_ids.iter() {
+        let _ = cancel_translation_job_internal(state, job_id, TASK_CANCELLED_BY_USER)?;
+    }
+    if plan.document.index_status == "indexing" {
+        let _ = cancel_index_job_internal(state, app_dir, document_id)?;
+    }
+
+    Ok(())
 }
 
 fn take_parse_job_handle(
@@ -157,10 +567,17 @@ pub(crate) fn remove_document_from_vector_store(
         return Ok(());
     };
 
+    let chunk_ids = crate::zvec::load_document_chunk_ids(conn, document_id)?;
+
+    // Clean vec0 table before index record is deleted
+    if let Some(dim) = record.vector_dimension {
+        if !chunk_ids.is_empty() {
+            let _ = crate::zvec::vec0_delete_by_chunk_ids(conn, dim, &chunk_ids);
+        }
+    }
+
     if record.backend.eq_ignore_ascii_case("zvec") {
         if let Some(collection_key) = record.collection_key.as_deref() {
-            let chunk_ids = crate::zvec::load_document_chunk_ids(conn, document_id)?;
-
             if !chunk_ids.is_empty() {
                 let zvec_settings = crate::zvec::load_zvec_settings(conn, app_dir)?;
 
@@ -216,6 +633,11 @@ fn cleanup_document_records(conn: &rusqlite::Connection, document_id: &str) -> R
     .map_err(|e| e.to_string())?;
     conn.execute(
         "DELETE FROM document_tags WHERE document_id = ?1",
+        [document_id],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM document_folders WHERE document_id = ?1",
         [document_id],
     )
     .map_err(|e| e.to_string())?;
@@ -324,7 +746,9 @@ fn mark_index_job_failed(state: &AppState, document_id: &str, message: &str) -> 
     let now = Utc::now().to_rfc3339();
 
     conn.execute(
-        "UPDATE documents SET index_status = 'failed', updated_at = ?1 WHERE id = ?2",
+        "UPDATE documents
+         SET index_status = 'failed', updated_at = ?1
+         WHERE id = ?2 AND deleted_at IS NULL",
         (&now, document_id),
     )
     .map_err(|e| e.to_string())?;
@@ -387,36 +811,15 @@ pub fn get_documents(state: State<AppState>) -> Result<Vec<Document>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    let mut stmt = conn
-        .prepare("SELECT * FROM documents WHERE deleted_at IS NULL ORDER BY created_at DESC")
-        .map_err(|e| e.to_string())?;
+    load_documents_with_scope(conn, false)
+}
 
-    let documents = stmt
-        .query_map([], |row| {
-            Ok(Document {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                filename: row.get(2)?,
-                file_path: row.get(3)?,
-                file_size: row.get(4)?,
-                page_count: row.get(5)?,
-                source_language: row.get(6)?,
-                target_language: row.get(7)?,
-                category_id: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-                deleted_at: row.get(11)?,
-                parse_status: row.get(12)?,
-                translation_status: row.get(13)?,
-                index_status: row.get(14)?,
-                sync_status: row.get(15)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+#[tauri::command]
+pub fn get_library_documents(state: State<AppState>) -> Result<Vec<Document>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
 
-    Ok(documents)
+    load_documents_with_scope(conn, true)
 }
 
 #[tauri::command]
@@ -424,34 +827,7 @@ pub fn get_document_by_id(state: State<AppState>, id: String) -> Result<Document
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    let document = conn
-        .query_row(
-            "SELECT * FROM documents WHERE id = ?1 AND deleted_at IS NULL",
-            [&id],
-            |row| {
-                Ok(Document {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    filename: row.get(2)?,
-                    file_path: row.get(3)?,
-                    file_size: row.get(4)?,
-                    page_count: row.get(5)?,
-                    source_language: row.get(6)?,
-                    target_language: row.get(7)?,
-                    category_id: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
-                    deleted_at: row.get(11)?,
-                    parse_status: row.get(12)?,
-                    translation_status: row.get(13)?,
-                    index_status: row.get(14)?,
-                    sync_status: row.get(15)?,
-                })
-            },
-        )
-        .map_err(|e| e.to_string())?;
-
-    Ok(document)
+    load_document_by_id_internal(conn, &id, false)
 }
 
 #[tauri::command]
@@ -501,8 +877,12 @@ pub fn update_document(
             params.push(Box::new(t));
         }
         if let Some(c) = category_id {
-            updates.push("category_id = ?");
-            params.push(Box::new(c));
+            if c.is_empty() {
+                updates.push("category_id = NULL");
+            } else {
+                updates.push("category_id = ?");
+                params.push(Box::new(c));
+            }
         }
         if let Some(s) = source_language {
             updates.push("source_language = ?");
@@ -534,72 +914,631 @@ pub fn update_document(
 
 #[tauri::command]
 pub fn delete_document(app: AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
-    let (file_path, parse_job_ids, translation_job_ids) = {
+    let report = move_documents_to_trash_internal(&app, state.inner(), &[id])?;
+    if report.failed > 0 {
+        let reason = report
+            .failures
+            .first()
+            .map(|failure| failure.reason.clone())
+            .unwrap_or_else(|| "Failed to move document to trash".to_string());
+        return Err(reason);
+    }
+
+    Ok(())
+}
+
+fn unique_document_ids(document_ids: &[String]) -> Vec<String> {
+    let mut seen = HashMap::new();
+    let mut unique_ids = Vec::new();
+
+    for document_id in document_ids {
+        if seen.insert(document_id.clone(), true).is_none() {
+            unique_ids.push(document_id.clone());
+        }
+    }
+
+    unique_ids
+}
+
+fn move_documents_to_trash_internal(
+    app: &AppHandle,
+    state: &AppState,
+    document_ids: &[String],
+) -> Result<BatchActionReport, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(app)?;
+    let unique_ids = unique_document_ids(document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let plan = {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+            collect_document_deletion_plan(conn, &app_dir, document_id)
+        };
+
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(error) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: error,
+                });
+                continue;
+            }
+        };
+
+        if plan.document.deleted_at.is_some() {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document is already in trash".to_string(),
+            });
+            continue;
+        }
+
+        let mut failed_reason = None;
+
+        for job_id in &plan.parse_job_ids {
+            if let Err(error) = cancel_parse_job_internal(
+                state,
+                job_id,
+                TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED,
+            ) {
+                failed_reason = Some(error);
+                break;
+            }
+        }
+
+        if failed_reason.is_none() {
+            for job_id in &plan.translation_job_ids {
+                if let Err(error) = cancel_translation_job_internal(
+                    state,
+                    job_id,
+                    TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED,
+                ) {
+                    failed_reason = Some(error);
+                    break;
+                }
+            }
+        }
+
+        if failed_reason.is_none() {
+            if let Err(error) = cancel_index_job_internal(state, &app_dir, document_id) {
+                failed_reason = Some(error);
+            }
+        }
+
+        if let Some(reason) = failed_reason {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason,
+            });
+            continue;
+        }
+
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+        let updated = conn
+            .execute(
+                "UPDATE documents
+                 SET deleted_at = ?1, updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
+                (&now, document_id),
+            )
+            .map_err(|e| e.to_string())?;
 
-        let file_path = conn
+        if updated == 0 {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document could not be moved to trash".to_string(),
+            });
+            continue;
+        }
+
+        succeeded += 1;
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+fn restore_documents_internal(
+    state: &AppState,
+    document_ids: &[String],
+) -> Result<BatchActionReport, String> {
+    let unique_ids = unique_document_ids(document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+        let updated = conn
+            .execute(
+                "UPDATE documents
+                 SET deleted_at = NULL, updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NOT NULL",
+                (&now, document_id),
+            )
+            .map_err(|e| e.to_string())?;
+
+        if updated == 0 {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document is not in trash".to_string(),
+            });
+            continue;
+        }
+
+        succeeded += 1;
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+fn apply_folder_assignment(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    folder_id: &str,
+    now: &str,
+) -> Result<(), String> {
+    if folder_id.is_empty() {
+        conn.execute(
+            "DELETE FROM document_folders WHERE document_id = ?1",
+            [document_id],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "INSERT INTO document_folders (document_id, folder_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?3)
+             ON CONFLICT(document_id) DO UPDATE SET
+                 folder_id = excluded.folder_id,
+                 updated_at = excluded.updated_at",
+            (document_id, folder_id, now),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn batch_update_documents_internal(
+    state: &AppState,
+    document_ids: &[String],
+    category_id: Option<String>,
+    folder_id: Option<String>,
+) -> Result<BatchActionReport, String> {
+    if category_id.is_none() && folder_id.is_none() {
+        return Ok(BatchActionReport {
+            requested: 0,
+            succeeded: 0,
+            failed: 0,
+            failures: Vec::new(),
+        });
+    }
+
+    let unique_ids = unique_document_ids(document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+
+        let exists = conn
             .query_row(
-                "SELECT file_path FROM documents WHERE id = ?1 AND deleted_at IS NULL",
-                [&id],
-                |row| row.get::<_, String>(0),
+                "SELECT EXISTS(
+                    SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL
+                )",
+                [document_id],
+                |row| row.get::<_, i64>(0),
             )
-            .optional()
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Document not found".to_string())?;
+            != 0;
 
-        let mut parse_stmt = conn
-            .prepare(
-                "SELECT id FROM parse_jobs WHERE document_id = ?1 AND status IN ('pending', 'parsing')",
+        if !exists {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document is not available for editing".to_string(),
+            });
+            continue;
+        }
+
+        if let Some(category_id) = category_id.as_ref() {
+            if category_id.is_empty() {
+                conn.execute(
+                    "UPDATE documents SET category_id = NULL, updated_at = ?1 WHERE id = ?2",
+                    (&now, document_id),
+                )
+                .map_err(|e| e.to_string())?;
+            } else {
+                conn.execute(
+                    "UPDATE documents SET category_id = ?1, updated_at = ?2 WHERE id = ?3",
+                    (category_id, &now, document_id),
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+
+        if let Some(folder_id) = folder_id.as_ref() {
+            apply_folder_assignment(conn, document_id, folder_id, &now)?;
+            conn.execute(
+                "UPDATE documents SET updated_at = ?1 WHERE id = ?2",
+                (&now, document_id),
             )
             .map_err(|e| e.to_string())?;
-        let parse_job_ids = parse_stmt
-            .query_map([&id], |row| row.get::<_, String>(0))
+        }
+
+        succeeded += 1;
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+fn delete_managed_files(
+    file_handler: &FileHandler,
+    managed_files: &[ManagedFileTarget],
+) -> (usize, usize, Vec<DocumentCleanupIssue>) {
+    let mut deleted = 0usize;
+    let mut missing = 0usize;
+    let mut issues = Vec::new();
+
+    for target in managed_files {
+        let path = Path::new(&target.path);
+        if !path.exists() {
+            missing += 1;
+            continue;
+        }
+
+        if let Err(error) = file_handler.delete_file(path) {
+            issues.push(DocumentCleanupIssue {
+                resource_type: target.resource_type.clone(),
+                path: Some(target.path.clone()),
+                reason: error,
+            });
+            continue;
+        }
+
+        deleted += 1;
+    }
+
+    (deleted, missing, issues)
+}
+
+fn permanently_delete_documents_internal(
+    app: &AppHandle,
+    state: &AppState,
+    document_ids: &[String],
+) -> Result<PermanentDeleteReport, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(app)?;
+    let file_handler = FileHandler::new(&app_dir)?;
+    let unique_ids = unique_document_ids(document_ids);
+    let mut outcomes = Vec::new();
+
+    for document_id in unique_ids.iter() {
+        let plan = {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+            collect_document_deletion_plan(conn, &app_dir, document_id)
+        };
+
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(error) => {
+                outcomes.push(PermanentDeleteOutcome {
+                    document_id: document_id.clone(),
+                    title: "Unknown document".to_string(),
+                    deleted: false,
+                    resources_deleted: 0,
+                    resources_missing: 0,
+                    issues: vec![DocumentCleanupIssue {
+                        resource_type: "document".to_string(),
+                        path: None,
+                        reason: error,
+                    }],
+                });
+                continue;
+            }
+        };
+
+        if plan.document.deleted_at.is_none() {
+            outcomes.push(PermanentDeleteOutcome {
+                document_id: plan.document.id.clone(),
+                title: plan.document.title.clone(),
+                deleted: false,
+                resources_deleted: 0,
+                resources_missing: 0,
+                issues: vec![DocumentCleanupIssue {
+                    resource_type: "document".to_string(),
+                    path: None,
+                    reason: "Document must be moved to trash before permanent deletion".to_string(),
+                }],
+            });
+            continue;
+        }
+
+        let mut issues = Vec::new();
+
+        for job_id in &plan.parse_job_ids {
+            if let Err(error) = cancel_parse_job_internal(
+                state,
+                job_id,
+                TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED,
+            ) {
+                issues.push(DocumentCleanupIssue {
+                    resource_type: "parse_job".to_string(),
+                    path: None,
+                    reason: error,
+                });
+            }
+        }
+
+        for job_id in &plan.translation_job_ids {
+            if let Err(error) = cancel_translation_job_internal(
+                state,
+                job_id,
+                TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED,
+            ) {
+                issues.push(DocumentCleanupIssue {
+                    resource_type: "translation_job".to_string(),
+                    path: None,
+                    reason: error,
+                });
+            }
+        }
+
+        if let Err(error) = cancel_index_job_internal(state, &app_dir, document_id) {
+            issues.push(DocumentCleanupIssue {
+                resource_type: "index_job".to_string(),
+                path: None,
+                reason: error,
+            });
+        }
+
+        let (resources_deleted, resources_missing, file_issues) =
+            delete_managed_files(&file_handler, &plan.managed_files);
+        issues.extend(file_issues);
+
+        if issues.is_empty() {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+
+            if let Err(error) = remove_document_from_vector_store(conn, &app_dir, document_id) {
+                issues.push(DocumentCleanupIssue {
+                    resource_type: "vector_index".to_string(),
+                    path: None,
+                    reason: error,
+                });
+            }
+
+            if issues.is_empty() {
+                if let Err(error) = cleanup_document_records(conn, document_id) {
+                    issues.push(DocumentCleanupIssue {
+                        resource_type: "database".to_string(),
+                        path: None,
+                        reason: error,
+                    });
+                }
+            }
+        }
+
+        outcomes.push(PermanentDeleteOutcome {
+            document_id: plan.document.id.clone(),
+            title: plan.document.title.clone(),
+            deleted: issues.is_empty(),
+            resources_deleted,
+            resources_missing,
+            issues,
+        });
+    }
+
+    let deleted = outcomes.iter().filter(|outcome| outcome.deleted).count();
+
+    Ok(PermanentDeleteReport {
+        requested: unique_ids.len(),
+        deleted,
+        failed: unique_ids.len().saturating_sub(deleted),
+        outcomes,
+    })
+}
+
+#[tauri::command]
+pub fn move_documents_to_trash(
+    app: AppHandle,
+    state: State<AppState>,
+    document_ids: Vec<String>,
+) -> Result<BatchActionReport, String> {
+    move_documents_to_trash_internal(&app, state.inner(), &document_ids)
+}
+
+#[tauri::command]
+pub fn restore_documents(
+    state: State<AppState>,
+    document_ids: Vec<String>,
+) -> Result<BatchActionReport, String> {
+    restore_documents_internal(state.inner(), &document_ids)
+}
+
+#[tauri::command]
+pub fn batch_update_documents(
+    state: State<AppState>,
+    document_ids: Vec<String>,
+    category_id: Option<String>,
+    folder_id: Option<String>,
+) -> Result<BatchActionReport, String> {
+    batch_update_documents_internal(state.inner(), &document_ids, category_id, folder_id)
+}
+
+#[tauri::command]
+pub fn permanently_delete_documents(
+    app: AppHandle,
+    state: State<AppState>,
+    document_ids: Vec<String>,
+) -> Result<PermanentDeleteReport, String> {
+    permanently_delete_documents_internal(&app, state.inner(), &document_ids)
+}
+
+#[tauri::command]
+pub fn empty_trash(
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<PermanentDeleteReport, String> {
+    let document_ids = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let mut stmt = conn
+            .prepare("SELECT id FROM documents WHERE deleted_at IS NOT NULL ORDER BY updated_at DESC")
+            .map_err(|e| e.to_string())?;
+        let document_ids = stmt.query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-
-        let mut translation_stmt = conn
-            .prepare(
-                "SELECT id FROM translation_jobs WHERE document_id = ?1 AND status IN ('pending', 'translating')",
-            )
-            .map_err(|e| e.to_string())?;
-        let translation_job_ids = translation_stmt
-            .query_map([&id], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-
-        (file_path, parse_job_ids, translation_job_ids)
+        document_ids
     };
 
-    for job_id in &parse_job_ids {
-        let _ = cancel_parse_job_internal(
-            state.inner(),
-            job_id,
-            TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED,
-        )?;
-    }
+    permanently_delete_documents_internal(&app, state.inner(), &document_ids)
+}
 
-    for job_id in &translation_job_ids {
-        let _ = cancel_translation_job_internal(
-            state.inner(),
-            job_id,
-            TASK_CANCELLED_BECAUSE_DOCUMENT_WAS_DELETED,
-        )?;
-    }
-
-    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
-
-    let _ = cancel_index_job_internal(state.inner(), &app_dir, &id)?;
-
-    let file_handler = FileHandler::new(&app_dir)?;
-    file_handler.delete_file(Path::new(&file_path))?;
-
+#[tauri::command]
+pub fn get_folders(state: State<AppState>) -> Result<Vec<Folder>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
-    remove_document_from_vector_store(conn, &app_dir, &id)?;
-    cleanup_document_records(conn, &id)?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, parent_id, created_at, updated_at FROM folders ORDER BY name")
+        .map_err(|e| e.to_string())?;
+
+    let folders = stmt.query_map([], |row| {
+        Ok(Folder {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            parent_id: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+        })
+    })
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
+
+    Ok(folders)
+}
+
+#[tauri::command]
+pub fn create_folder(
+    state: State<AppState>,
+    name: String,
+    parent_id: Option<String>,
+) -> Result<Folder, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    let now = Utc::now().to_rfc3339();
+    let id = Uuid::new_v4().to_string();
+    let normalized_parent = parent_id.filter(|value| !value.trim().is_empty());
+
+    conn.execute(
+        "INSERT INTO folders (id, name, parent_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        (&id, &name, &normalized_parent, &now),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        "SELECT id, name, parent_id, created_at, updated_at FROM folders WHERE id = ?1",
+        [&id],
+        |row| {
+            Ok(Folder {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                parent_id: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_folder(
+    state: State<AppState>,
+    id: String,
+    name: Option<String>,
+    parent_id: Option<String>,
+) -> Result<Folder, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    let now = Utc::now().to_rfc3339();
+
+    let mut updates = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(name) = name {
+        updates.push("name = ?");
+        params.push(Box::new(name));
+    }
+
+    if let Some(parent_id) = parent_id {
+        if parent_id.is_empty() {
+            updates.push("parent_id = NULL");
+        } else {
+            updates.push("parent_id = ?");
+            params.push(Box::new(parent_id));
+        }
+    }
+
+    if !updates.is_empty() {
+        updates.push("updated_at = ?");
+        params.push(Box::new(now));
+        params.push(Box::new(id.clone()));
+        let sql = format!("UPDATE folders SET {} WHERE id = ?", updates.join(", "));
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|param| param.as_ref()).collect();
+        conn.execute(&sql, params_refs.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+
+    conn.query_row(
+        "SELECT id, name, parent_id, created_at, updated_at FROM folders WHERE id = ?1",
+        [&id],
+        |row| {
+            Ok(Folder {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                parent_id: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_folder(state: State<AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    conn.execute("DELETE FROM folders WHERE id = ?1", [&id])
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -887,6 +1826,7 @@ pub async fn import_pdf(
 
 fn enqueue_parse_job(
     state: &AppState,
+    app_dir: Option<PathBuf>,
     document_id: &str,
     mark_document_parsing: bool,
 ) -> Result<ParseJob, String> {
@@ -896,6 +1836,20 @@ fn enqueue_parse_job(
     let job = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
+        let exists = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL
+                )",
+                [document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())?
+            != 0;
+
+        if !exists {
+            return Err("Document not found".to_string());
+        }
 
         conn.execute(
             "INSERT INTO parse_jobs (id, document_id, status, progress, created_at, updated_at) VALUES (?1, ?2, 'pending', 0, ?3, ?4)",
@@ -905,7 +1859,9 @@ fn enqueue_parse_job(
 
         if mark_document_parsing {
             conn.execute(
-                "UPDATE documents SET parse_status = 'parsing', updated_at = ? WHERE id = ?",
+                "UPDATE documents
+                 SET parse_status = 'parsing', updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
                 (&now, document_id),
             )
             .map_err(|e| e.to_string())?;
@@ -930,9 +1886,16 @@ fn enqueue_parse_job(
     let job_id_clone = job_id.clone();
     let document_id_clone = document_id.to_string();
     let state_clone = state.clone();
+    let app_dir_clone = app_dir.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
-        let result = execute_parse_job(&state_clone, &job_id_clone, &document_id_clone).await;
+        let result = execute_parse_job(
+            &state_clone,
+            app_dir_clone.as_deref(),
+            &job_id_clone,
+            &document_id_clone,
+        )
+        .await;
         if let Ok(mut handles) = state_clone.parse_job_handles.lock() {
             handles.remove(&job_id_clone);
         }
@@ -949,11 +1912,12 @@ fn enqueue_parse_job(
 
 #[tauri::command]
 pub async fn start_parse_job(
-    _app: AppHandle,
+    app: AppHandle,
     state: State<'_, AppState>,
     document_id: String,
 ) -> Result<ParseJob, String> {
-    enqueue_parse_job(state.inner(), &document_id, true)
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    enqueue_parse_job(state.inner(), Some(app_dir), &document_id, true)
 }
 
 #[tauri::command]
@@ -976,6 +1940,7 @@ pub fn delete_parse_job(state: State<AppState>, job_id: String) -> Result<(), St
 
 async fn execute_parse_job(
     state: &AppState,
+    app_dir: Option<&Path>,
     job_id: &str,
     document_id: &str,
 ) -> Result<(), String> {
@@ -991,13 +1956,15 @@ async fn execute_parse_job(
         .map_err(|e| e.to_string())?;
 
         conn.execute(
-            "UPDATE documents SET parse_status = 'parsing', updated_at = ? WHERE id = ?",
+            "UPDATE documents
+             SET parse_status = 'parsing', updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
             (&now, document_id),
         )
         .map_err(|e| e.to_string())?;
 
         conn.query_row(
-            "SELECT file_path FROM documents WHERE id = ?",
+            "SELECT file_path FROM documents WHERE id = ?1 AND deleted_at IS NULL",
             [document_id],
             |row| row.get::<_, String>(0),
         )
@@ -1023,10 +1990,12 @@ async fn execute_parse_job(
     match result {
         Ok(parse_result) => {
             let content_id = Uuid::new_v4().to_string();
+            let version = next_content_version(conn, "parsed_contents", document_id)?;
+            clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
 
             conn.execute(
-                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)",
-                (&content_id, document_id, &parse_result.markdown, &parse_result.json, &parse_result.structure.to_string(), &now),
+                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (&content_id, document_id, &version, &parse_result.markdown, &parse_result.json, &parse_result.structure.to_string(), &now),
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
@@ -1035,7 +2004,9 @@ async fn execute_parse_job(
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
-                "UPDATE documents SET parse_status = 'completed', updated_at = ? WHERE id = ?",
+                "UPDATE documents
+                 SET parse_status = 'completed', translation_status = 'pending', index_status = 'pending', updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
                 (&now, document_id),
             )
             .map_err(|e| e.to_string())?;
@@ -1049,7 +2020,9 @@ async fn execute_parse_job(
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
-                "UPDATE documents SET parse_status = 'failed', updated_at = ? WHERE id = ?",
+                "UPDATE documents
+                 SET parse_status = 'failed', updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
                 (&now, document_id),
             )
             .map_err(|e| e.to_string())?;
@@ -1204,6 +2177,13 @@ pub fn get_parsed_content(
     let conn = db.get_connection();
 
     conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
         "SELECT * FROM parsed_contents WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
         [&document_id],
         |row| {
@@ -1233,15 +2213,30 @@ pub async fn test_mineru_connection(base_url: String) -> Result<String, String> 
 
 #[tauri::command]
 pub async fn start_translation_job(
-    _app: AppHandle,
+    app: AppHandle,
     state: State<'_, AppState>,
     document_id: String,
     provider_id: String,
     source_language: String,
     target_language: String,
 ) -> Result<TranslationJob, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL
+            )",
+            [&document_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| e.to_string())?
+        != 0;
+
+    if !exists {
+        return Err("Document not found".to_string());
+    }
 
     let job_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -1286,10 +2281,12 @@ pub async fn start_translation_job(
     let source_language_clone = source_language.clone();
     let target_language_clone = target_language.clone();
     let state_clone = state.inner().clone();
+    let app_dir_clone = app_dir.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
         let result = execute_translation_job(
             &state_clone,
+            Some(app_dir_clone.as_path()),
             &job_id_clone,
             &document_id_clone,
             &provider_id_clone,
@@ -1334,6 +2331,7 @@ pub fn delete_translation_job(state: State<AppState>, job_id: String) -> Result<
 
 async fn execute_translation_job(
     state: &AppState,
+    app_dir: Option<&Path>,
     job_id: &str,
     document_id: &str,
     provider_id: &str,
@@ -1351,7 +2349,9 @@ async fn execute_translation_job(
         ).map_err(|e| e.to_string())?;
 
         conn.execute(
-            "UPDATE documents SET translation_status = 'translating', updated_at = ? WHERE id = ?",
+            "UPDATE documents
+             SET translation_status = 'translating', updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
             (&now, document_id),
         )
         .map_err(|e| e.to_string())?;
@@ -1363,7 +2363,12 @@ async fn execute_translation_job(
         ).map_err(|e| e.to_string())?;
 
         let markdown_content: String = conn.query_row(
-            "SELECT markdown_content FROM parsed_contents WHERE document_id = ? ORDER BY version DESC LIMIT 1",
+            "SELECT pc.markdown_content
+             FROM parsed_contents pc
+             JOIN documents d ON d.id = pc.document_id
+             WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+             ORDER BY pc.version DESC
+             LIMIT 1",
             [document_id],
             |row| row.get(0),
         ).map_err(|e| e.to_string())?;
@@ -1390,10 +2395,12 @@ async fn execute_translation_job(
     match result {
         Ok(translated_text) => {
             let content_id = Uuid::new_v4().to_string();
+            let version = next_content_version(conn, "translated_contents", document_id)?;
+            clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
 
             conn.execute(
-                "INSERT INTO translated_contents (id, document_id, version, content, created_at) VALUES (?1, ?2, 1, ?3, ?4)",
-                (&content_id, document_id, &translated_text, &now),
+                "INSERT INTO translated_contents (id, document_id, version, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                (&content_id, document_id, &version, &translated_text, &now),
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
@@ -1402,7 +2409,9 @@ async fn execute_translation_job(
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
-                "UPDATE documents SET translation_status = 'completed', target_language = ?, updated_at = ? WHERE id = ?",
+                "UPDATE documents
+                 SET translation_status = 'completed', target_language = ?1, updated_at = ?2
+                 WHERE id = ?3 AND deleted_at IS NULL",
                 (target_language, &now, document_id),
             ).map_err(|e| e.to_string())?;
 
@@ -1415,7 +2424,9 @@ async fn execute_translation_job(
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
-                "UPDATE documents SET translation_status = 'failed', updated_at = ? WHERE id = ?",
+                "UPDATE documents
+                 SET translation_status = 'failed', updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
                 (&now, document_id),
             )
             .map_err(|e| e.to_string())?;
@@ -1466,6 +2477,13 @@ pub fn get_translated_content(
     let conn = db.get_connection();
 
     conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
         "SELECT * FROM translated_contents WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
         [&document_id],
         |row| {
@@ -1475,6 +2493,226 @@ pub fn get_translated_content(
                 version: row.get(2)?,
                 content: row.get(3)?,
                 created_at: row.get(4)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_document_outputs(
+    state: State<AppState>,
+    document_id: String,
+) -> Result<Vec<DocumentOutput>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    load_document_outputs_internal(conn, &document_id)
+}
+
+#[tauri::command]
+pub async fn replace_original_document_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_id: String,
+    file_path: String,
+) -> Result<Document, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let source_path = Path::new(&file_path);
+    let extension = source_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if extension != "pdf" {
+        return Err("Only PDF files can replace the original document".to_string());
+    }
+
+    cancel_document_workflows(state.inner(), &app_dir, &document_id)?;
+
+    let file_handler = FileHandler::new(&app_dir)?;
+    let new_path = file_handler.import_pdf(source_path)?;
+    let new_file_size = FileHandler::get_file_size(&new_path)? as i64;
+    let new_filename = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("Invalid filename")?
+        .to_string();
+
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let old_path = conn
+            .query_row(
+                "SELECT file_path FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                [&document_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
+
+        clear_document_derived_data(conn, Some(&app_dir), &document_id, true, &now)?;
+
+        conn.execute(
+            "UPDATE documents
+             SET filename = ?1, file_path = ?2, file_size = ?3, page_count = 0, parse_status = 'pending',
+                 translation_status = 'pending', index_status = 'pending', updated_at = ?4
+             WHERE id = ?5 AND deleted_at IS NULL",
+            (
+                &new_filename,
+                new_path
+                    .to_str()
+                    .ok_or("File path contains invalid characters")?,
+                &new_file_size,
+                &now,
+                &document_id,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+
+        let old_path_ref = Path::new(&old_path);
+        if path_is_within(&app_dir, old_path_ref) {
+            let _ = file_handler.delete_file(old_path_ref);
+        }
+    }
+
+    let _ = enqueue_parse_job(state.inner(), Some(app_dir.clone()), &document_id, true)?;
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    load_document_by_id_internal(conn, &document_id, false)
+}
+
+#[tauri::command]
+pub async fn replace_translated_pdf(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_id: String,
+    file_path: String,
+) -> Result<DocumentOutput, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let source_path = Path::new(&file_path);
+    let extension = source_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if extension != "pdf" {
+        return Err("Only PDF files can be used as translated output".to_string());
+    }
+
+    let file_handler = FileHandler::new(&app_dir)?;
+    let stored_path = file_handler.import_output_file(source_path, "translated_pdf")?;
+    let now = Utc::now().to_rfc3339();
+    let output_id = Uuid::new_v4().to_string();
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    delete_document_output_record_and_file(conn, "translated_pdf", &document_id)?;
+
+    conn.execute(
+        "INSERT INTO document_outputs (id, document_id, output_type, file_path, created_at, updated_at)
+         VALUES (?1, ?2, 'translated_pdf', ?3, ?4, ?5)",
+        (
+            &output_id,
+            &document_id,
+            stored_path
+                .to_str()
+                .ok_or("File path contains invalid characters")?,
+            &now,
+            &now,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+
+    load_document_outputs_internal(conn, &document_id)?
+        .into_iter()
+        .find(|output| output.output_type == "translated_pdf")
+        .ok_or_else(|| "Translated PDF output was not created".to_string())
+}
+
+#[tauri::command]
+pub async fn replace_parsed_markdown(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_id: String,
+    file_path: String,
+) -> Result<ParsedContent, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let source_path = Path::new(&file_path);
+    let extension = source_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if !matches!(extension.as_str(), "md" | "markdown" | "txt") {
+        return Err("Only Markdown or text files can replace parsed content".to_string());
+    }
+
+    cancel_document_workflows(state.inner(), &app_dir, &document_id)?;
+
+    let markdown_content = FileHandler::read_text_file(source_path)?;
+    let now = Utc::now().to_rfc3339();
+    let content_id = Uuid::new_v4().to_string();
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    clear_document_derived_data(conn, Some(&app_dir), &document_id, false, &now)?;
+    let version = next_content_version(conn, "parsed_contents", &document_id)?;
+
+    conn.execute(
+        "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
+         VALUES (?1, ?2, ?3, ?4, '{}', NULL, ?5)",
+        (&content_id, &document_id, &version, &markdown_content, &now),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE documents
+         SET parse_status = 'completed', translation_status = 'pending', index_status = 'pending', updated_at = ?1
+         WHERE id = ?2 AND deleted_at IS NULL",
+        (&now, &document_id),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        "SELECT * FROM parsed_contents WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
+        [&document_id],
+        |row| {
+            Ok(ParsedContent {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                version: row.get(2)?,
+                markdown_content: row.get(3)?,
+                json_content: row.get(4)?,
+                structure_tree: row.get(5)?,
+                created_at: row.get(6)?,
             })
         },
     )
@@ -1494,12 +2732,18 @@ pub async fn start_index_job(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let now = Utc::now().to_rfc3339();
+        let updated = conn
+            .execute(
+                "UPDATE documents
+                 SET index_status = 'indexing', updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
+                (&now, &document_id),
+            )
+            .map_err(|e| e.to_string())?;
 
-        conn.execute(
-            "UPDATE documents SET index_status = 'indexing', updated_at = ? WHERE id = ?",
-            (&now, &document_id),
-        )
-        .map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Err("Document not found".to_string());
+        }
     }
 
     let document_id_clone = document_id.clone();
@@ -1581,7 +2825,12 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         let conn = db.get_connection();
 
         let markdown_content: String = conn.query_row(
-            "SELECT markdown_content FROM parsed_contents WHERE document_id = ? ORDER BY version DESC LIMIT 1",
+            "SELECT pc.markdown_content
+             FROM parsed_contents pc
+             JOIN documents d ON d.id = pc.document_id
+             WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+             ORDER BY pc.version DESC
+             LIMIT 1",
             [document_id],
             |row| row.get(0),
         ).map_err(|e| e.to_string())?;
@@ -1616,11 +2865,16 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         .map(|embedding| embedding.len())
         .ok_or_else(|| "Embedding provider returned no vectors".to_string())?;
 
-    let use_zvec = crate::zvec::vector_backend_is_zvec(&rag_settings);
-    if use_zvec && !crate::zvec::platform_supported() {
-        return Err(
-            "ZVEC backend is enabled, but the current platform is not supported by the configured runtime."
-                .to_string(),
+    let use_zvec = crate::zvec::should_use_zvec(
+        &rag_settings,
+        app_dir,
+        &zvec_settings,
+        &state.zvec_availability_cache,
+    );
+    if crate::zvec::vector_backend_is_zvec(&rag_settings) && !use_zvec {
+        log::warn!(
+            "zvec configured but unavailable; falling back to sqlite-vec for document {}",
+            document_id
         );
     }
 
@@ -1673,6 +2927,9 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         &now,
     )?;
 
+    // Ensure vec0 table exists for this dimension
+    crate::zvec::ensure_vec0_table(conn, vector_dimension)?;
+
     for indexed_chunk in &indexed_chunks {
         conn.execute(
             "INSERT INTO chunks (id, document_id, content, chunk_index, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1685,25 +2942,27 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
             ),
         ).map_err(|e| e.to_string())?;
 
-        if !use_zvec {
-            let embedding_id = Uuid::new_v4().to_string();
-            let embedding_bytes: Vec<u8> = indexed_chunk
-                .embedding
-                .iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect();
+        // Always write to SQLite embeddings BLOB table for fallback
+        let embedding_id = Uuid::new_v4().to_string();
+        let embedding_bytes: Vec<u8> = indexed_chunk
+            .embedding
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
 
-            conn.execute(
-                "INSERT INTO embeddings (id, chunk_id, vector, model, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                (
-                    &embedding_id,
-                    &indexed_chunk.id,
-                    &embedding_bytes,
-                    &embedding_model,
-                    &now,
-                ),
-            ).map_err(|e| e.to_string())?;
-        }
+        conn.execute(
+            "INSERT INTO embeddings (id, chunk_id, vector, model, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                &embedding_id,
+                &indexed_chunk.id,
+                &embedding_bytes,
+                &embedding_model,
+                &now,
+            ),
+        ).map_err(|e| e.to_string())?;
+
+        // Always write to vec0 table for sqlite-vec KNN search
+        crate::zvec::vec0_insert(conn, vector_dimension, &indexed_chunk.id, &embedding_bytes, &embedding_model)?;
     }
 
     if use_zvec {
@@ -1718,16 +2977,24 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         if let Err(error) =
             crate::zvec::upsert_embeddings(app_dir, &zvec_settings, collection_key, &vectors)
         {
-            remove_document_from_vector_store(conn, app_dir, document_id)?;
-            conn.execute("DELETE FROM chunks WHERE document_id = ?1", [document_id])
-                .map_err(|e| e.to_string())?;
-
-            return Err(format!("Failed to write embeddings into ZVEC: {error}"));
+            log::warn!("ZVEC upsert failed, sqlite-vec fallback data retained: {error}");
+            // Downgrade index record to sqlite since sqlite-vec data is already written
+            crate::zvec::upsert_document_index_record(
+                conn,
+                document_id,
+                "sqlite",
+                None,
+                &embedding_model,
+                vector_dimension,
+                &now,
+            )?;
         }
     }
 
     conn.execute(
-        "UPDATE documents SET index_status = 'completed', updated_at = ? WHERE id = ?",
+        "UPDATE documents
+         SET index_status = 'completed', updated_at = ?1
+         WHERE id = ?2 AND deleted_at IS NULL",
         (&now, document_id),
     )
     .map_err(|e| e.to_string())?;
@@ -1783,14 +3050,14 @@ pub async fn search_documents(
     let query_embedding = &query_embeddings[0];
     let requested_limit = limit.unwrap_or(10).max(1) as usize;
 
-    if crate::zvec::vector_backend_is_zvec(&rag_settings) {
-        if !crate::zvec::platform_supported() {
-            return Err(
-                "ZVEC backend is enabled, but the current platform is not supported by the configured runtime."
-                    .to_string(),
-            );
-        }
+    let use_zvec_search = crate::zvec::should_use_zvec(
+        &rag_settings,
+        &app_dir,
+        &zvec_settings,
+        &state.zvec_availability_cache,
+    );
 
+    if use_zvec_search {
         let collection_key =
             crate::zvec::collection_key_for_model(&embedding_model, query_embedding.len());
         let hits = crate::zvec::search_embeddings(
@@ -1814,7 +3081,10 @@ pub async fn search_documents(
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
-            "SELECT id, document_id, content FROM chunks WHERE id IN ({placeholders})"
+            "SELECT c.id, c.document_id, c.content
+             FROM chunks c
+             JOIN documents d ON d.id = c.document_id
+             WHERE c.id IN ({placeholders}) AND d.deleted_at IS NULL"
         );
 
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -1851,14 +3121,82 @@ pub async fn search_documents(
         return Ok(results);
     }
 
+    // sqlite-vec KNN search (fallback from zvec or explicit sqlite backend)
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
+    let dimension = query_embedding.len();
+    let query_bytes: Vec<u8> = query_embedding
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+
+    // Try vec0 KNN search first
+    if crate::zvec::ensure_vec0_table(conn, dimension).is_ok() {
+        if let Ok(hits) = crate::zvec::vec0_search(
+            conn,
+            dimension,
+            &query_bytes,
+            &embedding_model,
+            requested_limit,
+        ) {
+            if !hits.is_empty() {
+                let chunk_ids: Vec<String> = hits.iter().map(|(id, _)| id.clone()).collect();
+                let placeholders = (1..=chunk_ids.len())
+                    .map(|idx| format!("?{idx}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT c.id, c.document_id, c.content
+                     FROM chunks c
+                     JOIN documents d ON d.id = c.document_id
+                     WHERE c.id IN ({placeholders}) AND d.deleted_at IS NULL"
+                );
+                let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+                let rows = stmt
+                    .query_map(rusqlite::params_from_iter(chunk_ids.iter()), |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| e.to_string())?;
+
+                let chunk_map: HashMap<String, (String, String)> = rows
+                    .into_iter()
+                    .map(|(chunk_id, document_id, content)| (chunk_id, (document_id, content)))
+                    .collect();
+
+                let results: Vec<SearchResult> = hits
+                    .into_iter()
+                    .filter_map(|(chunk_id, distance)| {
+                        chunk_map.get(&chunk_id).map(|(document_id, content)| SearchResult {
+                            chunk_id: chunk_id.clone(),
+                            document_id: document_id.clone(),
+                            content: content.clone(),
+                            score: 1.0 - distance, // cosine distance to similarity
+                        })
+                    })
+                    .take(requested_limit)
+                    .collect();
+
+                return Ok(results);
+            }
+        }
+    }
+
+    // Final fallback: brute-force cosine similarity on embeddings BLOBs
     let mut stmt = conn
         .prepare(
-            "SELECT c.id, c.document_id, c.content, e.vector FROM chunks c
-         JOIN embeddings e ON c.id = e.chunk_id
-         ORDER BY c.created_at DESC",
+            "SELECT c.id, c.document_id, c.content, e.vector
+             FROM chunks c
+             JOIN embeddings e ON c.id = e.chunk_id
+             JOIN documents d ON d.id = c.document_id
+             WHERE d.deleted_at IS NULL
+             ORDER BY c.created_at DESC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -1939,7 +3277,7 @@ pub async fn sync_document(
         let conn = db.get_connection();
 
         conn.query_row(
-            "SELECT file_path FROM documents WHERE id = ?",
+            "SELECT file_path FROM documents WHERE id = ?1 AND deleted_at IS NULL",
             [&document_id],
             |row| row.get::<_, String>(0),
         )
@@ -1958,7 +3296,9 @@ pub async fn sync_document(
     let now = Utc::now().to_rfc3339();
 
     conn.execute(
-        "UPDATE documents SET sync_status = 'synced', updated_at = ? WHERE id = ?",
+        "UPDATE documents
+         SET sync_status = 'synced', updated_at = ?1
+         WHERE id = ?2 AND deleted_at IS NULL",
         (&now, &document_id),
     )
     .map_err(|e| e.to_string())?;
@@ -1978,30 +3318,57 @@ pub async fn export_document(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
+        conn.query_row(
+            "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+            [&document_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|e| e.to_string())?;
+
         match content_type.as_str() {
             "original" => {
                 conn.query_row(
-                    "SELECT markdown_content FROM parsed_contents WHERE document_id = ? ORDER BY version DESC LIMIT 1",
+                    "SELECT pc.markdown_content
+                     FROM parsed_contents pc
+                     JOIN documents d ON d.id = pc.document_id
+                     WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+                     ORDER BY pc.version DESC
+                     LIMIT 1",
                     [&document_id],
                     |row| row.get::<_, String>(0),
                 ).map_err(|e| e.to_string())?
             }
             "translated" => {
                 conn.query_row(
-                    "SELECT content FROM translated_contents WHERE document_id = ? ORDER BY version DESC LIMIT 1",
+                    "SELECT tc.content
+                     FROM translated_contents tc
+                     JOIN documents d ON d.id = tc.document_id
+                     WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
+                     ORDER BY tc.version DESC
+                     LIMIT 1",
                     [&document_id],
                     |row| row.get::<_, String>(0),
                 ).map_err(|e| e.to_string())?
             }
             "bilingual" => {
                 let original: String = conn.query_row(
-                    "SELECT markdown_content FROM parsed_contents WHERE document_id = ? ORDER BY version DESC LIMIT 1",
+                    "SELECT pc.markdown_content
+                     FROM parsed_contents pc
+                     JOIN documents d ON d.id = pc.document_id
+                     WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+                     ORDER BY pc.version DESC
+                     LIMIT 1",
                     [&document_id],
                     |row| row.get(0),
                 ).map_err(|e| e.to_string())?;
 
                 let translated: String = conn.query_row(
-                    "SELECT content FROM translated_contents WHERE document_id = ? ORDER BY version DESC LIMIT 1",
+                    "SELECT tc.content
+                     FROM translated_contents tc
+                     JOIN documents d ON d.id = tc.document_id
+                     WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
+                     ORDER BY tc.version DESC
+                     LIMIT 1",
                     [&document_id],
                     |row| row.get(0),
                 ).map_err(|e| e.to_string())?;
@@ -2025,6 +3392,50 @@ pub async fn export_document(
         "INSERT INTO export_records (id, document_id, format, content_type, file_path, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         (&export_id, &document_id, &format, &content_type, &output_path, &now),
     ).map_err(|e| e.to_string())?;
+
+    Ok(output_path)
+}
+
+#[tauri::command]
+pub async fn export_document_asset(
+    state: State<'_, AppState>,
+    document_id: String,
+    asset_type: String,
+    output_path: String,
+) -> Result<String, String> {
+    let source_path = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        conn.query_row(
+            "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+            [&document_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+        match asset_type.as_str() {
+            "original_pdf" => conn
+                .query_row(
+                    "SELECT file_path FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                    [&document_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(|e| e.to_string())?,
+            "translated_pdf" => conn
+                .query_row(
+                    "SELECT file_path FROM document_outputs WHERE document_id = ?1 AND output_type = 'translated_pdf'",
+                    [&document_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(|e| e.to_string())?,
+            _ => return Err("Invalid asset type".to_string()),
+        }
+    };
+
+    tokio::fs::copy(&source_path, &output_path)
+        .await
+        .map_err(|e| format!("Failed to export asset: {}", e))?;
 
     Ok(output_path)
 }
@@ -2318,35 +3729,14 @@ pub async fn import_document(
     }
 
     if normalized_file_type == "pdf" {
-        if let Err(e) = enqueue_parse_job(state.inner(), &id, true) {
+        if let Err(e) = enqueue_parse_job(state.inner(), Some(app_dir.clone()), &id, true) {
             log::error!("Failed to auto-start parse job for document {}: {}", id, e);
         }
     }
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
-
-    conn.query_row("SELECT * FROM documents WHERE id = ?1", [&id], |row| {
-        Ok(Document {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            filename: row.get(2)?,
-            file_path: row.get(3)?,
-            file_size: row.get(4)?,
-            page_count: row.get(5)?,
-            source_language: row.get(6)?,
-            target_language: row.get(7)?,
-            category_id: row.get(8)?,
-            created_at: row.get(9)?,
-            updated_at: row.get(10)?,
-            deleted_at: row.get(11)?,
-            parse_status: row.get(12)?,
-            translation_status: row.get(13)?,
-            index_status: row.get(14)?,
-            sync_status: row.get(15)?,
-        })
-    })
-    .map_err(|e| e.to_string())
+    load_document_by_id_internal(conn, &id, true)
 }
 
 // --- Get Document File Path ---
@@ -2373,6 +3763,13 @@ pub fn get_document_chunks(
 ) -> Result<Vec<Chunk>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
+
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(

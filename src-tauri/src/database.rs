@@ -1,5 +1,8 @@
 use rusqlite::{Connection, Result};
 use std::path::Path;
+use std::sync::Once;
+
+static SQLITE_VEC_INIT: Once = Once::new();
 
 pub struct Database {
     conn: Connection,
@@ -7,6 +10,12 @@ pub struct Database {
 
 impl Database {
     pub fn new(db_path: &Path) -> Result<Self> {
+        SQLITE_VEC_INIT.call_once(|| unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        });
+
         let conn = Connection::open(db_path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         Ok(Database { conn })
@@ -16,6 +25,8 @@ impl Database {
         let schemas = [
             include_str!("../migrations/001_initial_schema.sql"),
             include_str!("../migrations/002_vector_indexes.sql"),
+            include_str!("../migrations/003_library_upgrade.sql"),
+            include_str!("../migrations/004_document_outputs.sql"),
         ];
 
         for schema in schemas {

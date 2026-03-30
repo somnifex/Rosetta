@@ -55,5 +55,71 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: hsl(var(--border));
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.4);
+  }
+}
+
+@layer utilities {
+  .desktop-panel {
+    background:
+      linear-gradient(180deg, hsl(var(--card) / 0.96), hsl(var(--card) / 0.9)),
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.07), transparent 40%);
+    box-shadow:
+      0 1px 0 hsl(var(--background) / 0.8) inset,
+      0 24px 64px rgba(15, 23, 42, 0.1);
+    backdrop-filter: blur(14px);
+  }
+
+  .glass-surface {
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.88), hsl(var(--background) / 0.7)),
+      radial-gradient(circle at top right, hsl(var(--primary) / 0.08), transparent 38%);
+    backdrop-filter: blur(18px);
+  }
+
+  .reader-noise {
+    background-image:
+      radial-gradient(circle at top, rgba(255,255,255,0.7), transparent 34%),
+      linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.35)),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 10px,
+        rgba(148, 163, 184, 0.04) 10px,
+        rgba(148, 163, 184, 0.04) 11px
+      );
+  }
+
+  .subtle-dots {
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.14) 1px, transparent 0);
+    background-size: 20px 20px;
   }
 }

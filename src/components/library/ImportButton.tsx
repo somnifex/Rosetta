@@ -28,6 +28,7 @@ export function ImportButton() {
       api.importDocument(filePath, fileType),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] })
+      queryClient.invalidateQueries({ queryKey: ["libraryDocuments"] })
       toast({
         title: t("toast.import_success.title"),
         description: t("toast.import_success.description"),

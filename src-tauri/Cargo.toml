@@ -17,6 +17,7 @@ tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled", "blob"] }
@@ -28,3 +29,5 @@ anyhow = "1"
 thiserror = "1"
 log = "0.4"
 env_logger = "0.11"
+sqlite-vec = "0.1"
+zerocopy = { version = "0.8", features = ["derive"] }

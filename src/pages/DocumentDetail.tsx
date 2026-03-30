@@ -1,69 +1,50 @@
-import { useState, useRef, useCallback } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import { useTranslation } from "react-i18next"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useEffect, useMemo, useState } from "react"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useReaderState } from "@/hooks/useReaderState"
+import { ReaderToolbar } from "@/components/document-reader/ReaderToolbar"
+import { ReaderPaneOriginal } from "@/components/document-reader/ReaderPaneOriginal"
+import { ReaderPaneTranslated } from "@/components/document-reader/ReaderPaneTranslated"
+import { ReaderComparePane } from "@/components/document-reader/ReaderComparePane"
+import { ReaderAskPanel } from "@/components/document-reader/ReaderAskPanel"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { FileText, Download, Trash2, Loader2, MessageSquare, ChevronDown } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
-import { PdfViewer } from "@/components/viewer/PdfViewer"
-import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
-import { TextSelectionToolbar } from "@/components/viewer/TextSelectionToolbar"
-import { DocumentChatSidebar } from "@/components/document/DocumentChatSidebar"
-import { TagPicker } from "@/components/document/TagPicker"
+import { Loader2, PanelRightOpen } from "lucide-react"
+
+function toModeQuery(baseMode: "original" | "translated" | "compare", askOpen: boolean) {
+  if (baseMode === "compare" && askOpen) return "compare-ask"
+  if (askOpen) return "ask"
+  return baseMode
+}
 
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { t } = useTranslation("document")
-  const { t: tc } = useTranslation("common")
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-
-  const [chatOpen, setChatOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [originalPages, setOriginalPages] = useState(0)
+  const [translatedPages, setTranslatedPages] = useState(0)
   const [prefillText, setPrefillText] = useState("")
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const viewerContainerRef = useRef<HTMLDivElement>(null)
+
+  const {
+    state: readerState,
+    setBaseMode,
+    setAskOpen,
+    setOriginalPage,
+    setTranslatedPage,
+    setOriginalScale,
+    setTranslatedScale,
+    setTextScale,
+    setCompareRatio,
+    setCompareOrder,
+  } = useReaderState(id || "", searchParams.get("mode"))
 
   const { data: document, isLoading } = useQuery({
     queryKey: ["document", id],
     queryFn: () => api.getDocumentById(id!),
     enabled: !!id,
     refetchInterval: (query) => {
-      const currentDocument = query.state.data as {
-        parse_status: string
-        translation_status: string
-        index_status: string
-      } | undefined
-      return currentDocument &&
-        (
-          currentDocument.parse_status === "parsing" ||
-          currentDocument.translation_status === "translating" ||
-          currentDocument.index_status === "indexing"
-        )
+      const current = query.state.data as { parse_status: string; translation_status: string; index_status: string } | undefined
+      return current && ["parsing", "translating", "indexing"].some((status) => [current.parse_status, current.translation_status, current.index_status].includes(status))
         ? 2000
         : false
     },
@@ -72,595 +53,294 @@ export default function DocumentDetail() {
   const { data: parsedContent } = useQuery({
     queryKey: ["parsedContent", id],
     queryFn: () => api.getParsedContent(id!),
-    enabled: !!id && document?.parse_status === "completed",
+    enabled: !!id && !!document && document.parse_status === "completed",
   })
 
   const { data: translatedContent } = useQuery({
     queryKey: ["translatedContent", id],
     queryFn: () => api.getTranslatedContent(id!),
-    enabled: !!id && document?.translation_status === "completed",
+    enabled: !!id && !!document && document.translation_status === "completed",
   })
 
-  const { data: providers } = useQuery({
-    queryKey: ["providers"],
-    queryFn: api.getProviders,
-  })
-
-  const { data: categories = [] } = useQuery({
-    queryKey: ["categories"],
-    queryFn: api.getCategories,
-  })
-
-  const { data: filePath } = useQuery({
-    queryKey: ["documentFilePath", id],
-    queryFn: () => api.getDocumentFilePath(id!),
-    enabled: !!id && !!document && document.filename.toLowerCase().endsWith(".pdf"),
-  })
-
-  const { data: chunks = [] } = useQuery({
-    queryKey: ["documentChunks", id],
-    queryFn: () => api.getDocumentChunks(id!),
+  const { data: outputs = [] } = useQuery({
+    queryKey: ["documentOutputs", id],
+    queryFn: () => api.getDocumentOutputs(id!),
     enabled: !!id,
   })
 
-  const startParseMutation = useMutation({
-    mutationFn: api.startParseJob,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document", id] })
-      toast({ title: t("toast.parse_started.title"), description: t("toast.parse_started.description") })
-    },
-    onError: (error: any) => {
-      toast({ title: t("toast.parse_error.title"), description: error.message, variant: "destructive" })
-    },
-  })
+  useEffect(() => {
+    const nextMode = toModeQuery(readerState.baseMode, readerState.askOpen)
+    if (searchParams.get("mode") === nextMode) return
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set("mode", nextMode)
+      return next
+    }, { replace: true })
+  }, [readerState.askOpen, readerState.baseMode, searchParams, setSearchParams])
 
-  const startTranslationMutation = useMutation({
-    mutationFn: api.startTranslationJob,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document", id] })
-      toast({ title: t("toast.translation_started.title"), description: t("toast.translation_started.description") })
-    },
-    onError: (error: any) => {
-      toast({ title: t("toast.translation_error.title"), description: error.message, variant: "destructive" })
-    },
-  })
+  const translatedPdf = outputs.find((output) => output.output_type === "translated_pdf" && !output.is_file_missing)?.file_path
+  const originalPdf = document && document.filename.toLowerCase().endsWith(".pdf") && !document.is_file_missing ? document.file_path : null
+  const parseReady = document?.parse_status === "completed"
+  const translationReady = document?.translation_status === "completed"
+  const compareReady = !!parsedContent?.markdown_content && !!translatedContent?.content
 
-  const startIndexMutation = useMutation({
-    mutationFn: (data: { documentId: string; providerId: string }) =>
-      api.startIndexJob(data.documentId, data.providerId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document", id] })
-      toast({ title: t("toast.index_started.title"), description: t("toast.index_started.description") })
-    },
-    onError: (error: any) => {
-      toast({ title: t("toast.index_error.title"), description: error.message, variant: "destructive" })
-    },
-  })
+  const activePdfState = useMemo(() => {
+    if (readerState.baseMode === "original" && originalPdf) {
+      return {
+        page: readerState.originalPage,
+        totalPages: originalPages,
+        scale: readerState.originalScale,
+        onPageChange: setOriginalPage,
+        onScaleChange: setOriginalScale,
+      }
+    }
 
-  const exportMutation = useMutation({
-    mutationFn: api.exportDocument,
-    onSuccess: (path) => {
-      toast({ title: t("toast.export_success.title"), description: t("toast.export_success.description", { path }) })
-    },
-    onError: (error: any) => {
-      toast({ title: t("toast.export_error.title"), description: error.message, variant: "destructive" })
-    },
-  })
+    if (readerState.baseMode === "translated" && translatedPdf) {
+      return {
+        page: readerState.translatedPage,
+        totalPages: translatedPages,
+        scale: readerState.translatedScale,
+        onPageChange: setTranslatedPage,
+        onScaleChange: setTranslatedScale,
+      }
+    }
 
-  const deleteMutation = useMutation({
-    mutationFn: () => api.deleteDocument(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] })
-      queryClient.invalidateQueries({ queryKey: ["parseJobs"] })
-      queryClient.invalidateQueries({ queryKey: ["translationJobs"] })
-      toast({ title: t("toast.delete_success.title") })
-      navigate("/library")
-    },
-    onError: (error: any) => {
-      toast({ title: t("toast.delete_error.title"), description: error.message, variant: "destructive" })
-    },
-  })
+    return {
+      page: undefined,
+      totalPages: undefined,
+      scale: readerState.textScale,
+      onPageChange: undefined,
+      onScaleChange: setTextScale,
+    }
+  }, [
+    originalPages,
+    originalPdf,
+    readerState.baseMode,
+    readerState.originalPage,
+    readerState.originalScale,
+    readerState.textScale,
+    readerState.translatedPage,
+    readerState.translatedScale,
+    setOriginalPage,
+    setOriginalScale,
+    setTextScale,
+    setTranslatedPage,
+    setTranslatedScale,
+    translatedPages,
+    translatedPdf,
+  ])
 
-  const updateDocMutation = useMutation({
-    mutationFn: api.updateDocument,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document", id] })
-    },
-  })
-
-  const handleStartParsing = () => {
-    if (document) startParseMutation.mutate(document.id)
+  const handleAsk = (text: string) => {
+    setPrefillText(`请结合当前文档解释这段内容：\n\n${text}`)
+    setAskOpen(true)
   }
 
-  const handleStartTranslation = () => {
-    if (document && providers && providers.length > 0) {
-      const activeProvider = providers.find((p) => p.is_active)
-      if (!activeProvider) {
-        toast({ title: tc("no_active_provider.title"), description: tc("no_active_provider.description"), variant: "destructive" })
+  const handleTranslateSelection = (text: string) => {
+    setPrefillText(`请翻译并解释这段内容：\n\n${text}`)
+    setAskOpen(true)
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName.toLowerCase()
+      const isEditable = !!target?.isContentEditable || tagName === "textarea" || tagName === "input" || tagName === "select"
+      if (isEditable) return
+
+      if (event.key === "Escape" && readerState.askOpen) {
+        event.preventDefault()
+        setAskOpen(false)
         return
       }
-      startTranslationMutation.mutate({
-        documentId: document.id,
-        providerId: activeProvider.id,
-        sourceLanguage: document.source_language || "English",
-        targetLanguage: document.target_language || "Chinese",
-      })
-    }
-  }
 
-  const handleStartIndexing = () => {
-    if (document && providers && providers.length > 0) {
-      const activeProvider = providers.find((p) => p.is_active)
-      if (!activeProvider) {
-        toast({ title: tc("no_active_provider.title"), description: tc("no_active_provider.description"), variant: "destructive" })
+      if (event.key === "1") {
+        event.preventDefault()
+        setBaseMode("original")
         return
       }
-      startIndexMutation.mutate({ documentId: document.id, providerId: activeProvider.id })
+
+      if (event.key === "2" && (translationReady || !!translatedPdf)) {
+        event.preventDefault()
+        setBaseMode("translated")
+        return
+      }
+
+      if (event.key === "3" && compareReady) {
+        event.preventDefault()
+        setBaseMode("compare")
+        return
+      }
+
+      if (event.key === "4" && parseReady) {
+        event.preventDefault()
+        setAskOpen(!readerState.askOpen)
+        return
+      }
+
+      if (activePdfState.onPageChange && activePdfState.page) {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault()
+          activePdfState.onPageChange(activePdfState.page - 1)
+          return
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault()
+          activePdfState.onPageChange(activePdfState.page + 1)
+          return
+        }
+      }
+
+      if (activePdfState.onScaleChange && (event.ctrlKey || event.metaKey)) {
+        if (event.key === "=" || event.key === "+") {
+          event.preventDefault()
+          activePdfState.onScaleChange((activePdfState.scale ?? 1) + 0.1)
+        }
+        if (event.key === "-") {
+          event.preventDefault()
+          activePdfState.onScaleChange((activePdfState.scale ?? 1) - 0.1)
+        }
+      }
     }
-  }
 
-  const handleExport = async (format: string) => {
-    if (!document) return
-    const { save } = await import("@tauri-apps/plugin-dialog")
-    const extMap: Record<string, string> = { markdown: "md", txt: "txt", json: "json" }
-    const ext = extMap[format] || "md"
-    const filePath = await save({
-      defaultPath: `${document.title}.${ext}`,
-      filters: [{ name: format.toUpperCase(), extensions: [ext] }],
-    })
-    if (filePath) {
-      exportMutation.mutate({
-        documentId: document.id,
-        format,
-        contentType: document.translation_status === "completed" ? "bilingual" : "original",
-        outputPath: filePath,
-      })
-    }
-  }
-
-  const handleTextSelect = useCallback((_text: string) => {
-    // Text selection is handled by TextSelectionToolbar
-  }, [])
-
-  const handleAskAI = useCallback((text: string) => {
-    setPrefillText(`${t("selection.ask_about")}: "${text}"`)
-    setChatOpen(true)
-  }, [t])
-
-  const handleTranslate = useCallback((text: string) => {
-    setPrefillText(`${t("selection.translate_text")}: "${text}"`)
-    setChatOpen(true)
-  }, [t])
-
-  const handleCategoryChange = (categoryId: string) => {
-    if (document) {
-      updateDocMutation.mutate({
-        id: document.id,
-        categoryId: categoryId === "none" ? undefined : categoryId,
-      })
-    }
-  }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [
+    activePdfState,
+    compareReady,
+    parseReady,
+    readerState.askOpen,
+    setAskOpen,
+    setBaseMode,
+    translatedPdf,
+    translationReady,
+  ])
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
-  if (!document) {
+  if (!document || !id) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-muted-foreground">{t("not_found")}</p>
+      <div className="flex h-screen items-center justify-center">
+        <p className="text-muted-foreground">未找到文档</p>
       </div>
     )
   }
 
-  const isPdf = document.filename.toLowerCase().endsWith(".pdf")
-  const isMdOrTxt =
-    document.filename.toLowerCase().endsWith(".md") ||
-    document.filename.toLowerCase().endsWith(".txt") ||
-    document.filename.toLowerCase().endsWith(".markdown")
-
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Main content */}
-      <div className="flex-1 min-w-0 overflow-auto p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold">{document.title}</h1>
-            <p className="text-muted-foreground">{document.filename}</p>
-            {/* Category selector */}
-            <div className="flex items-center gap-2">
-              <Select
-                value={document.category_id || "none"}
-                onValueChange={handleCategoryChange}
-              >
-                <SelectTrigger className="w-[180px] h-8 text-sm">
-                  <SelectValue placeholder={t("category.select")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("category.none")}</SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Tags */}
-            <TagPicker documentId={document.id} />
-          </div>
-          <div className="flex gap-2 shrink-0">
-            {document.parse_status === "completed" && document.index_status !== "completed" && (
-              <Button variant="outline" onClick={handleStartIndexing} disabled={startIndexMutation.isPending}>
-                {startIndexMutation.isPending ? t("btn.indexing") : t("btn.index")}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setChatOpen(!chatOpen)}
-              className={chatOpen ? "bg-primary/10 text-primary" : ""}
-            >
-              <MessageSquare className="h-4 w-4" />
-            </Button>
-            {/* Export dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" disabled={exportMutation.isPending}>
-                  <Download className="mr-2 h-4 w-4" />
-                  {exportMutation.isPending ? t("btn.exporting") : t("btn.export")}
-                  <ChevronDown className="ml-1 h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleExport("markdown")}>Markdown (.md)</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport("txt")}>Plain Text (.txt)</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport("json")}>JSON (.json)</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t("btn.delete")}
-            </Button>
-          </div>
-        </div>
-
-        {/* Overview */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("overview.title")}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("overview.file_size")}</p>
-              <p className="text-lg">{(document.file_size / 1024 / 1024).toFixed(2)} {tc("units.mb")}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("overview.pages")}</p>
-              <p className="text-lg">{document.page_count}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("overview.parse_status")}</p>
-              <Badge variant={
-                document.parse_status === "completed" ? "default" :
-                document.parse_status === "parsing" ? "secondary" :
-                document.parse_status === "failed" ? "destructive" : "outline"
-              }>
-                {document.parse_status === "parsing" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                {tc(`status.${document.parse_status as "pending" | "parsing" | "completed" | "failed"}`)}
-              </Badge>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("overview.translation_status")}</p>
-              <Badge variant={
-                document.translation_status === "completed" ? "default" :
-                document.translation_status === "translating" ? "secondary" :
-                document.translation_status === "failed" ? "destructive" : "outline"
-              }>
-                {document.translation_status === "translating" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                {tc(`status.${document.translation_status as "pending" | "translating" | "completed" | "failed"}`)}
-              </Badge>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("overview.index_status")}</p>
-              <Badge variant={
-                document.index_status === "completed" ? "default" :
-                document.index_status === "indexing" ? "secondary" :
-                document.index_status === "failed" ? "destructive" : "outline"
-              }>
-                {document.index_status === "indexing" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                {tc(`status.${document.index_status as "pending" | "indexing" | "completed" | "failed"}`)}
-              </Badge>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("overview.languages")}</p>
-              <p className="text-sm">
-                {document.source_language || t("overview.auto")} → {document.target_language || t("overview.not_set")}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Tabs */}
-        <Tabs defaultValue="preview" className="w-full">
-          <TabsList>
-            <TabsTrigger value="preview">{t("tabs.preview")}</TabsTrigger>
-            <TabsTrigger value="parsed">{t("tabs.parsed")}</TabsTrigger>
-            <TabsTrigger value="translated">{t("tabs.translated")}</TabsTrigger>
-            <TabsTrigger value="comparison">{t("tabs.comparison")}</TabsTrigger>
-            <TabsTrigger value="structure">{t("tabs.structure")}</TabsTrigger>
-            <TabsTrigger value="chunks">{t("tabs.chunks")}</TabsTrigger>
-          </TabsList>
-
-          {/* Preview Tab */}
-          <TabsContent value="preview">
-            <Card>
-              <CardContent className="p-0 relative" ref={viewerContainerRef}>
-                <TextSelectionToolbar
-                  containerRef={viewerContainerRef}
-                  onAskAI={handleAskAI}
-                  onTranslate={handleTranslate}
-                />
-                {isPdf && filePath ? (
-                  <div className="h-[600px]">
-                    <PdfViewer fileUrl={filePath} onTextSelect={handleTextSelect} />
-                  </div>
-                ) : isMdOrTxt && parsedContent?.markdown_content ? (
-                  <div className="h-[600px]">
-                    <MarkdownViewer
-                      content={parsedContent.markdown_content}
-                      onTextSelect={handleTextSelect}
-                    />
-                  </div>
-                ) : document.parse_status === "completed" && parsedContent?.markdown_content ? (
-                  <div className="h-[600px]">
-                    <MarkdownViewer
-                      content={parsedContent.markdown_content}
-                      onTextSelect={handleTextSelect}
-                    />
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="text-center">
-                      <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">{t("placeholder.preview")}</p>
-                      {document.parse_status === "pending" && (
-                        <Button onClick={handleStartParsing} className="mt-4" disabled={startParseMutation.isPending}>
-                          {startParseMutation.isPending ? t("btn.starting") : t("btn.start_parsing")}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Parsed Tab */}
-          <TabsContent value="parsed">
-            <Card>
-              <CardContent className="py-6">
-                {document.parse_status === "completed" ? (
-                  parsedContent ? (
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <MarkdownViewer content={parsedContent.markdown_content} />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                    </div>
-                  )
-                ) : document.parse_status === "parsing" ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-                    <p className="text-muted-foreground">{t("parsed.in_progress")}</p>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground mb-4">{t("parsed.not_started")}</p>
-                    <Button onClick={handleStartParsing} disabled={startParseMutation.isPending}>
-                      {startParseMutation.isPending ? (
-                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t("btn.starting")}</>
-                      ) : (
-                        t("btn.start_parsing")
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Translated Tab */}
-          <TabsContent value="translated">
-            <Card>
-              <CardContent className="py-6">
-                {document.translation_status === "completed" ? (
-                  translatedContent ? (
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <MarkdownViewer content={translatedContent.content} />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                    </div>
-                  )
-                ) : document.translation_status === "translating" ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-                    <p className="text-muted-foreground">{t("translated.in_progress")}</p>
-                  </div>
-                ) : document.parse_status !== "completed" ? (
-                  <div className="text-center py-12">
-                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">{t("translated.needs_parsing")}</p>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground mb-4">{t("translated.not_started")}</p>
-                    <Button onClick={handleStartTranslation} disabled={startTranslationMutation.isPending}>
-                      {startTranslationMutation.isPending ? (
-                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t("btn.starting")}</>
-                      ) : (
-                        t("btn.start_translation")
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Comparison Tab */}
-          <TabsContent value="comparison">
-            <Card>
-              <CardContent className="py-6">
-                {parsedContent && translatedContent ? (
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <Badge variant="outline">{t("comparison.original")}</Badge>
-                      </h3>
-                      <div className="border rounded-lg p-4 min-h-[400px] max-h-[600px] overflow-y-auto bg-muted/30">
-                        <div className="prose prose-sm max-w-none dark:prose-invert">
-                          <MarkdownViewer content={parsedContent.markdown_content} />
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <Badge variant="default">{t("comparison.translation")}</Badge>
-                      </h3>
-                      <div className="border rounded-lg p-4 min-h-[400px] max-h-[600px] overflow-y-auto bg-primary/5">
-                        <div className="prose prose-sm max-w-none dark:prose-invert">
-                          <MarkdownViewer content={translatedContent.content} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">{t("comparison.unavailable")}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Structure Tab */}
-          <TabsContent value="structure">
-            <Card>
-              <CardContent className="py-6">
-                {parsedContent?.structure_tree ? (
-                  <div className="space-y-1">
-                    {(() => {
-                      try {
-                        const tree = typeof parsedContent.structure_tree === "string"
-                          ? JSON.parse(parsedContent.structure_tree)
-                          : parsedContent.structure_tree
-                        const renderNode = (node: any, depth: number = 0): React.ReactNode => {
-                          if (!node) return null
-                          if (Array.isArray(node)) {
-                            return node.map((child, idx) => (
-                              <div key={idx}>{renderNode(child, depth)}</div>
-                            ))
-                          }
-                          return (
-                            <div style={{ paddingLeft: `${depth * 20}px` }} className="py-0.5">
-                              <span className="text-sm">
-                                {node.title || node.text || node.name || JSON.stringify(node).slice(0, 100)}
-                              </span>
-                              {node.children && renderNode(node.children, depth + 1)}
-                            </div>
-                          )
-                        }
-                        return renderNode(tree)
-                      } catch {
-                        return <p className="text-sm text-muted-foreground whitespace-pre-wrap">{String(parsedContent.structure_tree)}</p>
-                      }
-                    })()}
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground">{t("placeholder.structure")}</p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Chunks Tab */}
-          <TabsContent value="chunks">
-            <Card>
-              <CardContent className="py-6">
-                {chunks.length > 0 ? (
-                  <div className="space-y-3">
-                    {chunks.map((chunk) => (
-                      <div key={chunk.id} className="border rounded-lg p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Badge variant="outline" className="text-xs">#{chunk.chunk_index}</Badge>
-                          {chunk.page_number && (
-                            <Badge variant="secondary" className="text-xs">
-                              {t("chunks.page")} {chunk.page_number}
-                            </Badge>
-                          )}
-                          {chunk.section_title && (
-                            <span className="text-xs text-muted-foreground">{chunk.section_title}</span>
-                          )}
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap line-clamp-3">{chunk.content}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground">{t("placeholder.chunks")}</p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+    <div className="relative flex h-screen flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[-140px] top-[-100px] h-[340px] w-[340px] rounded-full bg-sky-200/25 blur-3xl" />
+        <div className="absolute bottom-[-120px] right-[-60px] h-[300px] w-[300px] rounded-full bg-blue-200/20 blur-3xl" />
       </div>
 
-      {/* Chat Sidebar */}
-      <DocumentChatSidebar
-        documentId={id!}
-        documentTitle={document.title}
-        documentContent={parsedContent?.markdown_content}
-        isOpen={chatOpen}
-        onToggle={() => setChatOpen(!chatOpen)}
-        prefillText={prefillText}
-        onPrefillConsumed={() => setPrefillText("")}
+      <ReaderToolbar
+        title={document.title}
+        mode={readerState.baseMode}
+        askOpen={readerState.askOpen}
+        onModeChange={setBaseMode}
+        onAskToggle={() => setAskOpen(!readerState.askOpen)}
+        onBackToLibrary={() => navigate("/library")}
+        onOpenActions={() => navigate("/library", { state: { reopenDocumentId: document.id } })}
+        pageNumber={activePdfState.page}
+        totalPages={activePdfState.totalPages}
+        scale={activePdfState.scale}
+        onPageChange={activePdfState.onPageChange}
+        onScaleChange={activePdfState.onScaleChange}
+        pageControlsDisabled={!activePdfState.onPageChange}
+        modeDisabled={{
+          translated: !translationReady && !translatedPdf,
+          compare: !compareReady,
+          ask: !parseReady,
+        }}
       />
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("delete_confirm.title")}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">{t("delete_confirm.description")}</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              {tc("btn.cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                deleteMutation.mutate()
-                setDeleteDialogOpen(false)
-              }}
-            >
-              {t("btn.delete")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <div className="relative z-10 flex min-h-0 flex-1">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+              {readerState.baseMode === "original" ? (
+                <ReaderPaneOriginal
+                  pdfPath={originalPdf}
+                  markdownContent={parsedContent?.markdown_content}
+                  pageNumber={readerState.originalPage}
+                  scale={readerState.originalScale}
+                  textScale={readerState.textScale}
+                  onPageChange={setOriginalPage}
+                  onScaleChange={setOriginalScale}
+                  onDocumentLoad={setOriginalPages}
+                  onAskAI={handleAsk}
+                  onTranslateSelection={handleTranslateSelection}
+                />
+              ) : null}
+
+              {readerState.baseMode === "translated" ? (
+                <ReaderPaneTranslated
+                  pdfPath={translatedPdf}
+                  markdownContent={translatedContent?.content}
+                  pageNumber={readerState.translatedPage}
+                  scale={readerState.translatedScale}
+                  textScale={readerState.textScale}
+                  onPageChange={setTranslatedPage}
+                  onScaleChange={setTranslatedScale}
+                  onDocumentLoad={setTranslatedPages}
+                  onAskAI={handleAsk}
+                  onTranslateSelection={handleTranslateSelection}
+                />
+              ) : null}
+
+              {readerState.baseMode === "compare" ? (
+                compareReady ? (
+                  <ReaderComparePane
+                    originalContent={parsedContent?.markdown_content || ""}
+                    translatedContent={translatedContent?.content || ""}
+                    textScale={readerState.textScale}
+                    compareRatio={readerState.compareRatio}
+                    compareOrder={readerState.compareOrder}
+                    onCompareRatioChange={setCompareRatio}
+                    onCompareOrderChange={setCompareOrder}
+                    onAskAI={handleAsk}
+                    onTranslateSelection={handleTranslateSelection}
+                  />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+                    <div className="rounded-[28px] border border-primary/10 bg-primary/5 px-8 py-7 shadow-sm">
+                      <p className="text-lg font-medium">对照阅读尚未就绪</p>
+                      <p className="mt-2 text-sm text-muted-foreground">完成解析和翻译后，这里会自动切换为左右对照阅读模式。</p>
+                    </div>
+                    <Button variant="outline" className="rounded-2xl bg-background/70" onClick={() => navigate("/library", { state: { reopenDocumentId: document.id } })}>
+                      返回文档操作中心
+                    </Button>
+                  </div>
+                )
+              ) : null}
+          </div>
+        </main>
+
+        <ReaderAskPanel
+          documentId={document.id}
+          documentTitle={document.title}
+          isOpen={readerState.askOpen}
+          onToggle={() => setAskOpen(!readerState.askOpen)}
+          prefillText={prefillText}
+          onPrefillConsumed={() => setPrefillText("")}
+        />
+      </div>
+
+      {!readerState.askOpen && parseReady ? (
+        <div className="pointer-events-none fixed bottom-5 right-5">
+          <Button
+            className="pointer-events-auto h-12 w-12 rounded-full shadow-[0_20px_40px_rgba(37,99,235,0.22)] ring-4 ring-white/70"
+            size="icon"
+            onClick={() => setAskOpen(true)}
+          >
+            <PanelRightOpen className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }

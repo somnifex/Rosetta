@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react"
+import { Suspense, lazy, useEffect } from "react"
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
@@ -10,8 +10,9 @@ import Library from "@/pages/Library"
 import DocumentDetail from "@/pages/DocumentDetail"
 import Search from "@/pages/Search"
 import Tasks from "@/pages/Tasks"
-import Settings from "@/pages/Settings"
 import Chat from "@/pages/Chat"
+
+const Settings = lazy(() => import("@/pages/settings"))
 
 const queryClient = new QueryClient()
 

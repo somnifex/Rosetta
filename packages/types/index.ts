@@ -10,6 +10,7 @@ export interface Document {
   source_language?: string
   target_language?: string
   category_id?: string
+  folder_id?: string
   created_at: string
   updated_at: string
   deleted_at?: string
@@ -17,7 +18,10 @@ export interface Document {
   translation_status: TranslationStatus
   index_status: IndexStatus
   sync_status: SyncStatus
+  category_name?: string
+  folder_name?: string
   tags?: Tag[]
+  is_file_missing?: boolean
 }
 
 export enum ParseStatus {
@@ -110,6 +114,18 @@ export interface TranslatedContent {
   created_at: string
 }
 
+export type DocumentOutputType = "translated_pdf"
+
+export interface DocumentOutput {
+  id: string
+  document_id: string
+  output_type: DocumentOutputType
+  file_path: string
+  created_at: string
+  updated_at: string
+  is_file_missing?: boolean
+}
+
 export interface Chunk {
   id: string
   document_id: string
@@ -134,6 +150,14 @@ export interface Category {
   id: string
   name: string
   description?: string
+  parent_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Folder {
+  id: string
+  name: string
   parent_id?: string
   created_at: string
   updated_at: string
@@ -224,4 +248,38 @@ export interface SearchFilters {
   translation_status?: TranslationStatus[]
   file_size_min?: number
   file_size_max?: number
+}
+
+export interface BatchActionFailure {
+  document_id: string
+  reason: string
+}
+
+export interface BatchActionReport {
+  requested: number
+  succeeded: number
+  failed: number
+  failures: BatchActionFailure[]
+}
+
+export interface DocumentCleanupIssue {
+  resource_type: string
+  path?: string
+  reason: string
+}
+
+export interface PermanentDeleteOutcome {
+  document_id: string
+  title: string
+  deleted: boolean
+  resources_deleted: number
+  resources_missing: number
+  issues: DocumentCleanupIssue[]
+}
+
+export interface PermanentDeleteReport {
+  requested: number
+  deleted: number
+  failed: number
+  outcomes: PermanentDeleteOutcome[]
 }
