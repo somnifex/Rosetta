@@ -4,11 +4,26 @@ import { api } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { FileText, Clock, CheckCircle, AlertCircle, Loader2 } from "lucide-react"
+import { useState } from "react"
 import { Link } from "react-router-dom"
-
+import type { Document } from "../../packages/types"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu"
+import { useDocumentContextMenu } from "@/hooks/useDocumentContextMenu"
+import { RenameDialog } from "@/components/library/RenameDialog"
 export default function Dashboard() {
   const { t } = useTranslation("dashboard")
   const { t: tc } = useTranslation("common")
+  const ctx = useDocumentContextMenu()
+  const [renameDoc, setRenameDoc] = useState<Document | null>(null)
 
   const { data: documents } = useQuery({
     queryKey: ["documents"],
@@ -94,32 +109,61 @@ export default function Dashboard() {
           ) : (
             <div className="space-y-4">
               {recentDocuments.map((doc) => (
-                <Link
-                  key={doc.id}
-                  to={`/document/${doc.id}`}
-                  className="flex items-center justify-between border-b pb-4 last:border-0 hover:bg-accent/50 -mx-2 px-2 py-2 rounded transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">{doc.title}</p>
-                      <p className="text-sm text-muted-foreground">{doc.filename}</p>
-                    </div>
-                  </div>
-                  <Badge variant={
-                    doc.parse_status === "completed" ? "default" :
-                    doc.parse_status === "parsing" ? "secondary" :
-                    doc.parse_status === "failed" ? "destructive" : "outline"
-                  }>
-                    {doc.parse_status === "parsing" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                    {tc(`status.${doc.parse_status as "pending" | "parsing" | "completed" | "failed"}`)}
-                  </Badge>
-                </Link>
+                <ContextMenu key={doc.id}>
+                  <ContextMenuTrigger asChild>
+                    <Link
+                      to={`/document/${doc.id}`}
+                      className="flex items-center justify-between border-b pb-4 last:border-0 hover:bg-accent/50 -mx-2 px-2 py-2 rounded transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">{doc.title}</p>
+                          <p className="text-sm text-muted-foreground">{doc.filename}</p>
+                        </div>
+                      </div>
+                      <Badge variant={
+                        doc.parse_status === "completed" ? "default" :
+                        doc.parse_status === "parsing" ? "secondary" :
+                        doc.parse_status === "failed" ? "destructive" : "outline"
+                      }>
+                        {doc.parse_status === "parsing" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                        {tc(`status.${doc.parse_status as "pending" | "parsing" | "completed" | "failed"}`)}
+                      </Badge>
+                    </Link>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-56">
+                    <ContextMenuItem asChild>
+                      <Link to={`/document/${doc.id}`}>打开</Link>
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => ctx.revealMutation.mutate(doc.id)}>在文件夹中显示</ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => setRenameDoc(doc as Document)}>重命名</ContextMenuItem>
+                    <ContextMenuSub>
+                      <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+                      <ContextMenuSubContent>
+                        <ContextMenuItem onClick={() => ctx.handleCopy(doc.title, "文档名称")}>复制文档名称</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopy(doc.id, "文档 ID")}>复制文档 ID</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopyPath(doc.id)}>复制物理路径</ContextMenuItem>
+                      </ContextMenuSubContent>
+                    </ContextMenuSub>
+                    <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(doc.id)}>创建副本</ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => ctx.trashMutation.mutate([doc.id])}>移入回收站</ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+      
+      <RenameDialog
+        open={!!renameDoc}
+        document={renameDoc}
+        onOpenChange={(o) => (!o ? setRenameDoc(null) : undefined)}
+        onConfirm={(id, title) => ctx.renameMutation.mutate({ id, title })}
+      />
     </div>
   )
 }

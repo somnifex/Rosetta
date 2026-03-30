@@ -18,6 +18,13 @@ import {
   Trash2,
   X,
 } from "lucide-react"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 
 interface LibrarySidebarProps {
   categories: Category[]
@@ -34,6 +41,8 @@ interface LibrarySidebarProps {
   onSelectCategory: (categoryKey: string) => void
   onSelectFolder: (folderId: string | null) => void
   onCreateFolder: () => void
+  onUpdateFolder: (id: string, name: string) => void
+  onDeleteFolder: (id: string) => void
   onCreateCategory: (name: string) => void
   onUpdateCategory: (id: string, name: string) => void
   onDeleteCategory: (id: string) => void
@@ -63,6 +72,8 @@ export function LibrarySidebar({
   onSelectCategory,
   onSelectFolder,
   onCreateFolder,
+  onUpdateFolder,
+  onDeleteFolder,
   onCreateCategory,
   onUpdateCategory,
   onDeleteCategory,
@@ -71,6 +82,9 @@ export function LibrarySidebar({
   const [newCategoryName, setNewCategoryName] = useState("")
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
   const [editCategoryName, setEditCategoryName] = useState("")
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  const [editFolderName, setEditFolderName] = useState("")
+
 
   const categoryChildren = new Map<string, Category[]>()
   const rootCategories: Category[] = []
@@ -114,6 +128,14 @@ export function LibrarySidebar({
     }
   }
 
+  const handleUpdateFolder = (id: string) => {
+    if (editFolderName.trim()) {
+      onUpdateFolder(id, editFolderName.trim())
+      setEditingFolderId(null)
+      setEditFolderName("")
+    }
+  }
+
   const renderCategory = (category: Category, depth = 0): ReactNode => {
     const children = categoryChildren.get(category.id) || []
     const categoryKey = `category:${category.id}`
@@ -150,23 +172,28 @@ export function LibrarySidebar({
 
     return (
       <div key={category.id}>
-        <div className="group relative">
-          <button
-            type="button"
-            className={navItemClass(activeSection === "library" && selectedCategoryKey === categoryKey)}
-            style={{ paddingLeft: `${depth * 14 + 12}px` }}
-            onClick={() => {
-              onSelectSection("library")
-              onSelectCategory(categoryKey)
-            }}
-          >
-            {children.length > 0 ? <Layers3 className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
-            <span className="flex-1 truncate text-left">{category.name}</span>
-            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
-              {categoryCounts[category.id] || 0}
-            </Badge>
-          </button>
-          {/* Hover action buttons */}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="group relative">
+              <button
+                type="button"
+                className={navItemClass(activeSection === "library" && selectedCategoryKey === categoryKey)}
+                style={{ paddingLeft: `${depth * 14 + 12}px` }}
+                onClick={() => {
+                  onSelectSection("library")
+                  onSelectCategory(categoryKey)
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                }}
+              >
+                {children.length > 0 ? <Layers3 className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
+                <span className="flex-1 truncate text-left">{category.name}</span>
+                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
+                  {categoryCounts[category.id] || 0}
+                </Badge>
+              </button>
+              {/* Hover action buttons */}
           <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
             <button
               type="button"
@@ -190,7 +217,21 @@ export function LibrarySidebar({
               <Trash2 className="h-3 w-3" />
             </button>
           </div>
-        </div>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={() => {
+              setEditingCategoryId(category.id)
+              setEditCategoryName(category.name)
+            }}>
+              重命名分类
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDeleteCategory(category.id)}>
+              删除分类
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
         {children.map((child) => renderCategory(child, depth + 1))}
       </div>
     )
@@ -198,8 +239,42 @@ export function LibrarySidebar({
 
   const renderFolder = (folder: Folder, depth = 0): ReactNode => {
     const children = folderChildren.get(folder.id) || []
+    const isEditing = editingFolderId === folder.id
+
+    if (isEditing) {
+      return (
+        <div key={folder.id}>
+          <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${depth * 14 + 8}px` }}>
+            <Input
+              value={editFolderName}
+              onChange={(e) => setEditFolderName(e.target.value)}
+              className="h-7 text-sm"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleUpdateFolder(folder.id)
+                if (e.key === "Escape") {
+                  setEditingFolderId(null)
+                  setEditFolderName("")
+                }
+              }}
+            />
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleUpdateFolder(folder.id)}>
+              <Check className="h-3 w-3" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { setEditingFolderId(null); setEditFolderName("") }}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+          {children.map((child) => renderFolder(child, depth + 1))}
+        </div>
+      )
+    }
+
     return (
       <div key={folder.id}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="group relative">
         <button
           type="button"
           className={navItemClass(activeSection === "library" && selectedFolderId === folder.id)}
@@ -215,6 +290,45 @@ export function LibrarySidebar({
             {folderCounts[folder.id] || 0}
           </Badge>
         </button>
+              {/* Hover action buttons */}
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setEditingFolderId(folder.id)
+                    setEditFolderName(folder.name)
+                  }}
+                  className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeleteFolder(folder.id)
+                  }}
+                  className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={() => {
+              setEditingFolderId(folder.id)
+              setEditFolderName(folder.name)
+            }}>
+              重命名文件夹
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDeleteFolder(folder.id)}>
+              删除文件夹
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
         {children.map((child) => renderFolder(child, depth + 1))}
       </div>
     )

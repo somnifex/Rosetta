@@ -157,6 +157,8 @@ export const api = {
   importPdf: (filePath: string) => safeInvoke<Document>("import_pdf", { filePath }),
   importDocument: (filePath: string, fileType: string) =>
     safeInvoke<Document>("import_document", { filePath, fileType }),
+  duplicateDocument: (id: string) => safeInvoke<Document>("duplicate_document", { id }),
+  revealInOs: (path: string) => safeInvoke<void>("reveal_in_os", { path }),
 
   // Parse Jobs
   startParseJob: (documentId: string) => safeInvoke<ParseJob>("start_parse_job", { documentId }),

@@ -168,6 +168,28 @@ export default function Library() {
     onError: (error: Error) => toast({ title: "创建文件夹失败", description: error.message, variant: "destructive" }),
   })
 
+  const updateFolderMutation = useMutation({
+    mutationFn: ({ id, name, parentId }: { id: string; name: string; parentId: string | null }) => api.updateFolder({ id, name, parentId: parentId ?? undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders"] })
+      invalidateLibraryQueries()
+      toast({ title: "文件夹已更新" })
+    },
+    onError: (error: Error) => toast({ title: "更新文件夹失败", description: error.message, variant: "destructive" }),
+  })
+
+  const deleteFolderMutation = useMutation({
+    mutationFn: api.deleteFolder,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders"] })
+      invalidateLibraryQueries()
+      // If we deleted the currently selected folder or a parent of it
+      setSelectedFolderId(null)
+      toast({ title: "文件夹已删除" })
+    },
+    onError: (error: Error) => toast({ title: "删除文件夹失败", description: error.message, variant: "destructive" }),
+  })
+
   const createCategoryMutation = useMutation({
     mutationFn: (name: string) => api.createCategory({ name }),
     onSuccess: () => {
@@ -489,6 +511,8 @@ export default function Library() {
         handleFolderChange(folderId)
       }}
       onCreateFolder={() => setFolderDialogOpen(true)}
+      onUpdateFolder={(id, name) => updateFolderMutation.mutate({ id, name, parentId: folders.find(f => f.id === id)?.parent_id || null })}
+      onDeleteFolder={(id) => deleteFolderMutation.mutate(id)}
       onCreateCategory={(name) => createCategoryMutation.mutate(name)}
       onUpdateCategory={(id, name) => updateCategoryMutation.mutate({ id, name })}
       onDeleteCategory={(id) => deleteCategoryMutation.mutate(id)}

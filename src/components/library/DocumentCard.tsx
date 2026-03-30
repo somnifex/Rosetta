@@ -14,6 +14,18 @@ import {
   Loader2,
   Trash2,
 } from "lucide-react"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu"
+import { useDocumentContextMenu } from "@/hooks/useDocumentContextMenu"
+import { RenameDialog } from "./RenameDialog"
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -105,14 +117,19 @@ export function DocumentCard({
 }: DocumentCardProps) {
   const Icon = getFileIcon(document.filename)
   const isPdf = document.filename.toLowerCase().endsWith(".pdf")
+  const ctx = useDocumentContextMenu()
+  const [renameOpen, setRenameOpen] = useState(false)
 
   return (
-    <article
-      className={cn(
-        "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:shadow-md hover:border-gray-300",
-        selected && "border-primary shadow-sm ring-1 ring-primary"
-      )}
-    >
+    <>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+      <article
+        className={cn(
+          "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:shadow-md hover:border-gray-300",
+          selected && "border-primary shadow-sm ring-1 ring-primary"
+        )}
+      >
       {/* Selection checkbox */}
       <button
         type="button"
@@ -216,5 +233,66 @@ export function DocumentCard({
         </div>
       </div>
     </article>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        {!inTrash ? (
+          <>
+            <ContextMenuItem onClick={onOpen}>打开</ContextMenuItem>
+            <ContextMenuItem onClick={() => ctx.revealMutation.mutate(document.id)}>在文件夹中显示</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => setRenameOpen(true)}>重命名</ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <ContextMenuItem onClick={() => ctx.handleCopy(document.title, "文档名称")}>复制文档名称</ContextMenuItem>
+                <ContextMenuItem onClick={() => ctx.handleCopy(document.id, "文档 ID")}>复制文档 ID</ContextMenuItem>
+                <ContextMenuItem onClick={() => ctx.handleCopyPath(document.id)}>复制物理路径</ContextMenuItem>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(document.id)}>创建副本</ContextMenuItem>
+            <ContextMenuSeparator />
+            {ctx.categories.length > 0 && (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>移动到分类</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  {ctx.categories.map((c) => (
+                    <ContextMenuItem key={c.id} onClick={() => ctx.moveMutation.mutate({ documentId: document.id, categoryId: c.id })}>
+                      {c.name}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            )}
+            {ctx.folders.length > 0 && (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>移动到文件夹</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  {ctx.folders.map((f) => (
+                    <ContextMenuItem key={f.id} onClick={() => ctx.moveMutation.mutate({ documentId: document.id, folderId: f.id })}>
+                      {f.name}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>移入回收站</ContextMenuItem>
+          </>
+        ) : (
+          <>
+            <ContextMenuItem onClick={onRestore}>恢复文档</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={onPermanentDelete}>永久删除</ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+    <RenameDialog
+      open={renameOpen}
+      document={renameOpen ? document : null}
+      onOpenChange={setRenameOpen}
+      onConfirm={(id, title) => ctx.renameMutation.mutate({ id, title })}
+    />
+    </>
   )
 }

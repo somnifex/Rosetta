@@ -3754,6 +3754,131 @@ pub fn get_document_file_path(state: State<AppState>, id: String) -> Result<Stri
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn duplicate_document(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<Document, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    let doc = load_document_by_id_internal(conn, &id, false)?;
+    
+    let new_id = Uuid::new_v4().to_string();
+    let source_path = Path::new(&doc.file_path);
+    let extension = source_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let mut new_filename = doc.filename.clone();
+    
+    if extension.is_empty() {
+        new_filename = format!("{} 副本", new_filename);
+    } else {
+        if let Some(stem) = source_path.file_stem().and_then(|s| s.to_str()) {
+            new_filename = format!("{} 副本.{}", stem, extension);
+        }
+    }
+
+    let target_dir = app_dir.join("library");
+    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    
+    let dest_path = if extension.is_empty() {
+        target_dir.join(&new_id)
+    } else {
+        target_dir.join(format!("{}.{}", new_id, extension))
+    };
+    
+    std::fs::copy(&source_path, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+
+    let now = Utc::now().to_rfc3339();
+    let new_title = format!("{} (副本)", doc.title);
+    
+    let dest_path_str = dest_path.to_str().ok_or("Invalid path")?;
+    
+    conn.execute(
+        "INSERT INTO documents (id, title, filename, file_path, file_size, source_language, target_language, category_id, parse_status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        (
+            &new_id,
+            &new_title,
+            &new_filename,
+            dest_path_str,
+            &doc.file_size,
+            &doc.source_language,
+            &doc.target_language,
+            &doc.category_id,
+            "pending",
+            &now,
+            &now,
+        ),
+    ).map_err(|e| e.to_string())?;
+
+    if let Some(folder_id) = doc.folder_id {
+        conn.execute(
+            "INSERT INTO document_folders (document_id, folder_id, created_at) VALUES (?1, ?2, ?3)",
+            (&new_id, &folder_id, &now),
+        ).map_err(|e| e.to_string())?;
+    }
+
+    if let Some(tags) = doc.tags {
+        for tag in tags {
+            conn.execute(
+                "INSERT INTO document_tags (document_id, tag_id, created_at) VALUES (?1, ?2, ?3)",
+                (&new_id, &tag.id, &now),
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let is_text = doc.filename.ends_with(".md") || doc.filename.ends_with(".txt") || doc.filename.ends_with(".csv");
+    if is_text {
+        if let Ok(content) = FileHandler::read_text_file(&dest_path) {
+            let content_id = Uuid::new_v4().to_string();
+            let _ = conn.execute(
+                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, created_at) VALUES (?1, ?2, 1, ?3, '{}', ?4)",
+                (&content_id, &new_id, &content, &now),
+            );
+            let _ = conn.execute(
+                "UPDATE documents SET parse_status = 'completed' WHERE id = ?1",
+                [&new_id],
+            );
+        }
+    }
+
+    load_document_by_id_internal(conn, &new_id, false)
+}
+
+#[tauri::command]
+pub fn reveal_in_os(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let p = Path::new(&path);
+        let parent = p.parent().unwrap_or(p);
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 // --- Get Document Chunks ---
 
 #[tauri::command]

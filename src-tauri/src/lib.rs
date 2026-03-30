@@ -283,6 +283,8 @@ pub fn run() {
             commands::export_document_asset,
             commands::test_mineru_connection,
             commands::get_document_file_path,
+            commands::duplicate_document,
+            commands::reveal_in_os,
             commands::get_document_chunks,
             zvec::get_zvec_status,
             zvec::probe_reranker_status,

@@ -21,6 +21,17 @@ import {
   Trash2,
 } from "lucide-react"
 import { api } from "@/lib/api"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu"
+import { useDocumentContextMenu } from "@/hooks/useDocumentContextMenu"
 
 interface UnifiedTask {
   id: string
@@ -101,6 +112,7 @@ export default function Tasks() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const ctx = useDocumentContextMenu()
 
   const invalidateTaskQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["parseJobs"] })
@@ -235,57 +247,68 @@ export default function Tasks() {
           const actionsDisabled = isCancelling || isDeleting
 
           return (
-          <div
-            key={task.id}
-            className="flex items-center gap-4 rounded-lg border p-4 transition-colors hover:bg-accent/50"
-          >
-            <div className="flex items-center gap-2 shrink-0">
-              <TypeIcon type={task.type} />
-              <StatusIcon status={task.status} />
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-medium truncate">{task.documentTitle}</span>
-                <Badge variant={statusVariant(task.status)} className="shrink-0">
-                  {t(`status.${task.status}`, task.status)}
-                </Badge>
-                <Badge variant="outline" className="shrink-0">
-                  {t(`type.${task.type}`)}
-                </Badge>
+          <ContextMenu key={task.id}>
+            <ContextMenuTrigger asChild>
+            <div
+              className="flex items-center gap-4 rounded-lg border p-4 transition-colors hover:bg-accent/50"
+            >
+              <div className="flex items-center gap-2 shrink-0">
+                <TypeIcon type={task.type} />
+                <StatusIcon status={task.status} />
               </div>
-
-              {(task.status === "parsing" || task.status === "translating" || task.status === "indexing") && (
-                <div className="flex items-center gap-2">
-                  <Progress value={task.progress} className="flex-1 h-1.5" />
-                  <span className="text-xs text-muted-foreground shrink-0">{Math.round(task.progress)}%</span>
+  
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-medium truncate">{task.documentTitle}</span>
+                  <Badge variant={statusVariant(task.status)} className="shrink-0">
+                    {t(`status.${task.status}`, task.status)}
+                  </Badge>
+                  <Badge variant="outline" className="shrink-0">
+                    {t(`type.${task.type}`)}
+                  </Badge>
                 </div>
-              )}
-
-              {task.errorMessage && (
-                <p className="text-xs text-destructive mt-1 truncate" title={task.errorMessage}>
-                  {task.errorMessage}
-                </p>
-              )}
-
-              <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                <span>{formatTime(task.createdAt)}</span>
-                <span>{t("columns.duration")}: {formatDuration(task.startedAt, task.completedAt)}</span>
+  
+                {(task.status === "parsing" || task.status === "translating" || task.status === "indexing") && (
+                  <div className="flex items-center gap-2">
+                    <Progress value={task.progress} className="flex-1 h-1.5" />
+                    <span className="text-xs text-muted-foreground shrink-0">{Math.round(task.progress)}%</span>
+                  </div>
+                )}
+  
+                {task.errorMessage && (
+                  <p className="text-xs text-destructive mt-1 truncate" title={task.errorMessage}>
+                    {task.errorMessage}
+                  </p>
+                )}
+  
+                <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                  <span>{formatTime(task.createdAt)}</span>
+                  <span>{t("columns.duration")}: {formatDuration(task.startedAt, task.completedAt)}</span>
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              {canCancel && (
+  
+              <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => cancelTaskMutation.mutate(task)}
-                  title={t("actions.cancelTask")}
+                  onClick={() => navigate(`/document/${task.documentId}`)}
+                  title={t("actions.viewDocument")}
                   disabled={actionsDisabled}
                 >
-                  {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                  <ExternalLink className="h-4 w-4" />
                 </Button>
-              )}
+
+                {canCancel && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => cancelTaskMutation.mutate(task)}
+                    title={t("actions.cancelTask")}
+                    disabled={actionsDisabled}
+                  >
+                    {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                  </Button>
+                )}
 
               {canDelete && (
                 <Button
@@ -299,17 +322,38 @@ export default function Tasks() {
                 </Button>
               )}
 
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate(`/document/${task.documentId}`)}
-                title={t("actions.viewDocument")}
-                disabled={actionsDisabled}
-              >
-                <ExternalLink className="h-4 w-4" />
-              </Button>
+              </div>
             </div>
-          </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-56">
+              <ContextMenuItem onClick={() => navigate(`/document/${task.documentId}`)}>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                查看文档源
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  <ContextMenuItem onClick={() => ctx.handleCopy(task.id, "任务 ID")}>复制任务 ID</ContextMenuItem>
+                  <ContextMenuItem onClick={() => ctx.handleCopy(task.documentId, "文档 ID")}>复制文档 ID</ContextMenuItem>
+                  <ContextMenuItem onClick={() => ctx.handleCopy(task.documentTitle, "文档名称")}>复制文档名称</ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+              {(canCancel || canDelete) && <ContextMenuSeparator />}
+              {canCancel && (
+                <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => cancelTaskMutation.mutate(task)}>
+                  <Square className="mr-2 h-4 w-4" />
+                  取消任务
+                </ContextMenuItem>
+              )}
+              {canDelete && (
+                <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteTaskMutation.mutate(task)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  删除记录
+                </ContextMenuItem>
+              )}
+            </ContextMenuContent>
+          </ContextMenu>
           )
         })}
       </div>
