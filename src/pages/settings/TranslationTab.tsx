@@ -142,6 +142,7 @@ export default function TranslationTab() {
             <div className="space-y-2">
               <Label>{t("prompt.runtime.chunk_size")}</Label>
               <Input
+                data-setting-key="translation.chunk_size"
                 type="number"
                 min={256}
                 max={32000}
@@ -153,6 +154,7 @@ export default function TranslationTab() {
             <div className="space-y-2">
               <Label>{t("prompt.runtime.chunk_overlap")}</Label>
               <Input
+                data-setting-key="translation.chunk_overlap"
                 type="number"
                 min={0}
                 value={chunkOverlap}
@@ -166,6 +168,7 @@ export default function TranslationTab() {
             <div className="space-y-2">
               <Label>{t("prompt.runtime.max_concurrent_requests")}</Label>
               <Input
+                data-setting-key="translation.max_concurrent_requests"
                 type="number"
                 min={1}
                 max={32}
@@ -177,6 +180,7 @@ export default function TranslationTab() {
             <div className="space-y-2">
               <Label>{t("prompt.runtime.max_requests_per_minute")}</Label>
               <Input
+                data-setting-key="translation.max_requests_per_minute"
                 type="number"
                 min={1}
                 max={600}
@@ -195,6 +199,7 @@ export default function TranslationTab() {
               </p>
             </div>
             <Switch
+              data-setting-key="translation.smart_optimize_enabled"
               checked={smartOptimizeEnabled}
               onCheckedChange={setSmartOptimizeEnabled}
             />

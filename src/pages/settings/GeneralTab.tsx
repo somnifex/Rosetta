@@ -132,6 +132,7 @@ export default function GeneralTab() {
           <div className="space-y-2">
             <Label>{t("general.default_target_language")}</Label>
             <Input
+              data-setting-key="general.default_target_language"
               placeholder="English"
               value={defaultTargetLanguage}
               onChange={(event) => setDefaultTargetLanguage(event.target.value)}
@@ -140,6 +141,7 @@ export default function GeneralTab() {
           <div className="space-y-2">
             <Label>{t("general.theme")}</Label>
             <select
+              data-setting-key="general.theme"
               className="w-full h-10 px-3 rounded-md border border-input bg-background"
               value={theme}
               onChange={(event) => setTheme(normalizeTheme(event.target.value))}
@@ -166,6 +168,7 @@ export default function GeneralTab() {
           <div className="space-y-2">
             <Label>{t("general.model_behavior_description")}</Label>
             <textarea
+              data-setting-key="chat.model_behavior_description"
               value={modelBehaviorDescription}
               onChange={(event) => setModelBehaviorDescription(event.target.value)}
               rows={3}
@@ -179,6 +182,7 @@ export default function GeneralTab() {
               <p className="text-xs text-muted-foreground">{t("general.default_full_document_hint")}</p>
             </div>
             <Switch
+              data-setting-key="chat.default_always_include_full_document"
               checked={defaultAlwaysIncludeFullDocument}
               onCheckedChange={setDefaultAlwaysIncludeFullDocument}
             />
@@ -187,6 +191,7 @@ export default function GeneralTab() {
           <div className="space-y-2">
             <Label>{t("general.long_text_threshold")}</Label>
             <Input
+              data-setting-key="chat.long_text_threshold"
               type="number"
               min="400"
               value={longTextThreshold}
@@ -197,6 +202,7 @@ export default function GeneralTab() {
           <div className="space-y-2">
             <Label>{t("general.document_append_prompt")}</Label>
             <textarea
+              data-setting-key="chat.prompt.document_append"
               value={documentAppendPrompt}
               onChange={(event) => setDocumentAppendPrompt(event.target.value)}
               rows={6}
@@ -208,6 +214,7 @@ export default function GeneralTab() {
           <div className="space-y-2">
             <Label>{t("general.long_text_rag_prompt")}</Label>
             <textarea
+              data-setting-key="chat.prompt.long_text_rag"
               value={longTextRagPrompt}
               onChange={(event) => setLongTextRagPrompt(event.target.value)}
               rows={5}

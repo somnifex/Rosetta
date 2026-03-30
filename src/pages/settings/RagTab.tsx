@@ -180,6 +180,7 @@ export default function RagTab() {
             <div className="space-y-2">
               <Label>{t("rag.chunk_size")}</Label>
               <Input
+                data-setting-key="rag.chunk_size"
                 type="number"
                 min={1}
                 value={ragChunkSize}
@@ -189,6 +190,7 @@ export default function RagTab() {
             <div className="space-y-2">
               <Label>{t("rag.chunk_overlap")}</Label>
               <Input
+                data-setting-key="rag.chunk_overlap"
                 type="number"
                 min={0}
                 value={ragChunkOverlap}
@@ -200,6 +202,7 @@ export default function RagTab() {
           <div className="space-y-2">
             <Label>{t("rag.backend_label")}</Label>
             <select
+              data-setting-key="rag.vector_backend"
               className="w-full h-10 px-3 rounded-md border border-input bg-background"
               value={ragVectorBackend}
               onChange={(e) => setRagVectorBackend(e.target.value)}
@@ -277,6 +280,7 @@ export default function RagTab() {
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">{t("rag.zvec_venv.use_venv_label")}</p>
                 <Switch
+                  data-setting-key="rag.zvec_use_venv"
                   checked={zvecUseVenv}
                   onCheckedChange={setZvecUseVenv}
                 />
@@ -286,6 +290,7 @@ export default function RagTab() {
             <div className="space-y-2">
               <Label>{t("rag.zvec_venv.system_python_label")}</Label>
               <Input
+                data-setting-key="rag.zvec_system_python"
                 placeholder={defaultPythonPath}
                 value={zvecSystemPython}
                 onChange={(e) => setZvecSystemPython(e.target.value)}
@@ -297,6 +302,7 @@ export default function RagTab() {
             <div className="space-y-2">
               <Label>{t("rag.zvec_venv.pip_index_url_label")}</Label>
               <Input
+                data-setting-key="rag.zvec_pip_index_url"
                 placeholder="https://pypi.org/simple"
                 value={zvecPipIndexUrl}
                 onChange={(e) => setZvecPipIndexUrl(e.target.value)}
@@ -323,6 +329,7 @@ export default function RagTab() {
           <div className="space-y-2">
             <Label>{t("rag.zvec_python_path")}</Label>
             <Input
+              data-setting-key="rag.zvec_python_path"
               placeholder={defaultPythonPath}
               value={zvecPythonPath}
               onChange={(e) => setZvecPythonPath(e.target.value)}
@@ -338,6 +345,7 @@ export default function RagTab() {
           <div className="space-y-2">
             <Label>{t("rag.zvec_collections_dir")}</Label>
             <Input
+              data-setting-key="rag.zvec_collections_dir"
               placeholder={t("rag.zvec_collections_dir_hint")}
               value={zvecCollectionsDir}
               onChange={(e) => setZvecCollectionsDir(e.target.value)}
@@ -400,6 +408,7 @@ export default function RagTab() {
             <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
+                  data-setting-key="rag.reranker_mode"
                   type="radio"
                   name="rerankerMode"
                   value="disabled"
@@ -411,6 +420,7 @@ export default function RagTab() {
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
+                  data-setting-key="rag.reranker_mode"
                   type="radio"
                   name="rerankerMode"
                   value="local"
@@ -422,6 +432,7 @@ export default function RagTab() {
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
+                  data-setting-key="rag.reranker_mode"
                   type="radio"
                   name="rerankerMode"
                   value="remote"
@@ -562,6 +573,7 @@ export default function RagTab() {
             <div className="space-y-2">
               <Label>{t("rag.reranker.top_n")}</Label>
               <Input
+                data-setting-key="rag.reranker_top_n"
                 type="number"
                 min={1}
                 max={50}

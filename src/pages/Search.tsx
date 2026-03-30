@@ -61,6 +61,8 @@ const SETTING_LABEL_BY_KEY: Record<string, string> = {
   "general.default_target_language": "general.default_target_language",
   "general.theme": "general.theme",
   "chat.model_behavior_description": "general.model_behavior_description",
+  "chat.long_text_threshold": "general.long_text_threshold",
+  "chat.default_always_include_full_document": "general.default_full_document",
   "chat.prompt.document_append": "general.document_append_prompt",
   "chat.prompt.long_text_rag": "general.long_text_rag_prompt",
   "translation.chunk_size": "prompt.runtime.chunk_size",
@@ -104,6 +106,18 @@ const SETTING_GROUP_BY_PREFIX: Record<string, string> = {
   webdav: "tabs.webdav",
   rag: "tabs.rag",
   logs: "tabs.logs",
+}
+
+const SETTING_TAB_BY_PREFIX: Record<string, string> = {
+  general: "general",
+  chat: "general",
+  translation: "translation",
+  providers: "providers",
+  llm: "providers",
+  mineru: "mineru",
+  webdav: "webdav",
+  rag: "rag",
+  logs: "logs",
 }
 
 function getFileIcon(filename: string) {
@@ -175,16 +189,26 @@ function computeGlobalSimilarity(document: Document, normalizedQuery: string, te
   return Math.min(score, 0.99)
 }
 
-function computeSettingSimilarity(key: string, value: string, normalizedQuery: string, terms: string[]) {
+function computeSettingSimilarity(
+  key: string,
+  value: string,
+  localizedLabel: string,
+  normalizedQuery: string,
+  terms: string[]
+) {
   const keyLower = key.toLowerCase()
   const valueLower = value.toLowerCase()
+  const labelLower = localizedLabel.toLowerCase()
 
   let score = 0
   if (keyLower === normalizedQuery) score = Math.max(score, 0.99)
   if (keyLower.includes(normalizedQuery)) score = Math.max(score, 0.94)
   if (valueLower.includes(normalizedQuery)) score = Math.max(score, 0.88)
+  if (labelLower.includes(normalizedQuery)) score = Math.max(score, 0.93)
 
-  const matchedTerms = terms.filter((term) => keyLower.includes(term) || valueLower.includes(term)).length
+  const matchedTerms = terms.filter(
+    (term) => keyLower.includes(term) || valueLower.includes(term) || labelLower.includes(term)
+  ).length
   if (matchedTerms === 0 && score <= 0) return 0
 
   score = Math.max(score, 0.72 + Math.min(0.22, matchedTerms * 0.06))
@@ -239,6 +263,11 @@ function localizeSettingGroupLabel(key: string, tSettings: (key: any) => string)
   if (!translationKey) return "设置"
   const localized = tSettings(translationKey)
   return localized === translationKey ? "设置" : localized
+}
+
+function getSettingTargetTab(key: string) {
+  const prefix = key.split(".")[0] || ""
+  return SETTING_TAB_BY_PREFIX[prefix] || "general"
 }
 
 export default function SearchPage() {
@@ -438,18 +467,17 @@ export default function SearchPage() {
     if (!normalizedQuery || !options.includeSettings) return []
 
     const collected = appSettings.reduce<DisplaySearchResult[]>((acc, item) => {
-        const similarity = computeSettingSimilarity(item.key, item.value, normalizedQuery, normalizedHighlightTerms)
-        if (similarity <= 0) return acc
-
         const fieldLabel = localizeSettingFieldLabel(item.key, ts)
         const groupLabel = localizeSettingGroupLabel(item.key, ts)
         const settingTitle = `${groupLabel} / ${fieldLabel}`
+        const similarity = computeSettingSimilarity(item.key, item.value, settingTitle, normalizedQuery, normalizedHighlightTerms)
+        if (similarity <= 0) return acc
 
         acc.push({
           key: `setting-${item.key}`,
           type: "setting",
           title: settingTitle,
-          snippet: buildSnippet(`${fieldLabel}: ${item.value}`, highlightTerms),
+          snippet: buildSnippet(`${settingTitle}: ${item.value}`, highlightTerms),
           similarity,
           settingKey: item.key,
         })
@@ -525,7 +553,15 @@ export default function SearchPage() {
               </Badge>
               {result.type === "setting" ? (
                 <Button asChild size="sm" variant="outline" className="rounded-lg">
-                  <Link to="/settings">前往设置</Link>
+                  <Link
+                    to={
+                      result.settingKey
+                        ? `/settings?tab=${encodeURIComponent(getSettingTargetTab(result.settingKey))}&setting=${encodeURIComponent(result.settingKey)}`
+                        : "/settings"
+                    }
+                  >
+                    前往设置
+                  </Link>
                 </Button>
               ) : result.documentId ? (
                 <Button asChild size="sm" className="rounded-lg">

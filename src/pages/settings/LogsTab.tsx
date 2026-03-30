@@ -133,6 +133,7 @@ export default function LogsTab() {
           <div className="space-y-2">
             <Label>{t("logs.level")}</Label>
             <select
+              data-setting-key="logs.level"
               className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               value={logLevel}
               onChange={(event) => setLogLevel(event.target.value as (typeof LOG_LEVEL_OPTIONS)[number])}
@@ -148,6 +149,7 @@ export default function LogsTab() {
           <div className="space-y-2">
             <Label>{t("logs.retention_days")}</Label>
             <Input
+              data-setting-key="logs.retention_days"
               type="number"
               min="1"
               max="3650"

@@ -6,97 +6,57 @@
 
 **Decode every document. Bridge every language.**
 
-A desktop application for structured PDF parsing, AI-powered translation, semantic search, and document-centric knowledge work.
+A local-first desktop app for structured PDF parsing, AI translation, semantic search, and source-grounded document chat.
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 [![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-ffc131)]()
-[![Status](https://img.shields.io/badge/status-active%20development-2ea44f)]()
 
-[Download](https://github.com/somnifex/Rosetta/releases) | [Features](#features) | [Getting Started](#getting-started) | [Build from Source](#build-from-source) | [Contributing](#contributing)
+[Download](https://github.com/somnifex/Rosetta/releases) | [Quick Start](#quick-start) | [Use Cases](#use-cases) | [Contributing](#contributing)
 
 </div>
 
-Rosetta is built for people who read, translate, organize, and revisit complex documents across languages: research papers, technical manuals, internal reports, academic drafts, and long-form reference material.
+## What Is Rosetta
 
-Instead of treating a PDF as a disposable upload, Rosetta turns it into a reusable knowledge asset:
+Rosetta is an open-source desktop application for people who work with long, complex documents across languages.
 
-- parse it with structure awareness
-- translate it with configurable AI channels
-- index it for retrieval
-- search it semantically
-- chat over it with source grounding
-- back it up locally or via WebDAV
+Instead of doing one-off file translation, Rosetta helps you build a reusable knowledge workflow:
 
-## Features
-
-### Structured PDF Parsing
-
-- Layout-aware parsing powered by [MinerU](https://github.com/opendatalab/MinerU)
-- Better preservation of headings, sections, tables, and reading order
-- Support for both external MinerU services and built-in local setup
-
-### AI Translation Workflow
-
-- Separate `chat`, `translate`, `embed`, and `rerank` channels
-- Priority routing and failover support
-- Custom translation prompts for tone, terminology, and consistency
-- Compatible with OpenAI-compatible providers including OpenAI, Azure OpenAI, Ollama, LM Studio, and similar services
-
-### Search and RAG Chat
-
-- Full-text search with semantic retrieval
-- Document chunking and vector indexing
-- Source-aware question answering over your personal document library
-
-### Document Library
-
-- Import PDF, Markdown, and plain text files
-- Organize documents with categories and tags
-- Track parsing, translation, and indexing progress per document
-
-### Task Center
-
-- Unified task list for parsing, translation, and indexing jobs
-- Progress monitoring, cancellation, and cleanup
-
-### Backup and Sync
-
-- Local import and export for workspace backup
-- WebDAV sync for moving settings and data across devices
-
-### Desktop-First Experience
-
-- Cross-platform desktop app built with Tauri
-- Local-first runtime data storage
-- Multi-language interface with light and dark theme support
-
-### Reader Shortcuts and Highlight Workflow
-
-- PDF zoom shortcuts: `Ctrl/Cmd +`, `Ctrl/Cmd -`, `Ctrl/Cmd 0`, and `Ctrl/Cmd + mouse wheel`
-- Manual highlight save model: changes stay local in draft state until explicit save
-- Highlight editing history in reader: `Ctrl/Cmd+Z` undo and `Ctrl/Cmd+Shift+Z` redo
-- Quick save from reader: `Ctrl/Cmd+S` or in-view Save action
+- import documents into a persistent library
+- parse PDF layout with structure awareness
+- translate with configurable AI providers
+- index content for semantic retrieval
+- ask questions with source grounding
+- sync and back up your workspace data
 
 ## Why Rosetta
 
-Many PDF translation tools are optimized for one-time conversion. Rosetta is designed for iterative knowledge work.
+Most document translators focus on quick conversion.
+Rosetta focuses on ongoing knowledge work.
 
-It is useful when you need to:
+It is designed for scenarios like:
 
-- maintain a growing library instead of handling a single file once
-- preserve document structure before translating
-- search and ask questions across previously processed content
-- keep control over providers, prompts, and storage
-- run a practical workflow from import to retrieval inside one desktop app
+- reading and translating research papers over time
+- maintaining multilingual internal documentation
+- searching and reusing previously processed content
+- controlling providers, prompts, and storage yourself
 
-## Getting Started
+## Core Highlights
 
-### Download
+- Structured PDF parsing with MinerU integration
+- Multi-channel AI routing for chat, translation, embedding, and reranking
+- Semantic search and RAG chat over your own document library
+- Task center for parsing, translation, and indexing jobs
+- Local backup and WebDAV sync
+- Cross-platform desktop experience with multilingual UI
 
-Prebuilt binaries for Windows, macOS, and Linux are published on the [Releases](https://github.com/somnifex/Rosetta/releases) page.
+## Quick Start
+
+### 1. Download
+
+Get the latest release from [GitHub Releases](https://github.com/somnifex/Rosetta/releases).
 
 | Platform | Package formats     |
 | -------- | ------------------- |
@@ -104,32 +64,61 @@ Prebuilt binaries for Windows, macOS, and Linux are published on the [Releases](
 | macOS    | `.dmg`              |
 | Linux    | `.deb`, `.AppImage` |
 
-### First Run
+### 2. First 3 Minutes
 
-1. Install Rosetta from the latest release.
-2. Open `Settings` and configure at least one AI channel.
+1. Install and open Rosetta.
+2. Go to `Settings` and configure at least one AI provider channel.
 3. Connect to an external MinerU service, or initialize the built-in MinerU environment.
-4. Import a document into the library.
-5. Parse, translate, index, then use Search or Chat on top of it.
+4. Import a document into your library.
+5. Run Parse -> Translate -> Index.
+6. Use Search or Chat with source references.
 
-## Typical Workflow
+### 3. Typical Workflow
 
 ```text
-Import -> Parse -> Translate -> Index -> Search / Chat -> Back up
+Import -> Parse -> Translate -> Index -> Search / Chat -> Backup
 ```
 
-## Build from Source
+## Use Cases
 
-### Requirements
+- Research reading and bilingual note workflows
+- Technical manual translation and terminology alignment
+- Team knowledge archival with retrievable document memory
+- Personal document intelligence base with AI-assisted Q&A
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://rustup.rs/) stable
-- [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-- Python 3.x
+## Data and Privacy
 
-  Only required when using built-in MinerU or the optional `zvec` backend
+Rosetta is local-first by design.
+Runtime data is stored in your system app data directory rather than the repository workspace.
 
-### Development
+Typical stored data includes:
+
+- imported document copies
+- SQLite metadata and indexes
+- MinerU runtime assets
+- local cache and generated artifacts
+
+You choose which external AI services to connect, and what content to send.
+
+## Contributing
+
+Contributions are welcome in product UX, stability, translation quality, and platform support.
+
+Before opening a pull request, please run:
+
+```bash
+npm run build
+cd src-tauri && cargo check
+```
+
+### Build from Source (Optional)
+
+Requirements:
+
+- Node.js 18+
+- Rust stable
+- Tauri 2 prerequisites
+- Python 3.x (needed for built-in MinerU or optional zvec backend)
 
 ```bash
 git clone https://github.com/somnifex/Rosetta.git
@@ -138,49 +127,6 @@ npm install
 npm run tauri:dev
 ```
 
-### Release Build
-
-```bash
-npm run tauri:build
-```
-
-Build artifacts are generated under `src-tauri/target/release/bundle/`.
-
-## Project Structure
-
-```text
-Rosetta/
-├── src/                # React frontend
-├── src-tauri/          # Rust backend and Tauri configuration
-├── packages/types/     # Shared TypeScript types
-└── scripts/            # Utility and release-prep scripts
-```
-
-## Data and Privacy
-
-Rosetta is local-first by design. Runtime data is stored in the system application data directory instead of inside the repository workspace.
-
-That includes:
-
-- imported document copies
-- the SQLite database
-- MinerU environments and models
-- caches and generated indexes
-
-## Contributing
-
-Contributions are welcome, especially around:
-
-- translation quality and workflow polish
-- performance and stability
-- packaging and release hardening
-- localization and documentation
-
-Before opening a pull request, please verify:
-
-- `npm run build`
-- `cargo check` in `src-tauri`
-
 ## Roadmap
 
 - [x] Document library management
@@ -188,16 +134,14 @@ Before opening a pull request, please verify:
 - [x] Multi-channel LLM translation workflow
 - [x] Search and RAG chat
 - [x] WebDAV sync and local backup
-- [x] Multi-language interface
+- [x] Multilingual interface
 - [ ] Batch translation workflows
 - [ ] Richer annotation and review tools
-- [ ] More export and collaboration features
+- [ ] More export and collaboration options
 
 ## License
 
 Rosetta is licensed under the [GNU General Public License v3.0](LICENSE).
-
-If you distribute modified versions of this project, the GPLv3 requires that the corresponding source code and the same license terms remain available to downstream users.
 
 ## Acknowledgments
 

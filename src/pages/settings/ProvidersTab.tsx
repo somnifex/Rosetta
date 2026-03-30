@@ -386,7 +386,7 @@ export default function ProvidersTab() {
               <p className="font-medium text-sm">{t("providers.failover.label")}</p>
               <p className="text-xs text-muted-foreground">{t("providers.failover.description")}</p>
             </div>
-            <Switch checked={failoverEnabled} onCheckedChange={setFailoverEnabled} />
+            <Switch data-setting-key="llm.failover_enabled" checked={failoverEnabled} onCheckedChange={setFailoverEnabled} />
           </div>
 
           {providersLoading ? (

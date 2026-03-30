@@ -1,5 +1,6 @@
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { useSearchParams } from "react-router-dom"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const GeneralTab = lazy(() => import("./GeneralTab"))
@@ -12,6 +13,46 @@ const LogsTab = lazy(() => import("./LogsTab"))
 
 export default function Settings() {
   const { t } = useTranslation("settings")
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const tabFromQuery = searchParams.get("tab") || "general"
+  const settingFromQuery = searchParams.get("setting") || ""
+  const validTabs = useMemo(
+    () => new Set(["general", "translation", "providers", "mineru", "webdav", "rag", "logs"]),
+    []
+  )
+
+  const [activeTab, setActiveTab] = useState(validTabs.has(tabFromQuery) ? tabFromQuery : "general")
+
+  useEffect(() => {
+    const next = validTabs.has(tabFromQuery) ? tabFromQuery : "general"
+    setActiveTab(next)
+  }, [tabFromQuery, validTabs])
+
+  useEffect(() => {
+    if (!settingFromQuery) return
+
+    const escaped = settingFromQuery.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+    const timer = window.setTimeout(() => {
+      const element = document.querySelector(`[data-setting-key="${escaped}"]`) as HTMLElement | null
+      if (!element) return
+
+      element.scrollIntoView({ behavior: "smooth", block: "center" })
+      element.classList.add("ring-2", "ring-primary/50")
+      window.setTimeout(() => {
+        element.classList.remove("ring-2", "ring-primary/50")
+      }, 1800)
+    }, 120)
+
+    return () => window.clearTimeout(timer)
+  }, [activeTab, settingFromQuery])
+
+  const handleTabChange = (nextTab: string) => {
+    setActiveTab(nextTab)
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", nextTab)
+    setSearchParams(next, { replace: true })
+  }
 
   return (
     <div className="space-y-6">
@@ -20,7 +61,7 @@ export default function Settings() {
         <p className="text-muted-foreground">{t("subtitle")}</p>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList>
           <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
           <TabsTrigger value="translation">{t("tabs.translation")}</TabsTrigger>

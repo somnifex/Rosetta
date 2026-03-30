@@ -212,6 +212,7 @@ export default function MineruTab() {
           <div className="flex gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
+                data-setting-key="mineru.mode"
                 type="radio"
                 name="mineruMode"
                 value="builtin"
@@ -223,6 +224,7 @@ export default function MineruTab() {
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
+                data-setting-key="mineru.mode"
                 type="radio"
                 name="mineruMode"
                 value="external"
@@ -270,6 +272,7 @@ export default function MineruTab() {
             <div className="space-y-2">
               <Label>{t("mineru.builtin.python_path_label")}</Label>
               <Input
+                data-setting-key="mineru.python_path"
                 placeholder={t("mineru.builtin.python_path_placeholder")}
                 value={mineruPythonPath}
                 onChange={(e) => setMineruPythonPath(e.target.value)}
@@ -284,6 +287,7 @@ export default function MineruTab() {
             <div className="space-y-2">
               <Label>{t("mineru.builtin.port_label")}</Label>
               <Input
+                data-setting-key="mineru.port"
                 type="number"
                 value={mineruPort}
                 onChange={(e) => setMineruPort(e.target.value)}
@@ -328,6 +332,7 @@ export default function MineruTab() {
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{t("mineru.venv.use_venv_label")}</p>
                   <Switch
+                    data-setting-key="mineru.use_venv"
                     checked={mineruUseVenv}
                     onCheckedChange={setMineruUseVenv}
                   />
@@ -340,6 +345,7 @@ export default function MineruTab() {
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
+                      data-setting-key="mineru.install_method"
                       type="radio"
                       name="installMethod"
                       value="pip"
@@ -352,6 +358,7 @@ export default function MineruTab() {
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
+                      data-setting-key="mineru.install_method"
                       type="radio"
                       name="installMethod"
                       value="git"
@@ -371,6 +378,7 @@ export default function MineruTab() {
               <div className="space-y-2">
                 <Label>{t("mineru.venv.clone_url_label")}</Label>
                 <Input
+                  data-setting-key="mineru.clone_url"
                   placeholder="https://github.com/opendatalab/MinerU.git"
                   value={mineruCloneUrl}
                   onChange={(e) => setMineruCloneUrl(e.target.value)}
@@ -383,6 +391,7 @@ export default function MineruTab() {
               <div className="space-y-2">
                 <Label>{t("mineru.venv.pip_index_url_label")}</Label>
                 <Input
+                  data-setting-key="mineru.pip_index_url"
                   placeholder="https://pypi.org/simple"
                   value={mineruPipIndexUrl}
                   onChange={(e) => setMineruPipIndexUrl(e.target.value)}
@@ -417,6 +426,7 @@ export default function MineruTab() {
               <div className="space-y-2">
                 <Label>{t("mineru.models.source_label")}</Label>
                 <select
+                  data-setting-key="mineru.model_source"
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
                   value={mineruModelSource}
                   onChange={(e) => setMineruModelSource(e.target.value)}
@@ -432,6 +442,7 @@ export default function MineruTab() {
                 <div className="space-y-2">
                   <Label>{t("mineru.models.dir_label")}</Label>
                   <Input
+                    data-setting-key="mineru.models_dir"
                     placeholder={t("mineru.models.dir_hint")}
                     value={mineruModelsDir}
                     onChange={(e) => setMineruModelsDir(e.target.value)}
@@ -509,6 +520,7 @@ export default function MineruTab() {
                 <p className="text-xs text-muted-foreground">{t("mineru.builtin.auto_start_description")}</p>
               </div>
               <Switch
+                data-setting-key="mineru.auto_start"
                 checked={mineruAutoStart}
                 onCheckedChange={setMineruAutoStart}
               />
@@ -548,6 +560,7 @@ export default function MineruTab() {
             <div className="space-y-2">
               <Label>{t("mineru.url_label")}</Label>
               <Input
+                data-setting-key="mineru.external_url"
                 placeholder="http://localhost:8000"
                 value={mineruExternalUrl}
                 onChange={(e) => setMineruExternalUrl(e.target.value)}
