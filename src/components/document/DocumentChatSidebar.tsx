@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { streamRagChat, genId, type ChatMessage } from "@/lib/chat"
 import { Button } from "@/components/ui/button"
+import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import { MessageSquare, X, SendHorizonal, Square, Bot, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
@@ -215,11 +216,8 @@ export function DocumentChatSidebar({
                   {msg.role === "user" ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3 text-primary" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {msg.content}
-                    {isStreaming && msg === messages[messages.length - 1] && msg.role === "assistant" && (
-                      <span className="inline-block w-1.5 h-3.5 bg-primary rounded-sm animate-pulse ml-0.5 align-text-bottom" />
-                    )}
+                  <div className="text-sm leading-relaxed min-w-0 flex-1">
+                    <ChatMarkdown content={msg.content + (isStreaming && msg === messages[messages.length - 1] && msg.role === "assistant" ? " ▍" : "")} />
                   </div>
                   {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
                     <div className="mt-2 space-y-1">

@@ -29,11 +29,27 @@ function DirectionSetter() {
   return null
 }
 
+function BrowserBehaviorGuard() {
+  useEffect(() => {
+    if (!("scrollRestoration" in window.history)) return
+
+    const previous = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+
+    return () => {
+      window.history.scrollRestoration = previous
+    }
+  }, [])
+
+  return null
+}
+
 function App() {
   return (
     <Suspense fallback={null}>
       <QueryClientProvider client={queryClient}>
         <DirectionSetter />
+        <BrowserBehaviorGuard />
         <Router>
           <Layout>
             <Routes>

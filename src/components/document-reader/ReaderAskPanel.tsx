@@ -23,6 +23,7 @@ import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ConversationSettingsDialog } from "@/components/chat/ConversationSettingsDialog"
+import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -66,7 +67,7 @@ export function ReaderAskPanel({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [titleGenerating, setTitleGenerating] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: providers = [] } = useQuery({
@@ -115,8 +116,19 @@ export function ReaderAskPanel({
   }, [documentId, documentTitle, isOpen, prefillText])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [activeConversation?.messages.length])
+    if (!isOpen) return
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const frame = window.requestAnimationFrame(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "auto",
+      })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeConversation?.id, activeConversation?.messages.length, isOpen])
 
   useEffect(() => {
     if (prefillText && isOpen) {
@@ -286,11 +298,11 @@ export function ReaderAskPanel({
     <>
       <aside
         className={cn(
-          "glass-surface border-l transition-all duration-200",
+          "glass-surface border-l transition-all duration-200 flex flex-col min-h-0",
           isOpen ? "w-[400px] shrink-0" : "w-0 overflow-hidden border-l-0"
         )}
       >
-        <div className="flex h-full flex-col">
+        <div className="flex h-full flex-col flex-1 min-h-0">
           <div className="shrink-0 border-b border-border/60 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -370,7 +382,7 @@ export function ReaderAskPanel({
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div ref={messagesContainerRef} className="flex-1 overflow-auto min-h-0">
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center">
                 <div className="mb-4 rounded-[28px] border border-primary/10 bg-primary/5 p-5 shadow-sm">
@@ -426,13 +438,8 @@ export function ReaderAskPanel({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                        {message.content}
-                        {isStreaming &&
-                        message === messages[messages.length - 1] &&
-                        message.role === "assistant" ? (
-                          <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-primary align-text-bottom" />
-                        ) : null}
+                      <div className="min-w-0 flex-1">
+                        <ChatMarkdown content={message.content + (isStreaming && message === messages[messages.length - 1] && message.role === "assistant" ? " ▍" : "")} />
                       </div>
                       {message.role === "assistant" &&
                       message.sources &&
@@ -453,7 +460,6 @@ export function ReaderAskPanel({
                     </div>
                   </div>
                 ))}
-                <div ref={messagesEndRef} />
               </div>
             )}
           </div>

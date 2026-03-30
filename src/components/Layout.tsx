@@ -84,11 +84,11 @@ export default function Layout({ children }: LayoutProps) {
   )
 
   if (isDocumentReaderPage) {
-    return <div className="h-screen bg-background">{children}</div>
+    return <div className="h-full min-h-0 overflow-hidden bg-background">{children}</div>
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-full min-h-0 bg-background">
       <aside className={cn("hidden border-r transition-all duration-200 md:block", collapsed ? "w-[78px]" : "w-64")}>
         {navContent()}
       </aside>
@@ -99,7 +99,7 @@ export default function Layout({ children }: LayoutProps) {
         </DialogContent>
       </Dialog>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="border-b border-border bg-background px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileSidebarOpen(true)}>
@@ -128,7 +128,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </header>
 
-        <main className={cn("flex-1", immersivePage ? "overflow-hidden" : "overflow-auto")}>
+        <main className={cn("flex-1 min-h-0", immersivePage ? "overflow-hidden" : "overflow-auto")}>
           {immersivePage ? children : <div className="container mx-auto p-6">{children}</div>}
         </main>
       </div>

@@ -78,6 +78,12 @@ export default function DocumentDetail() {
     }, { replace: true })
   }, [readerState.askOpen, readerState.baseMode, searchParams, setSearchParams])
 
+  useEffect(() => {
+    window.scrollTo(0, 0)
+    window.document.documentElement.scrollTop = 0
+    window.document.body.scrollTop = 0
+  }, [id])
+
   const translatedPdf = outputs.find((output) => output.output_type === "translated_pdf" && !output.is_file_missing)?.file_path
   const originalPdf = document && document.filename.toLowerCase().endsWith(".pdf") && !document.is_file_missing ? document.file_path : null
   const parseReady = document?.parse_status === "completed"
@@ -217,7 +223,7 @@ export default function DocumentDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
@@ -225,14 +231,14 @@ export default function DocumentDetail() {
 
   if (!document || !id) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center">
         <p className="text-muted-foreground">未找到文档</p>
       </div>
     )
   }
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[-140px] top-[-100px] h-[340px] w-[340px] rounded-full bg-sky-200/25 blur-3xl" />
         <div className="absolute bottom-[-120px] right-[-60px] h-[300px] w-[300px] rounded-full bg-blue-200/20 blur-3xl" />
@@ -259,7 +265,7 @@ export default function DocumentDetail() {
         }}
       />
 
-      <div className="relative z-10 flex min-h-0 flex-1">
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden">
               {readerState.baseMode === "original" ? (

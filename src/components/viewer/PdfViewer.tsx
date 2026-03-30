@@ -52,6 +52,10 @@ export function PdfViewer({
     setLoadError(null)
   }, [fileUrl])
 
+  useEffect(() => {
+    containerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  }, [currentPage, fileUrl])
+
   const updatePage = useCallback((nextPage: number) => {
     const safePage = Math.max(1, Math.min(numPages || nextPage, nextPage))
     if (pageNumber === undefined) setInternalPage(safePage)
@@ -86,7 +90,7 @@ export function PdfViewer({
   }, [onTextSelect])
 
   return (
-    <div className={cn("flex h-full flex-col", className)}>
+    <div className={cn("flex h-full min-h-0 flex-col", className)}>
       {showControls && (
         <div className="glass-surface flex items-center justify-between border-b px-4 py-2 shrink-0">
           <div className="flex items-center gap-2">
@@ -139,7 +143,7 @@ export function PdfViewer({
 
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto bg-muted/30 p-3"
+        className="min-h-0 flex-1 overflow-auto bg-muted/30 p-3"
         onMouseUp={handleMouseUp}
       >
         {loading && (
@@ -153,7 +157,7 @@ export function PdfViewer({
           </div>
         )}
 
-        <div className="flex justify-center">
+        <div className="flex items-start justify-center">
           <Document
             file={assetUrl}
             onLoadSuccess={onDocumentLoadSuccess}

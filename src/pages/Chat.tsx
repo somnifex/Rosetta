@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { DocumentPicker } from "@/components/DocumentPicker"
 import { ConversationSettingsDialog } from "@/components/chat/ConversationSettingsDialog"
+import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import {
   Bot,
   FileText,
@@ -409,14 +410,9 @@ export default function Chat() {
 
   return (
     <>
-      <div className="relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef4ff_100%)]">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-[-140px] top-[-80px] h-[320px] w-[320px] rounded-full bg-sky-200/35 blur-3xl" />
-          <div className="absolute bottom-[-100px] right-[-70px] h-[280px] w-[280px] rounded-full bg-cyan-200/25 blur-3xl" />
-        </div>
-
-        <aside className="relative z-10 flex w-[320px] shrink-0 flex-col border-r border-border/60 bg-white/70 backdrop-blur-xl">
-          <div className="border-b border-border/60 px-4 py-4">
+      <div className="relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f7f8fb_0%,#eef1f6_100%)]">
+        <aside className="relative z-10 flex w-[320px] shrink-0 flex-col border-r border-border bg-background">
+          <div className="border-b border-border px-4 py-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -428,7 +424,7 @@ export default function Chat() {
               </div>
               <Button
                 size="icon"
-                className="h-11 w-11 rounded-2xl shadow-[0_18px_40px_rgba(37,99,235,0.18)]"
+                className="h-9 w-9 rounded-md"
                 onClick={handleCreateConversation}
                 title={t("new_chat")}
               >
@@ -473,10 +469,10 @@ export default function Chat() {
                     type="button"
                     onClick={() => openConversation(conversation.id)}
                     className={cn(
-                      "desktop-panel group flex w-full flex-col items-start gap-3 rounded-[24px] border px-4 py-4 text-left transition-all",
+                      "group relative flex w-full flex-col items-start gap-3 rounded-lg border bg-background px-4 py-4 text-left transition-all hover:shadow-md hover:border-gray-300",
                       activeId === conversation.id
-                        ? "border-primary/20 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.16)]"
-                        : "border-border/60 hover:-translate-y-0.5 hover:border-primary/15"
+                        ? "border-primary shadow-sm ring-1 ring-primary"
+                        : "border-border"
                     )}
                   >
                     <div className="flex w-full items-start gap-3">
@@ -672,9 +668,10 @@ export default function Chat() {
                       <div
                         key={message.id}
                         className={cn(
-                          "flex gap-4",
-                          message.role === "assistant" &&
-                            "desktop-panel rounded-[28px] border border-border/60 px-4 py-4"
+                          "flex gap-4 rounded-lg px-4 py-4 transition-all hover:shadow-md",
+                          message.role === "assistant"
+                            ? "bg-background border border-border hover:border-gray-300"
+                            : "bg-background border border-primary shadow-sm ring-1 ring-primary"
                         )}
                       >
                         <div
@@ -708,13 +705,8 @@ export default function Chat() {
                             </span>
                           </div>
 
-                          <div className="whitespace-pre-wrap break-words text-sm leading-7">
-                            {message.content}
-                            {isStreaming &&
-                            index === activeMessages.length - 1 &&
-                            message.role === "assistant" ? (
-                              <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-primary align-text-bottom" />
-                            ) : null}
+                          <div className="min-w-0 flex-1">
+                            <ChatMarkdown content={message.content + (isStreaming && index === activeMessages.length - 1 && message.role === "assistant" ? " ▍" : "")} />
                           </div>
 
                           {message.attachments?.length ? (

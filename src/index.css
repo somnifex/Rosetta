@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   :root {
     --background: 0 0% 100%;
     --foreground: 0 0% 11%;
@@ -55,6 +61,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    overflow: hidden;
     font-synthesis-weight: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;

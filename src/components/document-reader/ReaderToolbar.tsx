@@ -71,7 +71,7 @@ export function ReaderToolbar({
   const canPage = !pageControlsDisabled && !!onPageChange && !!pageNumber && !!totalPages
 
   return (
-    <header className="glass-surface border-b border-border/70 px-4 py-2">
+    <header className="glass-surface border-b border-border/70 px-4 py-2 shrink-0 relative z-20">
       <div className="flex min-w-0 items-center gap-2">
         <Button variant="outline" size="sm" className="shrink-0 rounded-xl bg-background/70" onClick={onBackToLibrary}>
           <ArrowLeft className="mr-1.5 h-4 w-4" />
