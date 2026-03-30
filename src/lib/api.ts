@@ -47,6 +47,22 @@ export interface TranslatePromptConfig {
   userPrompt: string
 }
 
+export interface TranslationRuntimeSettings {
+  chunkSize: number
+  chunkOverlap: number
+  maxConcurrentRequests: number
+  maxRequestsPerMinute: number
+  smartOptimizeEnabled: boolean
+}
+
+export const DEFAULT_TRANSLATION_RUNTIME_SETTINGS: TranslationRuntimeSettings = {
+  chunkSize: 4000,
+  chunkOverlap: 0,
+  maxConcurrentRequests: 3,
+  maxRequestsPerMinute: 60,
+  smartOptimizeEnabled: false,
+}
+
 export const DEFAULT_SYSTEM_PROMPT =
   `You are a professional translator. Translate the following text from {{source_lang}} to {{target_lang}}. ` +
   `Maintain the original formatting, tone, and meaning. Do not add explanations or notes.`
@@ -244,6 +260,66 @@ export async function loadLlmSamplingSettings() {
     translate: readScope("translate"),
     failoverEnabled: map.get("llm.failover_enabled") !== "false",
   }
+}
+
+export async function loadTranslationRuntimeSettings(): Promise<TranslationRuntimeSettings> {
+  const settings = await api.getAllAppSettings()
+  const map = new Map(settings.map((item) => [item.key, item.value]))
+
+  const numberOrDefault = (key: string, fallback: number) => {
+    const raw = map.get(key)?.trim()
+    if (!raw) return fallback
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  const booleanOrDefault = (key: string, fallback: boolean) => {
+    const raw = map.get(key)?.trim().toLowerCase()
+    if (!raw) return fallback
+    if (raw === "true") return true
+    if (raw === "false") return false
+    return fallback
+  }
+
+  return {
+    chunkSize: numberOrDefault(
+      "translation.chunk_size",
+      DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkSize
+    ),
+    chunkOverlap: numberOrDefault(
+      "translation.chunk_overlap",
+      DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkOverlap
+    ),
+    maxConcurrentRequests: numberOrDefault(
+      "translation.max_concurrent_requests",
+      DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxConcurrentRequests
+    ),
+    maxRequestsPerMinute: numberOrDefault(
+      "translation.max_requests_per_minute",
+      DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxRequestsPerMinute
+    ),
+    smartOptimizeEnabled: booleanOrDefault(
+      "translation.smart_optimize_enabled",
+      DEFAULT_TRANSLATION_RUNTIME_SETTINGS.smartOptimizeEnabled
+    ),
+  }
+}
+
+export async function saveTranslationRuntimeSettings(settings: TranslationRuntimeSettings) {
+  await api.setAppSetting("translation.chunk_size", String(settings.chunkSize))
+  await api.setAppSetting("translation.chunk_overlap", String(settings.chunkOverlap))
+  await api.setAppSetting(
+    "translation.max_concurrent_requests",
+    String(settings.maxConcurrentRequests)
+  )
+  await api.setAppSetting(
+    "translation.max_requests_per_minute",
+    String(settings.maxRequestsPerMinute)
+  )
+  await api.setAppSetting(
+    "translation.smart_optimize_enabled",
+    settings.smartOptimizeEnabled ? "true" : "false"
+  )
 }
 
 // --- Tauri API calls ---

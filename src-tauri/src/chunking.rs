@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 /// 分片策略配置
 #[derive(Debug, Clone)]
 pub struct ChunkingConfig {
@@ -69,6 +67,12 @@ impl Chunk {
 /// 智能文本分片器
 pub struct TextChunker {
     config: ChunkingConfig,
+}
+
+#[derive(Debug, Clone)]
+struct TextUnit {
+    text: String,
+    protected: bool,
 }
 
 impl TextChunker {
@@ -146,55 +150,38 @@ impl TextChunker {
         &self,
         text: &str,
         chunk_chars: usize,
-        overlap_chars: usize,
+        _overlap_chars: usize,
         chunks: &mut Vec<Chunk>,
     ) {
-        let sentences = self.split_sentences(text);
+        let units = self.split_structural_units(text);
         let mut current_chunk = String::new();
-        let mut current_start_pos = 0;
+        let mut current_start_pos = 0usize;
+        let mut cursor = 0usize;
         let mut index = 0;
 
-        for (i, sentence) in sentences.iter().enumerate() {
-            let tentative_len = current_chunk.len() + sentence.len();
-
-            match tentative_len.cmp(&chunk_chars) {
-                Ordering::Less | Ordering::Equal => {
-                    if i > 0 && !current_chunk.is_empty() {
-                        current_chunk.push(' ');
-                    }
-                    current_chunk.push_str(sentence);
+        for unit in units {
+            let segments = self.segment_unit(&unit, chunk_chars);
+            for segment in segments {
+                if current_chunk.is_empty() {
+                    current_start_pos = cursor;
                 }
-                Ordering::Greater => {
-                    // 当前chunk已满，保存并开始新chunk
-                    if !current_chunk.is_empty() {
-                        let end_pos = current_start_pos + current_chunk.len();
-                        chunks.push(Chunk {
-                            index,
-                            text: current_chunk.clone(),
-                            start_pos: current_start_pos,
-                            end_pos,
-                        });
-                        index += 1;
 
-                        // 计算重叠部分
-                        let overlap_start = end_pos.saturating_sub(overlap_chars);
-                        let overlap_text = &chunks[index - 1].text;
-                        let overlap = if overlap_start < end_pos {
-                            let skip_chars = (end_pos - overlap_start) / 2;
-                            if skip_chars < overlap_text.len() {
-                                overlap_text[overlap_text.len() - skip_chars..].to_string()
-                            } else {
-                                String::new()
-                            }
-                        } else {
-                            String::new()
-                        };
-
-                        current_start_pos = overlap_start;
-                        current_chunk = overlap;
-                    }
-                    current_chunk.push_str(sentence);
+                let tentative_len = current_chunk.chars().count() + segment.chars().count();
+                if !current_chunk.is_empty() && tentative_len > chunk_chars {
+                    let end_pos = current_start_pos + current_chunk.len();
+                    chunks.push(Chunk {
+                        index,
+                        text: current_chunk.clone(),
+                        start_pos: current_start_pos,
+                        end_pos,
+                    });
+                    index += 1;
+                    current_chunk.clear();
+                    current_start_pos = cursor;
                 }
+
+                current_chunk.push_str(&segment);
+                cursor += segment.len();
             }
         }
 
@@ -208,6 +195,287 @@ impl TextChunker {
                 end_pos,
             });
         }
+    }
+
+    /// 将原文拆成结构化单元，避免拆断表格/图片/公式等内容
+    fn split_structural_units(&self, text: &str) -> Vec<TextUnit> {
+        let mut units = Vec::new();
+        let mut prose = String::new();
+        let mut protected = String::new();
+        let mut in_fence = false;
+        let mut in_math = false;
+        let mut in_table = false;
+        let mut fence_marker = "";
+
+        for line in text.split_inclusive('\n') {
+            let trimmed = line.trim();
+
+            if in_fence {
+                protected.push_str(line);
+                if trimmed.starts_with(fence_marker) {
+                    in_fence = false;
+                    fence_marker = "";
+                    if !protected.is_empty() {
+                        units.push(TextUnit {
+                            text: std::mem::take(&mut protected),
+                            protected: true,
+                        });
+                    }
+                }
+                continue;
+            }
+
+            if in_math {
+                protected.push_str(line);
+                if self.is_math_block_end(trimmed) {
+                    in_math = false;
+                    if !protected.is_empty() {
+                        units.push(TextUnit {
+                            text: std::mem::take(&mut protected),
+                            protected: true,
+                        });
+                    }
+                }
+                continue;
+            }
+
+            if in_table {
+                if self.is_table_line(trimmed) {
+                    protected.push_str(line);
+                    continue;
+                }
+
+                in_table = false;
+                if !protected.is_empty() {
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut protected),
+                        protected: true,
+                    });
+                }
+            }
+
+            if let Some(marker) = self.fence_marker(trimmed) {
+                if !prose.is_empty() {
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut prose),
+                        protected: false,
+                    });
+                }
+
+                in_fence = true;
+                fence_marker = marker;
+                protected.push_str(line);
+                if trimmed.len() > marker.len() && trimmed[marker.len()..].trim().is_empty() {
+                    continue;
+                }
+                if trimmed == marker {
+                    continue;
+                }
+                if trimmed.starts_with(marker) && trimmed.ends_with(marker) && trimmed.len() > marker.len() * 2 {
+                    in_fence = false;
+                    fence_marker = "";
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut protected),
+                        protected: true,
+                    });
+                }
+                continue;
+            }
+
+            if self.is_math_block_start(trimmed) {
+                if !prose.is_empty() {
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut prose),
+                        protected: false,
+                    });
+                }
+
+                protected.push_str(line);
+                if self.is_math_block_end(trimmed) {
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut protected),
+                        protected: true,
+                    });
+                } else {
+                    in_math = true;
+                }
+                continue;
+            }
+
+            if self.is_table_line(trimmed) {
+                if !prose.is_empty() {
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut prose),
+                        protected: false,
+                    });
+                }
+                in_table = true;
+                protected.push_str(line);
+                continue;
+            }
+
+            if self.is_image_line(trimmed) {
+                if !prose.is_empty() {
+                    units.push(TextUnit {
+                        text: std::mem::take(&mut prose),
+                        protected: false,
+                    });
+                }
+                units.push(TextUnit {
+                    text: line.to_string(),
+                    protected: true,
+                });
+                continue;
+            }
+
+            prose.push_str(line);
+            if trimmed.is_empty() && !prose.is_empty() {
+                units.push(TextUnit {
+                    text: std::mem::take(&mut prose),
+                    protected: false,
+                });
+            }
+        }
+
+        if !protected.is_empty() {
+            units.push(TextUnit {
+                text: protected,
+                protected: true,
+            });
+        }
+
+        if !prose.is_empty() {
+            units.push(TextUnit {
+                text: prose,
+                protected: false,
+            });
+        }
+
+        units
+    }
+
+    fn segment_unit(&self, unit: &TextUnit, chunk_chars: usize) -> Vec<String> {
+        if unit.text.chars().count() <= chunk_chars {
+            return vec![unit.text.clone()];
+        }
+
+        // 结构化内容优先按换行处切分，普通段落按软边界切分
+        if unit.protected {
+            return self.split_with_soft_boundaries(&unit.text, chunk_chars, true);
+        }
+
+        self.split_with_soft_boundaries(&unit.text, chunk_chars, false)
+    }
+
+    fn split_with_soft_boundaries(
+        &self,
+        text: &str,
+        chunk_chars: usize,
+        prefer_newline: bool,
+    ) -> Vec<String> {
+        let chars: Vec<char> = text.chars().collect();
+        if chars.len() <= chunk_chars {
+            return vec![text.to_string()];
+        }
+
+        let mut start = 0usize;
+        let mut pieces = Vec::new();
+        while start < chars.len() {
+            let max_end = (start + chunk_chars).min(chars.len());
+            if max_end >= chars.len() {
+                pieces.push(chars[start..].iter().collect());
+                break;
+            }
+
+            let min_end = start + chunk_chars / 2;
+            let cut = self.find_soft_boundary(&chars, start, max_end, min_end, prefer_newline)
+                .unwrap_or(max_end)
+                .max(start + 1);
+
+            pieces.push(chars[start..cut].iter().collect());
+            start = cut;
+        }
+
+        pieces
+    }
+
+    fn find_soft_boundary(
+        &self,
+        chars: &[char],
+        start: usize,
+        max_end: usize,
+        min_end: usize,
+        prefer_newline: bool,
+    ) -> Option<usize> {
+        if max_end <= start + 1 {
+            return None;
+        }
+
+        let search_start = min_end.min(max_end).max(start + 1);
+
+        if prefer_newline {
+            for i in (search_start..max_end).rev() {
+                if chars[i - 1] == '\n' && chars[i] == '\n' {
+                    return Some(i + 1);
+                }
+            }
+            for i in (search_start..max_end).rev() {
+                if chars[i] == '\n' {
+                    return Some(i + 1);
+                }
+            }
+        }
+
+        for i in (search_start..max_end).rev() {
+            if matches!(chars[i], '。' | '！' | '？' | '.' | '!' | '?' | ';' | '；') {
+                return Some(i + 1);
+            }
+        }
+
+        for i in (search_start..max_end).rev() {
+            if chars[i].is_whitespace() {
+                return Some(i + 1);
+            }
+        }
+
+        None
+    }
+
+    fn fence_marker<'a>(&self, trimmed: &'a str) -> Option<&'a str> {
+        if trimmed.starts_with("```") {
+            Some("```")
+        } else if trimmed.starts_with("~~~") {
+            Some("~~~")
+        } else {
+            None
+        }
+    }
+
+    fn is_math_block_start(&self, trimmed: &str) -> bool {
+        trimmed == "$$"
+            || trimmed.starts_with("\\[")
+            || trimmed.starts_with("\\begin{")
+    }
+
+    fn is_math_block_end(&self, trimmed: &str) -> bool {
+        trimmed == "$$"
+            || trimmed.ends_with("\\]")
+            || trimmed.starts_with("\\end{")
+    }
+
+    fn is_table_line(&self, trimmed: &str) -> bool {
+        if trimmed.is_empty() || trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            return false;
+        }
+
+        let bars = trimmed.chars().filter(|ch| *ch == '|').count();
+        bars >= 2
+    }
+
+    fn is_image_line(&self, trimmed: &str) -> bool {
+        trimmed.starts_with("![")
+            || trimmed.contains("![")
+            || trimmed.contains("<img")
     }
 
     /// 按句子分割文本
@@ -269,5 +537,39 @@ mod tests {
         for (i, chunk) in chunks.iter().enumerate() {
             assert_eq!(chunk.index, i);
         }
+    }
+
+    #[test]
+    fn test_protect_markdown_table() {
+        let text = "段落A。\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n段落B。";
+        let chunker = TextChunker::new(ChunkingConfig {
+            max_tokens_per_chunk: 8,
+            overlap_tokens: 0,
+            preserve_sentences: true,
+            tokens_per_char_estimate: 1.0,
+        });
+
+        let chunks = chunker.chunk(text);
+        let merged = chunks.iter().map(|c| c.text.as_str()).collect::<String>();
+        assert_eq!(merged, text);
+        assert!(chunks.iter().any(|c| c.text.contains("| A | B |")));
+        assert!(chunks.iter().any(|c| c.text.contains("| 1 | 2 |")));
+    }
+
+    #[test]
+    fn test_protect_formula_and_image_blocks() {
+        let text = "前言。\n$$\nE = mc^2\n$$\n\n![img](x.png)\n\n后记。";
+        let chunker = TextChunker::new(ChunkingConfig {
+            max_tokens_per_chunk: 10,
+            overlap_tokens: 0,
+            preserve_sentences: true,
+            tokens_per_char_estimate: 1.0,
+        });
+
+        let chunks = chunker.chunk(text);
+        let merged = chunks.iter().map(|c| c.text.as_str()).collect::<String>();
+        assert_eq!(merged, text);
+        assert!(chunks.iter().any(|c| c.text.contains("E = mc^2")));
+        assert!(chunks.iter().any(|c| c.text.contains("![img](x.png)")));
     }
 }

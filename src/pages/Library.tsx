@@ -520,7 +520,7 @@ export default function Library() {
   )
 
   return (
-    <div className="relative flex h-full overflow-hidden bg-[linear-gradient(180deg,#f7f8fb_0%,#eef1f6_100%)]" data-view-mode={viewMode}>
+    <div className="app-page-surface relative flex h-full overflow-hidden" data-view-mode={viewMode}>
       {isDragOver && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm">
           <div className="rounded-[32px] border-2 border-dashed border-primary bg-card px-10 py-14 text-center shadow-xl">

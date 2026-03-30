@@ -18,6 +18,19 @@ const PROVIDER_MODEL_TYPE_CHAT: &str = "chat";
 const PROVIDER_MODEL_TYPE_TRANSLATE: &str = "translate";
 const PROVIDER_MODEL_TYPE_EMBED: &str = "embed";
 const PROVIDER_MODEL_TYPE_RERANK: &str = "rerank";
+const DEFAULT_TRANSLATION_CHUNK_SIZE: usize = 4000;
+const DEFAULT_TRANSLATION_CHUNK_OVERLAP: usize = 0;
+const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 3;
+const DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE: u32 = 60;
+
+#[derive(Debug, Clone)]
+struct TranslationRuntimeSettings {
+    chunk_size: usize,
+    chunk_overlap: usize,
+    max_concurrent_requests: usize,
+    max_requests_per_minute: u32,
+    smart_optimize_enabled: bool,
+}
 
 struct IndexedChunk {
     id: String,
@@ -97,12 +110,86 @@ fn parse_optional_i32(value: Option<String>) -> Option<i32> {
         .and_then(|raw| raw.parse::<i32>().ok())
 }
 
+fn parse_bounded_usize(value: Option<String>, default_value: usize, min: usize, max: usize) -> usize {
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .map(|parsed| parsed.clamp(min, max))
+        .unwrap_or(default_value)
+}
+
+fn parse_bounded_u32(value: Option<String>, default_value: u32, min: u32, max: u32) -> u32 {
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .map(|parsed| parsed.clamp(min, max))
+        .unwrap_or(default_value)
+}
+
+fn parse_bool(value: Option<String>, default_value: bool) -> bool {
+    value
+        .map(|raw| raw.trim().to_lowercase())
+        .and_then(|raw| match raw.as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default_value)
+}
+
 fn get_setting_value(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>, String> {
     conn.query_row("SELECT value FROM app_settings WHERE key = ?1", [key], |row| {
         row.get::<_, String>(0)
     })
     .optional()
     .map_err(|e| e.to_string())
+}
+
+fn load_translation_runtime_settings(
+    conn: &rusqlite::Connection,
+) -> Result<TranslationRuntimeSettings, String> {
+    let chunk_size = parse_bounded_usize(
+        get_setting_value(conn, "translation.chunk_size")?,
+        DEFAULT_TRANSLATION_CHUNK_SIZE,
+        256,
+        32000,
+    );
+
+    let chunk_overlap = parse_bounded_usize(
+        get_setting_value(conn, "translation.chunk_overlap")?,
+        DEFAULT_TRANSLATION_CHUNK_OVERLAP,
+        0,
+        chunk_size.saturating_sub(1),
+    );
+
+    let max_concurrent_requests = parse_bounded_usize(
+        get_setting_value(conn, "translation.max_concurrent_requests")?,
+        DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS,
+        1,
+        32,
+    );
+
+    let max_requests_per_minute = parse_bounded_u32(
+        get_setting_value(conn, "translation.max_requests_per_minute")?,
+        DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE,
+        1,
+        600,
+    );
+
+    let smart_optimize_enabled = parse_bool(
+        get_setting_value(conn, "translation.smart_optimize_enabled")?,
+        false,
+    );
+
+    Ok(TranslationRuntimeSettings {
+        chunk_size,
+        chunk_overlap,
+        max_concurrent_requests,
+        max_requests_per_minute,
+        smart_optimize_enabled,
+    })
 }
 
 pub(crate) fn load_llm_sampling_config(
@@ -2678,6 +2765,7 @@ pub async fn start_translation_job(
     if sampling.max_tokens.is_none() {
         sampling.max_tokens = provider_record.legacy_max_tokens;
     }
+    let runtime_settings = load_translation_runtime_settings(conn)?;
 
     let job_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -2692,6 +2780,13 @@ pub async fn start_translation_job(
             "top_p": sampling.top_p,
             "top_k": sampling.top_k,
             "max_tokens": sampling.max_tokens,
+        },
+        "runtime": {
+            "chunk_size": runtime_settings.chunk_size,
+            "chunk_overlap": runtime_settings.chunk_overlap,
+            "max_concurrent_requests": runtime_settings.max_concurrent_requests,
+            "max_requests_per_minute": runtime_settings.max_requests_per_minute,
+            "smart_optimize_enabled": runtime_settings.smart_optimize_enabled,
         },
     })
     .to_string();
@@ -2788,7 +2883,14 @@ async fn execute_translation_job(
     source_language: &str,
     target_language: &str,
 ) -> Result<(), String> {
-    let (provider_record, translate_model, sampling, markdown_content) = {
+    let (
+        provider_record,
+        translate_model,
+        chat_model,
+        sampling,
+        runtime_settings,
+        markdown_content,
+    ) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let now = Utc::now().to_rfc3339();
@@ -2810,6 +2912,7 @@ async fn execute_translation_job(
         let provider_models = load_provider_models_for_provider(conn, provider_id)?;
         let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
             .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let chat_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_CHAT);
         let mut sampling = load_llm_sampling_config(conn, "translate")?;
         if sampling.temperature.is_none() {
             sampling.temperature = provider_record.legacy_temperature;
@@ -2817,6 +2920,7 @@ async fn execute_translation_job(
         if sampling.max_tokens.is_none() {
             sampling.max_tokens = provider_record.legacy_max_tokens;
         }
+        let runtime_settings = load_translation_runtime_settings(conn)?;
 
         let markdown_content: String = conn.query_row(
             "SELECT pc.markdown_content
@@ -2829,7 +2933,14 @@ async fn execute_translation_job(
             |row| row.get(0),
         ).map_err(|e| e.to_string())?;
 
-        (provider_record, translate_model, sampling, markdown_content)
+        (
+            provider_record,
+            translate_model,
+            chat_model,
+            sampling,
+            runtime_settings,
+            markdown_content,
+        )
     };
 
     let translator = crate::translator::Translator::new(
@@ -2838,14 +2949,102 @@ async fn execute_translation_job(
         translate_model.model_name,
         sampling,
     );
-    
-    // 应用速率限制配置（暂时使用保守配置以确保稳定性）
-    // 可以从数据库或环境变量读取配置
-    let rate_limit_config = crate::rate_limiter::RateLimitConfig::moderate();
-    let translator = translator.with_rate_limit_config(rate_limit_config);
+
+    let chunking_config = crate::chunking::ChunkingConfig {
+        max_tokens_per_chunk: runtime_settings.chunk_size,
+        overlap_tokens: runtime_settings.chunk_overlap,
+        preserve_sentences: true,
+        tokens_per_char_estimate: 0.25,
+    };
+    let rate_limit_config = crate::rate_limiter::RateLimitConfig {
+        max_requests_per_minute: runtime_settings.max_requests_per_minute,
+        max_concurrent_requests: runtime_settings.max_concurrent_requests,
+    };
+
+    let mut translator = translator
+        .with_chunking_config(chunking_config)
+        .with_rate_limit_config(rate_limit_config);
+
+    if runtime_settings.smart_optimize_enabled {
+        if let Some(chat_model) = chat_model {
+            match translator
+                .build_consistency_context(
+                    &chat_model.model_name,
+                    &markdown_content,
+                    source_language,
+                    target_language,
+                )
+                .await
+            {
+                Ok(context) if !context.trim().is_empty() => {
+                    translator = translator.with_consistency_context(context);
+                }
+                Ok(_) => {
+                    log::warn!(
+                        "Translation smart optimization produced empty context, fallback to standard translation. job={} document={}",
+                        job_id,
+                        document_id
+                    );
+                }
+                Err(error) => {
+                    log::warn!(
+                        "Translation smart optimization failed, fallback to standard translation. job={} document={} error={}",
+                        job_id,
+                        document_id,
+                        error
+                    );
+                }
+            }
+        } else {
+            log::warn!(
+                "Translation smart optimization is enabled but no chat model is active for provider {}. Fallback to standard translation.",
+                provider_id
+            );
+        }
+    }
 
     let result = translator
-        .translate(&markdown_content, source_language, target_language)
+        .translate_with_chunks_progress(
+            &markdown_content,
+            source_language,
+            target_language,
+            |completed, total| {
+                let progress = if total > 0 {
+                    (completed as f64 / total as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                let completed_i32 = completed.min(i32::MAX as usize) as i32;
+                let total_i32 = total.min(i32::MAX as usize) as i32;
+                let now = Utc::now().to_rfc3339();
+
+                match state.db.lock() {
+                    Ok(db) => {
+                        let conn = db.get_connection();
+                        if let Err(error) = conn.execute(
+                            "UPDATE translation_jobs
+                             SET progress = ?1, total_chunks = ?2, completed_chunks = ?3, updated_at = ?4
+                             WHERE id = ?5 AND status = 'translating'",
+                            (progress, total_i32, completed_i32, &now, job_id),
+                        ) {
+                            log::warn!(
+                                "Failed to update translation progress for job {}: {}",
+                                job_id,
+                                error
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "Failed to lock DB for translation progress update (job {}): {}",
+                            job_id,
+                            error
+                        );
+                    }
+                }
+            },
+        )
         .await;
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -2853,7 +3052,44 @@ async fn execute_translation_job(
     let now = Utc::now().to_rfc3339();
 
     match result {
-        Ok(translated_text) => {
+        Ok(chunk_results) => {
+            let total_chunks = chunk_results.len() as i32;
+            let completed_chunks = chunk_results
+                .iter()
+                .filter(|item| item.success)
+                .count() as i32;
+
+            let translated_text = match crate::translator::Translator::merge_translation_results(&chunk_results) {
+                Ok(text) => text,
+                Err(e) => {
+                    let progress = if total_chunks > 0 {
+                        (completed_chunks as f64 / total_chunks as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+
+                    conn.execute(
+                        "UPDATE translation_jobs
+                         SET status = 'failed', error_message = ?1, progress = ?2,
+                             total_chunks = ?3, completed_chunks = ?4,
+                             completed_at = ?5, updated_at = ?5
+                         WHERE id = ?6",
+                        (&e, progress, total_chunks, completed_chunks, &now, job_id),
+                    )
+                    .map_err(|error| error.to_string())?;
+
+                    conn.execute(
+                        "UPDATE documents
+                         SET translation_status = 'failed', updated_at = ?1
+                         WHERE id = ?2 AND deleted_at IS NULL",
+                        (&now, document_id),
+                    )
+                    .map_err(|error| error.to_string())?;
+
+                    return Err(e);
+                }
+            };
+
             let content_id = Uuid::new_v4().to_string();
             let version = next_content_version(conn, "translated_contents", document_id)?;
             clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
@@ -2864,8 +3100,11 @@ async fn execute_translation_job(
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
-                "UPDATE translation_jobs SET status = 'completed', progress = 100, completed_at = ?, updated_at = ? WHERE id = ?",
-                (&now, &now, job_id),
+                "UPDATE translation_jobs
+                 SET status = 'completed', progress = 100, total_chunks = ?1, completed_chunks = ?2,
+                     completed_at = ?3, updated_at = ?3
+                 WHERE id = ?4",
+                (total_chunks, completed_chunks, &now, job_id),
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
@@ -2879,8 +3118,11 @@ async fn execute_translation_job(
         }
         Err(e) => {
             conn.execute(
-                "UPDATE translation_jobs SET status = 'failed', error_message = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-                (&e, &now, &now, job_id),
+                "UPDATE translation_jobs
+                 SET status = 'failed', error_message = ?1, progress = 0, total_chunks = 0, completed_chunks = 0,
+                     completed_at = ?2, updated_at = ?2
+                 WHERE id = ?3",
+                (&e, &now, job_id),
             ).map_err(|e| e.to_string())?;
 
             conn.execute(

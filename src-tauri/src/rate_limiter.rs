@@ -79,41 +79,38 @@ impl RateLimiter {
             return Duration::from_secs(0); // 不限制
         }
 
-        let mut window_start = self.window_start.lock().unwrap();
-        let mut request_count = self.request_count.lock().unwrap();
+        loop {
+            let wait_time = {
+                let mut window_start = self.window_start.lock().unwrap();
+                let mut request_count = self.request_count.lock().unwrap();
 
-        let now = Instant::now();
-        let elapsed = now.duration_since(*window_start);
+                let now = Instant::now();
+                let elapsed = now.duration_since(*window_start);
 
-        // 如果窗口已过期（1分钟），重置
-        if elapsed >= Duration::from_secs(60) {
-            *window_start = now;
-            *request_count = 0;
-        }
+                // 如果窗口已过期（1分钟），重置
+                if elapsed >= Duration::from_secs(60) {
+                    *window_start = now;
+                    *request_count = 0;
+                }
 
-        // 检查是否还有配额
-        if *request_count >= self.max_requests_per_minute {
-            // 需要等待到下一个窗口
-            let wait_time = Duration::from_secs(60) - elapsed;
-            drop(request_count); // 释放锁
-            drop(window_start);
+                // 检查是否还有配额
+                if *request_count >= self.max_requests_per_minute {
+                    Some(Duration::from_secs(60) - elapsed)
+                } else {
+                    // 增加请求计数
+                    *request_count += 1;
+                    None
+                }
+            };
 
-            log::debug!("Rate limit reached, waiting {:?}", wait_time);
-            tokio::time::sleep(wait_time).await;
-
-            // 重新获取锁并重置计数
-            let mut window_start = self.window_start.lock().unwrap();
-            let mut request_count = self.request_count.lock().unwrap();
-            *window_start = Instant::now();
-            *request_count = 0;
+            if let Some(wait_time) = wait_time {
+                log::debug!("Rate limit reached, waiting {:?}", wait_time);
+                tokio::time::sleep(wait_time).await;
+                continue;
+            }
 
             return Duration::from_secs(0);
         }
-
-        // 增加请求计数
-        *request_count += 1;
-        
-        Duration::from_secs(0)
     }
 
     /// 获取当前请求数
@@ -254,7 +251,7 @@ mod tests {
         let wait = limiter.acquire().await;
         assert!(wait.as_secs() > 0);
 
-        let elapsed = start.elapsed();
+        let _elapsed = start.elapsed();
         // 应该大约等待了60秒的延迟（这里我们只检查返回值）
         assert!(wait.as_secs() > 50);
     }

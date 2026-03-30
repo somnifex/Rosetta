@@ -132,7 +132,7 @@ function PdfPreview({
   const [loading, setLoading] = useState(true)
 
   return (
-    <div className="relative flex h-full items-center justify-center">
+    <div className="pdf-preview-stage relative flex h-full items-center justify-center">
       {loading && <Loader2 className="absolute h-5 w-5 animate-spin text-muted-foreground" />}
       <Document
         file={assetUrl}
@@ -455,7 +455,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
             {/* ── Header: Preview + Metadata ── */}
             <div className="flex gap-5 border-b border-border px-6 py-5">
               {/* PDF Thumbnail — compact */}
-              <div className="flex h-[160px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-gray-50/60">
+              <div className="flex h-[160px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/45">
                 {isPdf && !document.is_file_missing ? (
                   <PdfPreview fileUrl={document.file_path} onLoad={setThumbnailPages} width={112} />
                 ) : (
@@ -500,11 +500,11 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                   {/* Meta row */}
                   <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatDate(document.created_at)}</span>
-                    <span className="text-border">|</span>
+                    <span className="text-muted-foreground/45">|</span>
                     <span>{formatBytes(document.file_size)}</span>
-                    <span className="text-border">|</span>
+                    <span className="text-muted-foreground/45">|</span>
                     <span>{displayedPageCount ? `${displayedPageCount} 页` : "页数未知"}</span>
-                    <span className="text-border">|</span>
+                    <span className="text-muted-foreground/45">|</span>
                     <span>{document.source_language || "自动识别"} → {document.target_language || "未设置"}</span>
                   </div>
                 </div>
@@ -560,10 +560,10 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         className={`group flex flex-col items-center gap-2 rounded-lg border p-3 text-center transition-all ${
                           action.primary
                             ? "border-primary/20 bg-primary text-primary-foreground hover:bg-primary/90"
-                            : "border-border bg-background hover:border-gray-300 hover:bg-muted"
+                            : "border-border bg-background hover:border-border/90 hover:bg-muted"
                         } ${action.disabled ? "cursor-not-allowed opacity-40" : ""}`}
                       >
-                        <div className={`rounded-md p-2 ${action.primary ? "bg-white/14" : "bg-primary/8 text-primary"}`}>
+                        <div className={`rounded-md p-2 ${action.primary ? "bg-primary-foreground/15" : "bg-primary/8 text-primary"}`}>
                           <Icon className="h-4 w-4" />
                         </div>
                         <span className="text-xs font-medium leading-tight">{action.title}</span>

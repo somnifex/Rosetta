@@ -568,7 +568,7 @@ export const PdfViewer = memo(function PdfViewer({
                       else pageRefs.current.delete(pageIndex)
                     }}
                     className={cn(
-                      "rosetta-pdf-page-card relative mx-auto overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm",
+                      "rosetta-pdf-page-card rosetta-pdf-page-stage relative mx-auto overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm",
                       themeMode === "dark" ? "shadow-black/20" : "shadow-slate-200/80"
                     )}
                   >

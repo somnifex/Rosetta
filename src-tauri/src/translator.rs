@@ -2,6 +2,8 @@ use crate::chunking::{Chunk, ChunkingConfig, TextChunker};
 use crate::models::LlmSamplingConfig;
 use crate::rate_limiter::{RateLimitConfig, RequestLimiter};
 use crate::retry::{should_retry_network_error, with_retry, RetryConfig};
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -64,6 +66,7 @@ pub struct Translator {
     chunking_config: ChunkingConfig,
     rate_limit_config: RateLimitConfig,
     request_limiter: Arc<RequestLimiter>,
+    consistency_context: Option<String>,
 }
 
 impl Translator {
@@ -91,6 +94,7 @@ impl Translator {
             chunking_config: ChunkingConfig::for_translate(),
             rate_limit_config,
             request_limiter,
+            consistency_context: None,
         }
     }
 
@@ -113,6 +117,17 @@ impl Translator {
         self
     }
 
+    /// 为翻译过程注入术语和大意等一致性上下文
+    pub fn with_consistency_context(mut self, context: String) -> Self {
+        let trimmed = context.trim();
+        if trimmed.is_empty() {
+            self.consistency_context = None;
+        } else {
+            self.consistency_context = Some(trimmed.to_string());
+        }
+        self
+    }
+
     /// 获取当前速率限制配置
     pub fn rate_limit_config(&self) -> &RateLimitConfig {
         &self.rate_limit_config
@@ -121,6 +136,91 @@ impl Translator {
     /// 获取当前限制器状态
     pub fn limiter_status(&self) -> crate::rate_limiter::LimiterStatus {
         self.request_limiter.status()
+    }
+
+    /// 使用 chat 模型提炼术语和全文大意，供分片翻译统一风格与术语
+    pub async fn build_consistency_context(
+        &self,
+        chat_model: &str,
+        text: &str,
+        source_lang: &str,
+        target_lang: &str,
+    ) -> Result<String, String> {
+        if text.trim().is_empty() {
+            return Ok(String::new());
+        }
+
+        let compact_text = build_analysis_input(text);
+        let system_prompt = format!(
+            "You are a senior translation editor. Analyze source text from {source_lang} to {target_lang}. Return ONLY concise markdown with two sections:\n1) ## Terminology Glossary: bullet list of key domain/proper nouns as `source -> target`\n2) ## Document Intent: 3-6 bullets summarizing style, tone, and constraints for consistent translation.\nRules: keep it short, avoid hallucinations, preserve acronyms and names when needed."
+        );
+
+        let user_prompt = format!(
+            "Analyze this content for translation consistency optimization:\n\n{compact_text}"
+        );
+
+        let request = ChatRequest {
+            model: chat_model.trim().to_string(),
+            messages: vec![
+                Message {
+                    role: "system".to_string(),
+                    content: system_prompt,
+                },
+                Message {
+                    role: "user".to_string(),
+                    content: user_prompt,
+                },
+            ],
+            temperature: Some(0.2),
+            top_p: None,
+            top_k: None,
+            max_tokens: Some(1200),
+        };
+
+        let url = openai_compatible_url(&self.base_url, "chat/completions");
+        let client = self.client.clone();
+        let auth_header = format!("Bearer {}", self.api_key);
+        let retry_config = self.retry_config.clone();
+
+        let context = with_retry(
+            &retry_config,
+            || {
+                let req = request.clone();
+                let url = url.clone();
+                let auth = auth_header.clone();
+                let client = client.clone();
+                async move {
+                    let response = client
+                        .post(&url)
+                        .header("Authorization", auth)
+                        .json(&req)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Request failed: {}", e))?;
+
+                    if !response.status().is_success() {
+                        let status = response.status();
+                        let text = response.text().await.unwrap_or_default();
+                        return Err(format!("API returned {}: {}", status, text));
+                    }
+
+                    let chat_response: ChatResponse = response
+                        .json()
+                        .await
+                        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+                    chat_response
+                        .choices
+                        .first()
+                        .ok_or_else(|| "No optimization context returned".to_string())
+                        .map(|c| c.message.content.clone())
+                }
+            },
+            should_retry_network_error,
+        )
+        .await?;
+
+        Ok(limit_context_size(&context, 4000))
     }
 
     /// 原始translate方法（向后兼容，但已添加重试）
@@ -207,6 +307,21 @@ impl Translator {
         source_lang: &str,
         target_lang: &str,
     ) -> Result<Vec<TranslationResult>, String> {
+        self.translate_with_chunks_progress(text, source_lang, target_lang, |_completed, _total| {})
+            .await
+    }
+
+    /// 智能翻译：自动分片长文本，并在每个分片完成时回调进度
+    pub async fn translate_with_chunks_progress<F>(
+        &self,
+        text: &str,
+        source_lang: &str,
+        target_lang: &str,
+        mut on_chunk_completed: F,
+    ) -> Result<Vec<TranslationResult>, String>
+    where
+        F: FnMut(usize, usize),
+    {
         if text.is_empty() {
             return Ok(Vec::new());
         }
@@ -226,8 +341,11 @@ impl Translator {
             self.rate_limit_config.max_requests_per_minute
         );
 
+        let total_chunks = chunks.len();
+        on_chunk_completed(0, total_chunks);
+
         // 转换为可处理的格式
-        let mut translation_tasks = Vec::new();
+        let mut translation_tasks = FuturesUnordered::new();
 
         for chunk in chunks {
             let translator = self.clone_params();
@@ -266,9 +384,14 @@ impl Translator {
             });
         }
 
-        // 并发执行所有任务
-        let results: Vec<TranslationResult> = futures::future::join_all(translation_tasks)
-            .await;
+        // 并发执行并在每个分片完成后回调进度
+        let mut completed_chunks = 0usize;
+        let mut results: Vec<TranslationResult> = Vec::with_capacity(total_chunks);
+        while let Some(result) = translation_tasks.next().await {
+            completed_chunks += 1;
+            on_chunk_completed(completed_chunks, total_chunks);
+            results.push(result);
+        }
 
         // 检查是否有失败的分片
         let failed_chunks: Vec<_> = results
@@ -307,6 +430,7 @@ impl Translator {
             chunking_config: self.chunking_config.clone(),
             rate_limit_config: self.rate_limit_config.clone(),
             request_limiter: Arc::clone(&self.request_limiter),
+            consistency_context: self.consistency_context.clone(),
         }
     }
 
@@ -317,10 +441,14 @@ impl Translator {
         source_lang: &str,
         target_lang: &str,
     ) -> Result<String, String> {
-        let system_prompt = format!(
+        let mut system_prompt = format!(
             "You are a professional translator. Translate the following text from {} to {}. Preserve formatting, technical terms, and maintain the original meaning.",
             source_lang, target_lang
         );
+        if let Some(context) = &self.consistency_context {
+            system_prompt.push_str("\n\nUse the following consistency guidance across all chunks:\n");
+            system_prompt.push_str(context);
+        }
 
         let request = ChatRequest {
             model: self.model.clone(),
@@ -475,4 +603,46 @@ fn openai_compatible_url(base_url: &str, path: &str) -> String {
     } else {
         format!("{trimmed}/v1/{path}")
     }
+}
+
+fn build_analysis_input(text: &str) -> String {
+    const MAX_CHARS: usize = 18000;
+    let total_chars = text.chars().count();
+    if total_chars <= MAX_CHARS {
+        return text.to_string();
+    }
+
+    let section = MAX_CHARS / 3;
+    let head = slice_by_char_range(text, 0, section);
+    let mid_start = total_chars.saturating_sub(section) / 2;
+    let middle = slice_by_char_range(text, mid_start, mid_start + section);
+    let tail_start = total_chars.saturating_sub(section);
+    let tail = slice_by_char_range(text, tail_start, total_chars);
+
+    format!(
+        "[Beginning]\n{}\n\n[Middle]\n{}\n\n[End]\n{}",
+        head, middle, tail
+    )
+}
+
+fn limit_context_size(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.trim().to_string();
+    }
+    let clipped = slice_by_char_range(text, 0, max_chars);
+    format!("{}\n\n(Truncated)", clipped.trim())
+}
+
+fn slice_by_char_range(text: &str, start_char: usize, end_char: usize) -> String {
+    let mut result = String::new();
+    for (idx, ch) in text.chars().enumerate() {
+        if idx < start_char {
+            continue;
+        }
+        if idx >= end_char {
+            break;
+        }
+        result.push(ch);
+    }
+    result
 }

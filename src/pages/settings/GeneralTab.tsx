@@ -11,6 +11,23 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 
+type AppTheme = "light" | "dark" | "system"
+const THEME_STORAGE_KEY = "pdf-translate:theme"
+
+function getSystemTheme(): "light" | "dark" {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+}
+
+function applyTheme(theme: AppTheme) {
+  const resolved = theme === "system" ? getSystemTheme() : theme
+  document.documentElement.classList.toggle("dark", resolved === "dark")
+}
+
+function normalizeTheme(value: string | undefined): AppTheme {
+  if (value === "light" || value === "dark" || value === "system") return value
+  return "system"
+}
+
 export default function GeneralTab() {
   const { t } = useTranslation("settings")
   const { t: tc } = useTranslation("common")
@@ -24,6 +41,10 @@ export default function GeneralTab() {
   const [longTextThreshold, setLongTextThreshold] = useState("3000")
   const [defaultAlwaysIncludeFullDocument, setDefaultAlwaysIncludeFullDocument] =
     useState(false)
+  const [defaultTargetLanguage, setDefaultTargetLanguage] = useState("")
+  const [theme, setTheme] = useState<AppTheme>(
+    normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY) ?? undefined)
+  )
 
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
@@ -35,6 +56,14 @@ export default function GeneralTab() {
 
     loadChatBehaviorSettings()
       .then((settings) => {
+        const settingsMap = new Map(appSettings.map((item) => [item.key, item.value]))
+        setDefaultTargetLanguage(settingsMap.get("general.default_target_language") ?? "")
+
+        const storedTheme = normalizeTheme(settingsMap.get("general.theme") ?? undefined)
+        setTheme(storedTheme)
+        localStorage.setItem(THEME_STORAGE_KEY, storedTheme)
+        applyTheme(storedTheme)
+
         setModelBehaviorDescription(settings.modelBehaviorDescription)
         setDocumentAppendPrompt(settings.documentAppendPrompt)
         setLongTextRagPrompt(settings.longTextRagPrompt)
@@ -70,6 +99,23 @@ export default function GeneralTab() {
     },
   })
 
+  const saveGeneralMutation = useMutation({
+    mutationFn: async () => {
+      const normalizedTheme = normalizeTheme(theme)
+      await api.setAppSetting("general.default_target_language", defaultTargetLanguage.trim())
+      await api.setAppSetting("general.theme", normalizedTheme)
+      localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme)
+      applyTheme(normalizedTheme)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["appSettings"] })
+      toast({ title: t("general.basic_saved") })
+    },
+    onError: (error: Error) => {
+      toast({ title: t("general.basic_save_error"), description: error.message, variant: "destructive" })
+    },
+  })
+
   return (
     <div className="space-y-4">
       <Card>
@@ -85,15 +131,28 @@ export default function GeneralTab() {
           </div>
           <div className="space-y-2">
             <Label>{t("general.default_target_language")}</Label>
-            <Input placeholder="English" />
+            <Input
+              placeholder="English"
+              value={defaultTargetLanguage}
+              onChange={(event) => setDefaultTargetLanguage(event.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label>{t("general.theme")}</Label>
-            <select className="w-full h-10 px-3 rounded-md border border-input bg-background">
-              <option>{t("general.theme_options.light")}</option>
-              <option>{t("general.theme_options.dark")}</option>
-              <option>{t("general.theme_options.system")}</option>
+            <select
+              className="w-full h-10 px-3 rounded-md border border-input bg-background"
+              value={theme}
+              onChange={(event) => setTheme(normalizeTheme(event.target.value))}
+            >
+              <option value="light">{t("general.theme_options.light")}</option>
+              <option value="dark">{t("general.theme_options.dark")}</option>
+              <option value="system">{t("general.theme_options.system")}</option>
             </select>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => saveGeneralMutation.mutate()} disabled={saveGeneralMutation.isPending}>
+              {tc("btn.save")}
+            </Button>
           </div>
         </CardContent>
       </Card>

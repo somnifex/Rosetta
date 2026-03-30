@@ -33,24 +33,24 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --background: 222 45% 7%;
+    --foreground: 210 36% 96%;
+    --card: 222 34% 10%;
+    --card-foreground: 210 36% 96%;
+    --popover: 222 34% 10%;
+    --popover-foreground: 210 36% 96%;
     --primary: 217.2 91.2% 59.8%;
     --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --secondary: 217 27% 18%;
+    --secondary-foreground: 210 36% 96%;
+    --muted: 217 24% 15%;
+    --muted-foreground: 215 17% 70%;
+    --accent: 217 24% 21%;
+    --accent-foreground: 210 36% 96%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border: 217 20% 26%;
+    --input: 217 22% 22%;
     --ring: 224.3 76.3% 48%;
   }
 }
@@ -109,6 +109,12 @@
       linear-gradient(180deg, hsl(var(--background) / 0.88), hsl(var(--background) / 0.7)),
       radial-gradient(circle at top right, hsl(var(--primary) / 0.08), transparent 38%);
     backdrop-filter: blur(18px);
+  }
+
+  .app-page-surface {
+    background:
+      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.46) 100%),
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.06), transparent 44%);
   }
 
   .reader-noise {
@@ -298,6 +304,11 @@
     max-width: 100%;
   }
 
+  .pdf-preview-stage,
+  .rosetta-pdf-page-stage {
+    position: relative;
+  }
+
   .rosetta-pdf-shell .react-pdf__Page {
     max-width: 100%;
     margin-inline: auto;
@@ -318,10 +329,16 @@
     background: hsl(var(--background));
   }
 
+  .dark .app-page-surface {
+    background:
+      linear-gradient(180deg, hsl(223 47% 9%) 0%, hsl(223 40% 7%) 100%),
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.18), transparent 48%);
+  }
+
   .dark .reader-paper {
     background: hsl(var(--card));
     border-color: hsl(var(--border) / 0.72);
-  }
+}
 
   .dark .reader-prose a {
     color: hsl(199 89% 70%);
@@ -344,6 +361,31 @@
     box-shadow:
       0 22px 60px rgba(2, 6, 23, 0.45),
       0 0 0 1px rgba(71, 85, 105, 0.35);
+  }
+
+  .dark .pdf-preview-stage .react-pdf__Page__canvas {
+    filter: brightness(0.88) contrast(1.06) saturate(0.92);
+  }
+
+  .dark .pdf-preview-stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.28));
+  }
+
+  .dark .rosetta-pdf-page-stage .react-pdf__Page__canvas {
+    filter: invert(0.94) hue-rotate(180deg) brightness(0.95) contrast(1.04);
+  }
+
+  .dark .rosetta-pdf-page-stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.34));
   }
 
   }

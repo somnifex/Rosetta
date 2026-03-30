@@ -544,7 +544,7 @@ export default function Chat() {
 
   return (
     <>
-      <div className="relative flex h-full min-h-0 overflow-hidden bg-[linear-gradient(180deg,#f7f8fb_0%,#eef1f6_100%)]">
+      <div className="app-page-surface relative flex h-full min-h-0 overflow-hidden">
         <aside className="relative z-10 flex w-[320px] shrink-0 flex-col border-r border-border bg-background">
           <div className="border-b border-border px-4 py-4">
             <div className="flex items-center justify-between gap-3">
@@ -603,7 +603,7 @@ export default function Chat() {
                     type="button"
                     onClick={() => openConversation(conversation.id)}
                     className={cn(
-                      "group relative flex w-full flex-col items-start gap-3 rounded-lg border bg-background px-4 py-4 text-left transition-all hover:shadow-md hover:border-gray-300",
+                      "group relative flex w-full flex-col items-start gap-3 rounded-lg border bg-background px-4 py-4 text-left transition-all hover:shadow-md hover:border-border/90",
                       activeId === conversation.id
                         ? "border-primary shadow-sm ring-1 ring-primary"
                         : "border-border"
@@ -614,8 +614,8 @@ export default function Chat() {
                         className={cn(
                           "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
                           conversation.scope === "document"
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-sky-100 text-sky-700"
+                            ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                            : "bg-primary/12 text-primary"
                         )}
                       >
                         {conversation.scope === "document" ? (
@@ -680,7 +680,7 @@ export default function Chat() {
         </aside>
 
         <section className="relative z-10 flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-border/60 bg-white/55 px-5 py-4 backdrop-blur-xl">
+          <header className="border-b border-border/60 bg-background/80 px-5 py-4 backdrop-blur-xl">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -756,7 +756,7 @@ export default function Chat() {
                 {activeMessages.length === 0 ? (
                   <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center text-center">
                     <div className="desktop-panel rounded-[32px] border border-border/60 px-8 py-10 shadow-[0_28px_80px_rgba(15,23,42,0.12)]">
-                      <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-sky-100 text-sky-700">
+                      <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-primary/12 text-primary">
                         <Bot className="h-9 w-9" />
                       </div>
                       <h3 className="text-2xl font-semibold tracking-tight">
@@ -804,7 +804,7 @@ export default function Chat() {
                         className={cn(
                           "flex gap-4 rounded-lg px-4 py-4 transition-all hover:shadow-md",
                           message.role === "assistant"
-                            ? "bg-background border border-border hover:border-gray-300"
+                            ? "bg-background border border-border hover:border-border/90"
                             : "bg-background border border-primary shadow-sm ring-1 ring-primary"
                         )}
                       >
@@ -814,7 +814,7 @@ export default function Chat() {
                             message.role === "user"
                               ? "bg-primary text-primary-foreground"
                               : message.role === "system"
-                                ? "bg-amber-100 text-amber-700"
+                                ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
                                 : "border border-border/70 bg-background text-primary"
                           )}
                         >
@@ -904,7 +904,7 @@ export default function Chat() {
                 )}
               </div>
 
-              <div className="border-t border-border/60 bg-white/55 px-5 py-4 backdrop-blur-xl">
+              <div className="border-t border-border/60 bg-background/80 px-5 py-4 backdrop-blur-xl">
                 <div className="mx-auto max-w-3xl">
                   {attachments.length ? (
                     <div className="mb-3 flex flex-wrap gap-2">

@@ -74,7 +74,7 @@ function PdfThumbnail({ filePath }: { filePath: string }) {
   }, [])
 
   return (
-    <div ref={containerRef} className="h-full w-full overflow-hidden">
+    <div ref={containerRef} className="pdf-preview-stage h-full w-full overflow-hidden">
       {loading && <Loader2 className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 animate-spin text-muted-foreground/50" />}
       {containerWidth > 0 && (
         <PdfDocument file={fileUrl} loading={null} onLoadSuccess={() => setLoading(false)} onLoadError={() => setLoading(false)}>
@@ -126,7 +126,7 @@ export function DocumentCard({
       <ContextMenuTrigger asChild>
       <article
         className={cn(
-          "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:shadow-md hover:border-gray-300",
+          "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:shadow-md hover:border-border/90",
           selected && "border-primary shadow-sm ring-1 ring-primary"
         )}
       >
@@ -153,11 +153,11 @@ export function DocumentCard({
         }}
       >
         {/* A4 Preview — portrait ratio */}
-        <div className="relative aspect-[3/4] overflow-hidden border-b border-border bg-gray-50/50">
+        <div className="relative aspect-[3/4] overflow-hidden border-b border-border bg-muted/45">
           {isPdf && !document.is_file_missing ? (
             <PdfThumbnail filePath={document.file_path} />
           ) : (
-            <div className="flex h-full items-center justify-center bg-gray-50/50">
+            <div className="flex h-full items-center justify-center bg-muted/45">
               <Icon className="h-12 w-12 text-muted-foreground/40" />
             </div>
           )}
@@ -168,14 +168,14 @@ export function DocumentCard({
               <>
                 <button
                   type="button"
-                  className="rounded-full bg-white/90 p-1.5 text-foreground shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  className="rounded-full bg-background/90 p-1.5 text-foreground shadow-sm backdrop-blur-sm hover:bg-background transition-colors"
                   onClick={(event) => { event.stopPropagation(); onOpen() }}
                 >
                   <Eye className="h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
-                  className="rounded-full bg-white/90 p-1.5 text-destructive shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  className="rounded-full bg-background/90 p-1.5 text-destructive shadow-sm backdrop-blur-sm hover:bg-background transition-colors"
                   onClick={(event) => { event.stopPropagation(); onDelete() }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -185,14 +185,14 @@ export function DocumentCard({
               <>
                 <button
                   type="button"
-                  className="rounded-full bg-white/90 p-1.5 text-foreground shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  className="rounded-full bg-background/90 p-1.5 text-foreground shadow-sm backdrop-blur-sm hover:bg-background transition-colors"
                   onClick={(event) => { event.stopPropagation(); onRestore() }}
                 >
                   <ArchiveRestore className="h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
-                  className="rounded-full bg-white/90 p-1.5 text-destructive shadow-sm backdrop-blur-sm hover:bg-white transition-colors"
+                  className="rounded-full bg-background/90 p-1.5 text-destructive shadow-sm backdrop-blur-sm hover:bg-background transition-colors"
                   onClick={(event) => { event.stopPropagation(); onPermanentDelete() }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />

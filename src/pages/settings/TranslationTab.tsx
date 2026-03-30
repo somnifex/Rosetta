@@ -1,27 +1,67 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { channelStore, type TranslatePromptConfig, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT } from "@/lib/api"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  channelStore,
+  type TranslatePromptConfig,
+  DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_USER_PROMPT,
+  DEFAULT_TRANSLATION_RUNTIME_SETTINGS,
+  loadTranslationRuntimeSettings,
+  saveTranslationRuntimeSettings,
+} from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import { RotateCw } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function TranslationTab() {
   const { t } = useTranslation("settings")
+  const { t: tc } = useTranslation("common")
   const { toast } = useToast()
+  const queryClient = useQueryClient()
 
   const [translatePrompt, setTranslatePrompt] = useState<TranslatePromptConfig>(
     () => channelStore.getTranslatePrompt()
   )
+  const [loadedRuntimeSettings, setLoadedRuntimeSettings] = useState(false)
+  const [chunkSize, setChunkSize] = useState(String(DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkSize))
+  const [chunkOverlap, setChunkOverlap] = useState(String(DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkOverlap))
+  const [maxConcurrentRequests, setMaxConcurrentRequests] = useState(
+    String(DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxConcurrentRequests)
+  )
+  const [maxRequestsPerMinute, setMaxRequestsPerMinute] = useState(
+    String(DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxRequestsPerMinute)
+  )
+  const [smartOptimizeEnabled, setSmartOptimizeEnabled] = useState(
+    DEFAULT_TRANSLATION_RUNTIME_SETTINGS.smartOptimizeEnabled
+  )
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const { data: appSettings } = useQuery({
+    queryKey: ["translationRuntimeSettings"],
+    queryFn: loadTranslationRuntimeSettings,
+  })
 
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!appSettings || loadedRuntimeSettings) return
+    setChunkSize(String(appSettings.chunkSize))
+    setChunkOverlap(String(appSettings.chunkOverlap))
+    setMaxConcurrentRequests(String(appSettings.maxConcurrentRequests))
+    setMaxRequestsPerMinute(String(appSettings.maxRequestsPerMinute))
+    setSmartOptimizeEnabled(appSettings.smartOptimizeEnabled)
+    setLoadedRuntimeSettings(true)
+  }, [appSettings, loadedRuntimeSettings])
 
   const updateTranslatePrompt = useCallback((updates: Partial<TranslatePromptConfig>) => {
     setTranslatePrompt((prev) => {
@@ -42,8 +82,135 @@ export default function TranslationTab() {
     toast({ title: t("prompt.toast.reset") })
   }, [t, toast])
 
+  const saveRuntimeSettingsMutation = useMutation({
+    mutationFn: async () => {
+      const parsedChunkSize = Number.parseInt(chunkSize, 10)
+      const normalizedChunkSize = Number.isFinite(parsedChunkSize)
+        ? Math.min(Math.max(parsedChunkSize, 256), 32000)
+        : DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkSize
+
+      const parsedChunkOverlap = Number.parseInt(chunkOverlap, 10)
+      const normalizedChunkOverlap = Number.isFinite(parsedChunkOverlap)
+        ? Math.min(Math.max(parsedChunkOverlap, 0), normalizedChunkSize - 1)
+        : DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkOverlap
+
+      const parsedConcurrent = Number.parseInt(maxConcurrentRequests, 10)
+      const normalizedConcurrent = Number.isFinite(parsedConcurrent)
+        ? Math.min(Math.max(parsedConcurrent, 1), 32)
+        : DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxConcurrentRequests
+
+      const parsedRate = Number.parseInt(maxRequestsPerMinute, 10)
+      const normalizedRate = Number.isFinite(parsedRate)
+        ? Math.min(Math.max(parsedRate, 1), 600)
+        : DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxRequestsPerMinute
+
+      setChunkSize(String(normalizedChunkSize))
+      setChunkOverlap(String(normalizedChunkOverlap))
+      setMaxConcurrentRequests(String(normalizedConcurrent))
+      setMaxRequestsPerMinute(String(normalizedRate))
+
+      await saveTranslationRuntimeSettings({
+        chunkSize: normalizedChunkSize,
+        chunkOverlap: normalizedChunkOverlap,
+        maxConcurrentRequests: normalizedConcurrent,
+        maxRequestsPerMinute: normalizedRate,
+        smartOptimizeEnabled,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["translationRuntimeSettings"] })
+      toast({ title: t("prompt.runtime.toast.saved") })
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t("prompt.runtime.toast.save_error"),
+        description: error.message,
+        variant: "destructive",
+      })
+    },
+  })
+
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("prompt.runtime.title")}</CardTitle>
+          <CardDescription>{t("prompt.runtime.description")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>{t("prompt.runtime.chunk_size")}</Label>
+              <Input
+                type="number"
+                min={256}
+                max={32000}
+                value={chunkSize}
+                onChange={(event) => setChunkSize(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("prompt.runtime.chunk_size_desc")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>{t("prompt.runtime.chunk_overlap")}</Label>
+              <Input
+                type="number"
+                min={0}
+                value={chunkOverlap}
+                onChange={(event) => setChunkOverlap(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("prompt.runtime.chunk_overlap_desc")}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>{t("prompt.runtime.max_concurrent_requests")}</Label>
+              <Input
+                type="number"
+                min={1}
+                max={32}
+                value={maxConcurrentRequests}
+                onChange={(event) => setMaxConcurrentRequests(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("prompt.runtime.max_concurrent_requests_desc")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>{t("prompt.runtime.max_requests_per_minute")}</Label>
+              <Input
+                type="number"
+                min={1}
+                max={600}
+                value={maxRequestsPerMinute}
+                onChange={(event) => setMaxRequestsPerMinute(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("prompt.runtime.max_requests_per_minute_desc")}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{t("prompt.runtime.smart_optimize")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("prompt.runtime.smart_optimize_desc")}
+              </p>
+            </div>
+            <Switch
+              checked={smartOptimizeEnabled}
+              onCheckedChange={setSmartOptimizeEnabled}
+            />
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveRuntimeSettingsMutation.mutate()}
+              disabled={saveRuntimeSettingsMutation.isPending}
+            >
+              {tc("btn.save")}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
