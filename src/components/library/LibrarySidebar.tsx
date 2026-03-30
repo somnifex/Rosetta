@@ -57,6 +57,73 @@ function navItemClass(active: boolean) {
   )
 }
 
+interface SidebarItemActionsProps {
+  count: number
+  active: boolean
+  editLabel: string
+  deleteLabel: string
+  onEdit: () => void
+  onDelete: () => void
+}
+
+function SidebarItemActions({
+  count,
+  active,
+  editLabel,
+  deleteLabel,
+  onEdit,
+  onDelete,
+}: SidebarItemActionsProps) {
+  return (
+    <div className="pointer-events-none absolute inset-y-0 right-2 flex w-[4.25rem] items-center justify-end">
+      <Badge
+        variant="secondary"
+        className={cn(
+          "pointer-events-none rounded-full px-2 py-0 text-[11px] font-normal shadow-none group-hover:hidden group-has-[:focus-visible]:hidden",
+          active && "border-primary-foreground/15 bg-primary-foreground/15 text-primary-foreground"
+        )}
+      >
+        {count}
+      </Badge>
+
+      <div className="pointer-events-auto z-10 hidden items-center gap-0.5 group-hover:flex group-has-[:focus-visible]:flex">
+        <button
+          type="button"
+          aria-label={editLabel}
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
+          className={cn(
+            "rounded-md p-1 transition-colors",
+            active
+              ? "text-primary-foreground/80 hover:bg-primary-foreground/15 hover:text-primary-foreground"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          aria-label={deleteLabel}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+          className={cn(
+            "rounded-md p-1 transition-colors",
+            active
+              ? "text-primary-foreground/80 hover:bg-destructive/20 hover:text-destructive"
+              : "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          )}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function LibrarySidebar({
   categories,
   folders,
@@ -177,7 +244,7 @@ export function LibrarySidebar({
             <div className="group relative">
               <button
                 type="button"
-                className={navItemClass(activeSection === "library" && selectedCategoryKey === categoryKey)}
+                className={cn(navItemClass(activeSection === "library" && selectedCategoryKey === categoryKey), "pr-[4.75rem]")}
                 style={{ paddingLeft: `${depth * 14 + 12}px` }}
                 onClick={() => {
                   onSelectSection("library")
@@ -188,35 +255,19 @@ export function LibrarySidebar({
                 }}
               >
                 {children.length > 0 ? <Layers3 className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
-                <span className="flex-1 truncate text-left">{category.name}</span>
-                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
-                  {categoryCounts[category.id] || 0}
-                </Badge>
+                <span className="min-w-0 flex-1 truncate text-left">{category.name}</span>
               </button>
-              {/* Hover action buttons */}
-          <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setEditingCategoryId(category.id)
-                setEditCategoryName(category.name)
-              }}
-              className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDeleteCategory(category.id)
-              }}
-              className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </div>
+              <SidebarItemActions
+                count={categoryCounts[category.id] || 0}
+                active={activeSection === "library" && selectedCategoryKey === categoryKey}
+                editLabel="重命名分类"
+                deleteLabel="删除分类"
+                onEdit={() => {
+                  setEditingCategoryId(category.id)
+                  setEditCategoryName(category.name)
+                }}
+                onDelete={() => onDeleteCategory(category.id)}
+              />
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-48">
@@ -275,45 +326,29 @@ export function LibrarySidebar({
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div className="group relative">
-        <button
-          type="button"
-          className={navItemClass(activeSection === "library" && selectedFolderId === folder.id)}
-          style={{ paddingLeft: `${depth * 14 + 12}px` }}
-          onClick={() => {
-            onSelectSection("library")
-            onSelectFolder(folder.id)
-          }}
-        >
-          {children.length > 0 ? <FolderOpen className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
-          <span className="flex-1 truncate text-left">{folder.name}</span>
-          <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
-            {folderCounts[folder.id] || 0}
-          </Badge>
-        </button>
-              {/* Hover action buttons */}
-              <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setEditingFolderId(folder.id)
-                    setEditFolderName(folder.name)
-                  }}
-                  className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-                >
-                  <Pencil className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDeleteFolder(folder.id)
-                  }}
-                  className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </div>
+              <button
+                type="button"
+                className={cn(navItemClass(activeSection === "library" && selectedFolderId === folder.id), "pr-[4.75rem]")}
+                style={{ paddingLeft: `${depth * 14 + 12}px` }}
+                onClick={() => {
+                  onSelectSection("library")
+                  onSelectFolder(folder.id)
+                }}
+              >
+                {children.length > 0 ? <FolderOpen className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
+                <span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>
+              </button>
+              <SidebarItemActions
+                count={folderCounts[folder.id] || 0}
+                active={activeSection === "library" && selectedFolderId === folder.id}
+                editLabel="重命名文件夹"
+                deleteLabel="删除文件夹"
+                onEdit={() => {
+                  setEditingFolderId(folder.id)
+                  setEditFolderName(folder.name)
+                }}
+                onDelete={() => onDeleteFolder(folder.id)}
+              />
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-48">
