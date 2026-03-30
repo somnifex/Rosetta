@@ -565,14 +565,12 @@ export default function Library() {
           uploadSlot={<ImportButton />}
         />
 
-        <div className="border-b bg-background/80 px-4 py-3 sm:px-6">
-          <TagFilterBar
-            selectedTagIds={selectedTagIds}
-            onToggleTag={handleToggleTag}
-            onClearTags={() => setSelectedTagIds([])}
-            onManageTags={() => setTagManagerOpen(true)}
-          />
-        </div>
+        <TagFilterBar
+          selectedTagIds={selectedTagIds}
+          onToggleTag={handleToggleTag}
+          onClearTags={() => setSelectedTagIds([])}
+          onManageTags={() => setTagManagerOpen(true)}
+        />
 
         {selection.selectionMode && (
           <LibraryBatchBar

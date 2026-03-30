@@ -56,7 +56,7 @@ export function LibraryToolbar({
   uploadSlot,
 }: LibraryToolbarProps) {
   return (
-    <div className="sticky top-0 z-20 space-y-4 border-b border-border bg-background px-4 py-5 sm:px-6">
+    <div className="sticky top-0 z-20 space-y-4 bg-background/95 px-4 py-5 backdrop-blur sm:px-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
