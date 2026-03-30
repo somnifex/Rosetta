@@ -57,7 +57,7 @@ export function DocumentList({
   inTrash,
 }: DocumentListProps) {
   return (
-    <div className="overflow-hidden rounded-[28px] border bg-card shadow-sm">
+    <div className="overflow-hidden rounded-lg border border-border bg-background shadow-sm">
       <div className="grid grid-cols-[44px,minmax(0,2fr),minmax(0,1fr),120px,110px,140px] gap-3 border-b px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         <span />
         <span>文档</span>
@@ -122,11 +122,11 @@ export function DocumentList({
               </div>
 
               <div className="flex flex-col gap-2">
-                <Badge variant="outline" className="justify-center">
+                <Badge variant="outline" className="justify-center rounded-full shadow-none font-normal text-xs">
                   {statusLabel(document)}
                 </Badge>
                 {document.is_file_missing && (
-                  <Badge variant="destructive" className="justify-center">
+                  <Badge variant="destructive" className="justify-center rounded-full shadow-none font-normal text-xs">
                     缺失
                   </Badge>
                 )}

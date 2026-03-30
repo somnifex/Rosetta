@@ -91,8 +91,8 @@ export function DocumentCard({
   return (
     <article
       className={cn(
-        "group relative overflow-hidden rounded-[28px] border bg-card shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl",
-        selected && "border-primary shadow-lg ring-2 ring-primary/30"
+        "group relative overflow-hidden rounded-lg bg-background border border-border transition-all hover:-translate-y-1 hover:shadow-md hover:border-gray-300",
+        selected && "border-primary shadow-sm ring-1 ring-primary"
       )}
     >
       <button
@@ -116,12 +116,12 @@ export function DocumentCard({
           onOpen()
         }}
       >
-        <div className="relative h-48 overflow-hidden border-b bg-muted/40">
+        <div className="relative h-48 overflow-hidden border-b border-border bg-gray-50/50">
           {isPdf && !document.is_file_missing ? (
             <PdfThumbnail filePath={document.file_path} />
           ) : (
-            <div className="flex h-full items-center justify-center bg-[linear-gradient(160deg,#f5f7fb_0%,#eef2f8_45%,#dde5f2_100%)]">
-              <Icon className="h-16 w-16 text-muted-foreground/80" />
+            <div className="flex h-full items-center justify-center bg-gray-50/50">
+              <Icon className="h-16 w-16 text-muted-foreground/60" />
             </div>
           )}
 
@@ -160,12 +160,12 @@ export function DocumentCard({
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">{statusLabel}</Badge>
-              {document.category_name && <Badge variant="secondary">{document.category_name}</Badge>}
-              {document.folder_name && <Badge variant="secondary">{document.folder_name}</Badge>}
-              {document.is_file_missing && <Badge variant="destructive">本地文件缺失</Badge>}
+              <Badge variant="outline" className="rounded-full shadow-none font-normal text-xs">{statusLabel}</Badge>
+              {document.category_name && <Badge variant="secondary" className="rounded-full shadow-none font-normal text-xs bg-muted text-muted-foreground">{document.category_name}</Badge>}
+              {document.folder_name && <Badge variant="secondary" className="rounded-full shadow-none font-normal text-xs bg-muted text-muted-foreground">{document.folder_name}</Badge>}
+              {document.is_file_missing && <Badge variant="destructive" className="rounded-full shadow-none font-normal text-xs">本地文件缺失</Badge>}
               {document.translation_status === "completed" && (
-                <Badge className="gap-1">
+                <Badge className="gap-1 rounded-full shadow-none font-normal text-xs bg-primary text-primary-foreground">
                   <CheckCircle2 className="h-3 w-3" />
                   已翻译
                 </Badge>

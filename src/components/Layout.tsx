@@ -45,7 +45,7 @@ export default function Layout({ children }: LayoutProps) {
   }
 
   const navContent = (compact = false) => (
-    <div className="flex h-full flex-col bg-card">
+    <div className="flex h-full flex-col bg-background">
       <div className={cn("flex h-14 items-center border-b", compact ? "px-5" : collapsed ? "justify-center px-3" : "px-5")}>
         <div className={cn("flex items-center gap-3", collapsed && !compact && "justify-center")}>
           <img
@@ -67,11 +67,11 @@ export default function Layout({ children }: LayoutProps) {
               to={item.path}
               onClick={() => setMobileSidebarOpen(false)}
               className={cn(
-                "flex items-center rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-colors mb-0.5",
                 collapsed && !compact ? "justify-center" : "gap-3",
                 isActive
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
               <Icon className="h-5 w-5 shrink-0" />
@@ -100,7 +100,7 @@ export default function Layout({ children }: LayoutProps) {
       </Dialog>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b bg-card/90 px-4 py-3 backdrop-blur sm:px-6">
+        <header className="border-b border-border bg-background px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
@@ -116,7 +116,7 @@ export default function Layout({ children }: LayoutProps) {
                   placeholder={ts("input.placeholder")}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  className="h-10 rounded-2xl bg-muted/50 pl-10 shadow-sm"
+                  className="h-9 rounded-full bg-muted shadow-none border-none pl-10"
                 />
               </div>
             </form>

@@ -31,10 +31,10 @@ interface LibrarySidebarProps {
 
 function navItemClass(active: boolean) {
   return cn(
-    "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition-colors",
+    "flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors mb-0.5",
     active
-      ? "bg-primary text-primary-foreground shadow-sm"
-      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+      ? "bg-primary text-primary-foreground font-medium"
+      : "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
   )
 }
 
@@ -130,7 +130,7 @@ export function LibrarySidebar({
   }
 
   return (
-    <aside className="flex h-full w-full flex-col border-r bg-card/80 backdrop-blur xl:w-[280px]">
+    <aside className="flex h-full w-full flex-col border-r border-border bg-background xl:w-[280px]">
       <div className="border-b px-4 py-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           文档库

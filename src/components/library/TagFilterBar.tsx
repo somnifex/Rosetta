@@ -40,7 +40,7 @@ export function TagFilterBar({
             key={tag.id}
             variant={isSelected ? "default" : "outline"}
             className={cn(
-              "cursor-pointer transition-colors",
+              "rounded-full cursor-pointer shadow-none font-normal transition-colors",
               isSelected && tag.color && `bg-[${tag.color}] hover:bg-[${tag.color}]/80`
             )}
             style={isSelected && tag.color ? { backgroundColor: tag.color, borderColor: tag.color } : {}}
