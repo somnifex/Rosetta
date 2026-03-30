@@ -124,6 +124,16 @@ export default function DocumentDetail() {
     setAskOpen(true)
   }, [setAskOpen])
 
+  const handleBack = useCallback(() => {
+    const state = window.history.state as { idx?: number } | null
+    if ((state?.idx ?? 0) > 0) {
+      navigate(-1)
+      return
+    }
+
+    navigate("/library")
+  }, [navigate])
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
@@ -217,7 +227,7 @@ export default function DocumentDetail() {
         askOpen={readerState.askOpen}
         onModeChange={setBaseMode}
         onAskToggle={() => setAskOpen(!readerState.askOpen)}
-        onBackToLibrary={() => navigate("/library")}
+        onBackToLibrary={handleBack}
         onOpenActions={() => navigate("/library", { state: { reopenDocumentId: document.id } })}
         scale={toolbarScale}
         onScaleChange={handleToolbarScaleChange}
