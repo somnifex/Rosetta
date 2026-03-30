@@ -42,6 +42,8 @@ import { Input } from "@/components/ui/input"
 import { DocumentPicker } from "@/components/DocumentPicker"
 import { ConversationSettingsDialog } from "@/components/chat/ConversationSettingsDialog"
 import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
+import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
+import { PdfViewer } from "@/components/viewer/PdfViewer"
 import {
   Bot,
   Check,
@@ -216,6 +218,24 @@ export default function Chat() {
   const { data: previewContent } = useQuery({
     queryKey: ["parsedContent", previewDocId],
     queryFn: () => api.getParsedContent(previewDocId!),
+    enabled: !!previewDocId,
+  })
+
+  const { data: previewDocument } = useQuery({
+    queryKey: ["document", previewDocId],
+    queryFn: () => api.getDocumentById(previewDocId!),
+    enabled: !!previewDocId,
+  })
+
+  const { data: previewTranslatedContent } = useQuery({
+    queryKey: ["translatedContent", previewDocId],
+    queryFn: () => api.getTranslatedContent(previewDocId!),
+    enabled: !!previewDocId,
+  })
+
+  const { data: previewOutputs = [] } = useQuery({
+    queryKey: ["documentOutputs", previewDocId],
+    queryFn: () => api.getDocumentOutputs(previewDocId!),
     enabled: !!previewDocId,
   })
 
@@ -751,6 +771,23 @@ export default function Chat() {
     previewCodeRenderKind === "mindmap" && previewCodeBlock
       ? parseMindmap(previewCodeBlock.code)
       : []
+  const previewFilename = previewDocument?.filename?.toLowerCase() ?? ""
+  const previewOriginalPdf =
+    previewDocument &&
+    previewFilename.endsWith(".pdf") &&
+    !previewDocument.is_file_missing
+      ? previewDocument.file_path
+      : null
+  const previewTranslatedPdf =
+    previewOutputs.find(
+      (output) => output.output_type === "translated_pdf" && !output.is_file_missing
+    )?.file_path ?? null
+  const previewRenderablePdf = previewOriginalPdf ?? previewTranslatedPdf
+  const previewMarkdownContent =
+    previewContent?.markdown_content?.trim() ||
+    previewTranslatedContent?.content?.trim() ||
+    ""
+  const previewContentFormat = previewFilename.endsWith(".txt") ? "plain" : "markdown"
 
   return (
     <>
@@ -1349,9 +1386,24 @@ export default function Chat() {
                         </pre>
                       </div>
                     )
-                  ) : previewContent?.markdown_content ? (
-                    <div className="whitespace-pre-wrap text-sm leading-7 text-foreground">
-                      {previewContent.markdown_content}
+                  ) : previewRenderablePdf ? (
+                    <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
+                      <PdfViewer
+                        fileUrl={previewRenderablePdf}
+                        fileName={previewDocument?.filename}
+                        showZoomControls={false}
+                        className="h-full"
+                      />
+                    </div>
+                  ) : previewMarkdownContent ? (
+                    <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
+                      <MarkdownViewer
+                        content={previewMarkdownContent}
+                        contentFormat={previewContentFormat}
+                        textScale={0.92}
+                        className="h-full px-2 py-3"
+                        contentClassName="prose-headings:tracking-tight prose-p:text-[0.98em]"
+                      />
                     </div>
                   ) : (
                     <p className="py-8 text-center text-sm text-muted-foreground">
