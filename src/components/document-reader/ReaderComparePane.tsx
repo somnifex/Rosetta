@@ -161,7 +161,7 @@ export function ReaderComparePane({
       </div>
 
       <div ref={rootRef} className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="relative min-w-0 border-r reader-noise" style={{ width: `${compareRatio * 100}%` }}>
+        <div className="relative min-w-0 border-r bg-background/40" style={{ width: `${compareRatio * 100}%` }}>
           <TextSelectionToolbar
             containerRef={leftPane.wrapperRef}
             onAskAI={onAskAI}
@@ -198,7 +198,7 @@ export function ReaderComparePane({
           </div>
         </button>
 
-        <div className="relative min-w-0 flex-1 subtle-dots">
+        <div className="relative min-w-0 flex-1 bg-background/30">
           <TextSelectionToolbar
             containerRef={rightPane.wrapperRef}
             onAskAI={onAskAI}

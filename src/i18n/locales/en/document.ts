@@ -80,6 +80,21 @@ export default {
     ask_about: "Explain this text",
     translate_text: "Translate this text",
   },
+  reader_highlight: {
+    save: "Save Highlights",
+    saved: "Saved",
+    unsaved: "Unsaved",
+    undo: "Undo",
+    redo: "Redo",
+    zoom_in: "Zoom in",
+    zoom_out: "Zoom out",
+    add_highlight: "Add highlight",
+    shortcuts_hint: "Ctrl/Cmd+S Save · Ctrl/Cmd+Z Undo · Ctrl/Cmd+Shift+Z Redo",
+    toast: {
+      save_success: "Highlights saved",
+      save_error: "Failed to save highlights",
+    },
+  },
   delete_confirm: {
     title: "Delete Document",
     description: "Are you sure you want to delete this document? This action cannot be undone.",

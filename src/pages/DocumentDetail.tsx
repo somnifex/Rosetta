@@ -9,7 +9,7 @@ import { ReaderPaneTranslated } from "@/components/document-reader/ReaderPaneTra
 import { ReaderComparePane } from "@/components/document-reader/ReaderComparePane"
 import { ReaderAskPanel } from "@/components/document-reader/ReaderAskPanel"
 import { Button } from "@/components/ui/button"
-import { Loader2, PanelRightOpen } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 function toModeQuery(baseMode: "original" | "translated" | "compare", askOpen: boolean) {
   if (baseMode === "compare" && askOpen) return "compare-ask"
@@ -28,6 +28,8 @@ export default function DocumentDetail() {
     setBaseMode,
     setAskOpen,
     setTextScale,
+    setOriginalScale,
+    setTranslatedScale,
     setCompareRatio,
     setCompareOrder,
   } = useReaderState(id || "", searchParams.get("mode"))
@@ -44,13 +46,13 @@ export default function DocumentDetail() {
     },
   })
 
-  const { data: parsedContent } = useQuery({
+  const { data: parsedContent, isFetching: isParsedContentFetching } = useQuery({
     queryKey: ["parsedContent", id],
     queryFn: () => api.getParsedContent(id!),
     enabled: !!id && !!document && document.parse_status === "completed",
   })
 
-  const { data: translatedContent } = useQuery({
+  const { data: translatedContent, isFetching: isTranslatedContentFetching } = useQuery({
     queryKey: ["translatedContent", id],
     queryFn: () => api.getTranslatedContent(id!),
     enabled: !!id && !!document && document.translation_status === "completed",
@@ -83,12 +85,34 @@ export default function DocumentDetail() {
   const parseReady = document?.parse_status === "completed"
   const translationReady = document?.translation_status === "completed"
   const compareReady = !!parsedContent?.markdown_content && !!translatedContent?.content
+  const originalContentLoading = parseReady && !originalPdf && isParsedContentFetching
+  const translatedContentLoading = translationReady && !translatedPdf && isTranslatedContentFetching
+  const compareContentLoading = parseReady && translationReady && (isParsedContentFetching || isTranslatedContentFetching)
   const prefersPlainTextLayout = !!document?.filename.toLowerCase().endsWith(".txt")
   const fallbackContentFormat = prefersPlainTextLayout ? "plain" : "markdown"
   const usesIntegratedPdfControls =
     (readerState.baseMode === "original" && !!originalPdf) ||
     (readerState.baseMode === "translated" && !!translatedPdf)
   const translatedPdfName = translatedPdf?.split(/[\\/]/).pop()
+
+  const toolbarScale =
+    readerState.baseMode === "original" && originalPdf
+      ? readerState.originalScale
+      : readerState.baseMode === "translated" && translatedPdf
+      ? readerState.translatedScale
+      : readerState.textScale
+
+  const handleToolbarScaleChange = useCallback((scale: number) => {
+    if (readerState.baseMode === "original" && originalPdf) {
+      setOriginalScale(scale)
+      return
+    }
+    if (readerState.baseMode === "translated" && translatedPdf) {
+      setTranslatedScale(scale)
+      return
+    }
+    setTextScale(scale)
+  }, [originalPdf, readerState.baseMode, setOriginalScale, setTextScale, setTranslatedScale, translatedPdf])
 
   const handleAsk = useCallback((text: string) => {
     setPrefillText(`请结合当前文档解释这段内容：\n\n${text}`)
@@ -146,6 +170,10 @@ export default function DocumentDetail() {
           event.preventDefault()
           setTextScale(readerState.textScale - 0.1)
         }
+        if (event.key === "0") {
+          event.preventDefault()
+          setTextScale(1)
+        }
       }
     }
 
@@ -181,11 +209,7 @@ export default function DocumentDetail() {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[-140px] top-[-100px] h-[340px] w-[340px] rounded-full bg-sky-200/25 blur-3xl" />
-        <div className="absolute bottom-[-120px] right-[-60px] h-[300px] w-[300px] rounded-full bg-blue-200/20 blur-3xl" />
-      </div>
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
 
       <ReaderToolbar
         title={document.title}
@@ -195,9 +219,9 @@ export default function DocumentDetail() {
         onAskToggle={() => setAskOpen(!readerState.askOpen)}
         onBackToLibrary={() => navigate("/library")}
         onOpenActions={() => navigate("/library", { state: { reopenDocumentId: document.id } })}
-        scale={readerState.textScale}
-        onScaleChange={usesIntegratedPdfControls ? undefined : setTextScale}
-        showScaleControls={!usesIntegratedPdfControls}
+        scale={toolbarScale}
+        onScaleChange={handleToolbarScaleChange}
+        showScaleControls={true}
         showPageControls={false}
         modeDisabled={{
           translated: !translationReady && !translatedPdf,
@@ -208,33 +232,53 @@ export default function DocumentDetail() {
 
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
+          <div className="relative flex-1 overflow-hidden">
               {readerState.baseMode === "original" ? (
-                <ReaderPaneOriginal
-                  pdfPath={originalPdf}
-                  pdfFileName={document.filename}
-                  markdownContent={parsedContent?.markdown_content}
-                  contentFormat={fallbackContentFormat}
-                  textScale={readerState.textScale}
-                  onAskAI={handleAsk}
-                  onTranslateSelection={handleTranslateSelection}
-                />
+                originalContentLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <ReaderPaneOriginal
+                    pdfPath={originalPdf}
+                    pdfFileName={document.filename}
+                    pdfScale={readerState.originalScale}
+                    onPdfScaleChange={setOriginalScale}
+                    markdownContent={parsedContent?.markdown_content}
+                    contentFormat={fallbackContentFormat}
+                    textScale={readerState.textScale}
+                    onAskAI={handleAsk}
+                    onTranslateSelection={handleTranslateSelection}
+                  />
+                )
               ) : null}
 
               {readerState.baseMode === "translated" ? (
-                <ReaderPaneTranslated
-                  pdfPath={translatedPdf}
-                  pdfFileName={translatedPdfName}
-                  markdownContent={translatedContent?.content}
-                  contentFormat={fallbackContentFormat}
-                  textScale={readerState.textScale}
-                  onAskAI={handleAsk}
-                  onTranslateSelection={handleTranslateSelection}
-                />
+                translatedContentLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <ReaderPaneTranslated
+                    pdfPath={translatedPdf}
+                    pdfFileName={translatedPdfName}
+                    pdfScale={readerState.translatedScale}
+                    onPdfScaleChange={setTranslatedScale}
+                    markdownContent={translatedContent?.content}
+                    contentFormat={fallbackContentFormat}
+                    textScale={readerState.textScale}
+                    onAskAI={handleAsk}
+                    onTranslateSelection={handleTranslateSelection}
+                  />
+                )
               ) : null}
 
               {readerState.baseMode === "compare" ? (
-                compareReady ? (
+                compareContentLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                  </div>
+                ) : compareReady ? (
                   <ReaderComparePane
                     originalContent={parsedContent?.markdown_content || ""}
                     translatedContent={translatedContent?.content || ""}
@@ -273,17 +317,6 @@ export default function DocumentDetail() {
         />
       </div>
 
-      {!readerState.askOpen && parseReady ? (
-        <div className="pointer-events-none fixed bottom-5 right-5 z-50">
-          <Button
-            className="pointer-events-auto h-12 w-12 rounded-full shadow-[0_20px_40px_rgba(37,99,235,0.22)] ring-4 ring-white/70"
-            size="icon"
-            onClick={() => setAskOpen(true)}
-          >
-            <PanelRightOpen className="h-4 w-4" />
-          </Button>
-        </div>
-      ) : null}
     </div>
   )
 }

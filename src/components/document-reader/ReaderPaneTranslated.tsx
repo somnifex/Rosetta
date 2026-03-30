@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 interface ReaderPaneTranslatedProps {
   pdfPath?: string | null
   pdfFileName?: string
+  pdfScale?: number
+  onPdfScaleChange?: (scale: number) => void
   markdownContent?: string | null
   contentFormat?: "markdown" | "plain"
   textScale: number
@@ -19,6 +21,8 @@ interface ReaderPaneTranslatedProps {
 export function ReaderPaneTranslated({
   pdfPath,
   pdfFileName,
+  pdfScale,
+  onPdfScaleChange,
   markdownContent,
   contentFormat = "markdown",
   textScale,
@@ -34,6 +38,9 @@ export function ReaderPaneTranslated({
         <PdfViewer
           fileUrl={pdfPath}
           fileName={pdfFileName}
+          scale={pdfScale}
+          onScaleChange={onPdfScaleChange}
+          showZoomControls={false}
           onAskAI={onAskAI}
           onTranslateSelection={onTranslateSelection}
           className="h-full"
@@ -51,7 +58,7 @@ export function ReaderPaneTranslated({
               content={markdownContent}
               contentFormat={contentFormat}
               textScale={textScale}
-              className="reader-noise h-full"
+              className="h-full"
               contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"
             />
           </div>

@@ -1,8 +1,7 @@
 import { useCallback } from "react"
 import type { Ref, UIEventHandler } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
+import { MarkdownRenderer } from "@/components/shared/MarkdownRenderer"
 
 type MarkdownContentFormat = "markdown" | "plain"
 
@@ -53,14 +52,12 @@ export function MarkdownViewer({
           ) : (
             <div
               className={cn(
-                "reader-prose prose prose-slate max-w-none px-6 py-7 dark:prose-invert sm:px-10 sm:py-10",
+                "px-6 py-7 sm:px-10 sm:py-10",
                 contentClassName
               )}
               style={{ fontSize: `${textScale}rem` }}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {content}
-              </ReactMarkdown>
+              <MarkdownRenderer content={content} />
             </div>
           )}
         </div>

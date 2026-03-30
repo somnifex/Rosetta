@@ -80,6 +80,21 @@ export default {
     ask_about: "解释这段文字",
     translate_text: "翻译这段文字",
   },
+  reader_highlight: {
+    save: "保存高亮",
+    saved: "已保存",
+    unsaved: "未保存",
+    undo: "撤销",
+    redo: "重做",
+    zoom_in: "放大",
+    zoom_out: "缩小",
+    add_highlight: "添加高亮",
+    shortcuts_hint: "Ctrl/Cmd+S 保存 · Ctrl/Cmd+Z 撤销 · Ctrl/Cmd+Shift+Z 重做",
+    toast: {
+      save_success: "高亮已保存",
+      save_error: "保存高亮失败",
+    },
+  },
   delete_confirm: {
     title: "删除文档",
     description: "确定要删除此文档吗？此操作无法撤销。",

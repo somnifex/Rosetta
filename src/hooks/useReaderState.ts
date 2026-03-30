@@ -96,12 +96,25 @@ function readInitialState(documentId: string): ReaderPersistedState {
   }
 }
 
+function getInitialState(documentId: string, requestedMode?: string | null): ReaderPersistedState {
+  const persisted = readInitialState(documentId)
+  const requested = sanitizeMode(requestedMode)
+  if (!requested) return persisted
+
+  const next = parseMode(requested, persisted.baseMode, persisted.askOpen)
+  return {
+    ...persisted,
+    baseMode: next.baseMode,
+    askOpen: next.askOpen,
+  }
+}
+
 export function useReaderState(documentId: string, requestedMode?: string | null) {
-  const [state, setState] = useState<ReaderPersistedState>(() => readInitialState(documentId))
+  const [state, setState] = useState<ReaderPersistedState>(() => getInitialState(documentId, requestedMode))
 
   useEffect(() => {
-    setState(readInitialState(documentId))
-  }, [documentId])
+    setState(getInitialState(documentId, requestedMode))
+  }, [documentId, requestedMode])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -119,6 +132,9 @@ export function useReaderState(documentId: string, requestedMode?: string | null
     if (!requested) return
     setState((current) => {
       const next = parseMode(requested, current.baseMode, current.askOpen)
+      if (current.baseMode === next.baseMode && current.askOpen === next.askOpen) {
+        return current
+      }
       return {
         ...current,
         baseMode: next.baseMode,

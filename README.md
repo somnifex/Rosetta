@@ -73,6 +73,13 @@ Instead of treating a PDF as a disposable upload, Rosetta turns it into a reusab
 - Local-first runtime data storage
 - Multi-language interface with light and dark theme support
 
+### Reader Shortcuts and Highlight Workflow
+
+- PDF zoom shortcuts: `Ctrl/Cmd +`, `Ctrl/Cmd -`, `Ctrl/Cmd 0`, and `Ctrl/Cmd + mouse wheel`
+- Manual highlight save model: changes stay local in draft state until explicit save
+- Highlight editing history in reader: `Ctrl/Cmd+Z` undo and `Ctrl/Cmd+Shift+Z` redo
+- Quick save from reader: `Ctrl/Cmd+S` or in-view Save action
+
 ## Why Rosetta
 
 Many PDF translation tools are optimized for one-time conversion. Rosetta is designed for iterative knowledge work.

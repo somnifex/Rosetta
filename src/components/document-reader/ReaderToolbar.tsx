@@ -83,7 +83,34 @@ export function ReaderToolbar({
         </Button>
 
         <div className="min-w-0 flex-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 shadow-sm">
-          <p className="truncate text-sm font-semibold">{title}</p>
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <p className="truncate text-sm font-semibold">{title}</p>
+            {showScaleControls ? (
+              <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/60 bg-background/80 px-0.5 py-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-lg"
+                  onClick={() => onScaleChange?.((scale ?? 1) - 0.1)}
+                  disabled={!onScaleChange}
+                  aria-label="缩小"
+                >
+                  <ZoomOut className="h-3.5 w-3.5" />
+                </Button>
+                <span className="min-w-[50px] text-center text-xs">{Math.round((scale ?? 1) * 100)}%</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-lg"
+                  onClick={() => onScaleChange?.((scale ?? 1) + 0.1)}
+                  disabled={!onScaleChange}
+                  aria-label="放大"
+                >
+                  <ZoomIn className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <ReaderModeSwitcher
@@ -93,32 +120,6 @@ export function ReaderToolbar({
           onAskToggle={onAskToggle}
           disabled={modeDisabled}
         />
-
-        {showScaleControls ? (
-          <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-xl"
-              onClick={() => onScaleChange?.((scale ?? 1) - 0.1)}
-              disabled={!onScaleChange}
-            >
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="min-w-[54px] text-center text-xs sm:text-sm">
-              {Math.round((scale ?? 1) * 100)}%
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-xl"
-              onClick={() => onScaleChange?.((scale ?? 1) + 0.1)}
-              disabled={!onScaleChange}
-            >
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : null}
 
         {showPageControls ? (
           <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
