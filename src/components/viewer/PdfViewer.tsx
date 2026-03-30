@@ -196,6 +196,15 @@ export const PdfViewer = memo(function PdfViewer({
     const shell = shellRef.current
     if (!shell) return
 
+    // Reset unwanted scroll on overflow-hidden ancestors — the library may
+    // trigger scrollIntoView during the mode toggle, shifting parent containers.
+    const resetAncestorScroll = () => {
+      for (let el: HTMLElement | null = shell.parentElement; el; el = el.parentElement) {
+        if (el.scrollTop !== 0) el.scrollTop = 0
+      }
+    }
+    resetAncestorScroll()
+
     const mainContent = shell.querySelector(".rdv-pdf-main-content")
     if (!(mainContent instanceof HTMLElement)) return
 
@@ -212,19 +221,28 @@ export const PdfViewer = memo(function PdfViewer({
 
     if (nextPaginated) {
       mainContent.scrollTo({ top: 0, left: 0, behavior: "auto" })
-      return
+    } else {
+      const targetPage = pageWrappers[Math.max(0, currentPage - 1)]
+      if (!(targetPage instanceof HTMLElement)) {
+        mainContent.scrollTo({ top: 0, left: 0, behavior: "auto" })
+      } else {
+        const containerRect = mainContent.getBoundingClientRect()
+        const pageRect = targetPage.getBoundingClientRect()
+        const nextTop = Math.max(0, mainContent.scrollTop + pageRect.top - containerRect.top - 8)
+        mainContent.scrollTo({ top: nextTop, left: 0, behavior: "auto" })
+      }
     }
 
-    const targetPage = pageWrappers[Math.max(0, currentPage - 1)]
-    if (!(targetPage instanceof HTMLElement)) {
-      mainContent.scrollTo({ top: 0, left: 0, behavior: "auto" })
-      return
+    // Schedule trailing resets to catch any delayed layout shifts from the library
+    const scheduleTrailingResets = (count: number) => {
+      if (count <= 0) return
+      const id = window.requestAnimationFrame(() => {
+        resetAncestorScroll()
+        scheduleTrailingResets(count - 1)
+      })
+      recoveryFrameIdsRef.current.push(id)
     }
-
-    const containerRect = mainContent.getBoundingClientRect()
-    const pageRect = targetPage.getBoundingClientRect()
-    const nextTop = Math.max(0, mainContent.scrollTop + pageRect.top - containerRect.top - 8)
-    mainContent.scrollTo({ top: nextTop, left: 0, behavior: "auto" })
+    scheduleTrailingResets(3)
   }, [])
 
   const handleMouseDownCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
