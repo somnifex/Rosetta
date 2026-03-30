@@ -84,21 +84,28 @@ export function ImportButton() {
   }
 
   return (
-    <div className="flex items-center gap-0">
-      <Button onClick={handleImportAll} disabled={importMutation.isPending} className="rounded-r-none">
+    <div className="flex items-center">
+      <Button
+        onClick={handleImportAll}
+        disabled={importMutation.isPending}
+        className="rounded-l-lg rounded-r-none shadow-none"
+      >
         <Upload className="mr-2 h-4 w-4" />
         {importMutation.isPending ? t("btn.importing") : t("btn.import")}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button disabled={importMutation.isPending} className="rounded-l-none border-l px-2">
+          <Button
+            disabled={importMutation.isPending}
+            className="rounded-l-none rounded-r-lg border-l border-primary-foreground/20 px-2.5 shadow-none"
+          >
             <ChevronDown className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="min-w-[180px]">
           {FILE_TYPES.map(({ type, label, extensions, icon: Icon }) => (
-            <DropdownMenuItem key={type} onClick={() => handleImport(type, extensions)}>
-              <Icon className="mr-2 h-4 w-4" />
+            <DropdownMenuItem key={type} onClick={() => handleImport(type, extensions)} className="gap-2.5">
+              <Icon className="h-4 w-4 text-muted-foreground" />
               {label}
             </DropdownMenuItem>
           ))}

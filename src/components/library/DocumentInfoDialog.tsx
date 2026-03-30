@@ -96,7 +96,7 @@ function FolderSelect({
 }) {
   return (
     <Select value={value ?? "root"} onValueChange={(nextValue) => onChange(nextValue === "root" ? null : nextValue)}>
-      <SelectTrigger className="h-9 rounded-xl">
+      <SelectTrigger className="h-9 rounded-lg">
         <SelectValue placeholder="根目录" />
       </SelectTrigger>
       <SelectContent>
@@ -404,21 +404,16 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[88vh] max-w-[1160px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-[32px] [&>button]:hidden">
-          <div className="relative grid min-h-[720px] grid-cols-[320px,minmax(0,1fr)] overflow-hidden rounded-[32px] border border-white/70 bg-background shadow-[0_40px_120px_rgba(15,23,42,0.22)]">
-            <div className="pointer-events-none absolute inset-0">
-              <div className="absolute left-[-120px] top-[-60px] h-[280px] w-[280px] rounded-full bg-sky-200/30 blur-3xl" />
-              <div className="absolute bottom-[-100px] right-[-80px] h-[260px] w-[260px] rounded-full bg-blue-200/20 blur-3xl" />
-            </div>
-
-            <section className="relative flex min-h-0 flex-col border-r bg-[linear-gradient(180deg,#f4f7fb_0%,#e9eef6_100%)]">
+        <DialogContent className="max-h-[88vh] max-w-[1160px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-xl [&>button]:hidden">
+          <div className="relative grid min-h-[720px] grid-cols-[320px,minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+            <section className="relative flex min-h-0 flex-col border-r border-border bg-gray-50/50">
               <div className="flex items-center justify-between px-5 py-4">
-                <Badge variant="outline" className="rounded-full bg-background/80">{isPdf ? "PDF" : "文本"}</Badge>
-                {displayedPageCount ? <Badge className="rounded-full">{displayedPageCount} 页</Badge> : null}
+                <Badge variant="outline" className="rounded-full bg-background/80 shadow-none">{isPdf ? "PDF" : "文本"}</Badge>
+                {displayedPageCount ? <Badge className="rounded-full shadow-none">{displayedPageCount} 页</Badge> : null}
               </div>
 
               <div className="flex-1 px-5 pb-5">
-                <div className="reader-noise flex h-full min-h-[420px] items-center justify-center rounded-[28px] border border-white/60 bg-white/80 p-4 shadow-sm">
+                <div className="flex h-full min-h-[420px] items-center justify-center rounded-lg border border-border bg-background p-4 shadow-sm">
                   {isPdf && !document.is_file_missing ? (
                     <PdfPreview fileUrl={document.file_path} onLoad={setThumbnailPages} />
                   ) : (
@@ -469,7 +464,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                 <div className="flex items-center gap-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="icon" className="rounded-xl bg-background/70">
+                      <Button variant="outline" size="icon" className="rounded-lg bg-background shadow-none">
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -483,7 +478,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => onOpenChange(false)}>
+                  <Button variant="ghost" size="icon" className="rounded-lg" onClick={() => onOpenChange(false)}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -491,7 +486,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
 
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 <div className="space-y-6">
-                  <section className="desktop-panel rounded-[28px] border border-border/70 p-5">
+                  <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 text-sm font-semibold">
@@ -500,26 +495,26 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">{recommendedAction.description}</p>
                       </div>
-                      <Button className="rounded-2xl" onClick={recommendedAction.onClick} disabled={recommendedAction.disabled}>
+                      <Button className="rounded-lg" onClick={recommendedAction.onClick} disabled={recommendedAction.disabled}>
                         {recommendedAction.label}
                       </Button>
                     </div>
                   </section>
 
                   <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-3xl border bg-card p-4">
+                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">上传时间</p>
                       <p className="mt-2 text-sm font-medium">{formatDate(document.created_at)}</p>
                     </div>
-                    <div className="rounded-3xl border bg-card p-4">
+                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">文件大小</p>
                       <p className="mt-2 text-sm font-medium">{formatBytes(document.file_size)}</p>
                     </div>
-                    <div className="rounded-3xl border bg-card p-4">
+                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">页数</p>
                       <p className="mt-2 text-sm font-medium">{displayedPageCount || "未知"}</p>
                     </div>
-                    <div className="rounded-3xl border bg-card p-4">
+                    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">语言</p>
                       <p className="mt-2 text-sm font-medium">{document.source_language || "自动识别"} → {document.target_language || "未设置"}</p>
                     </div>
@@ -573,19 +568,19 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       ].map((action) => {
                         const Icon = action.icon
                         return (
-                          <button
-                            key={action.title}
-                            type="button"
-                            onClick={action.onClick}
-                            disabled={action.disabled}
-                            className={`group rounded-[22px] border p-4 text-left transition-all ${
-                              action.primary
-                                ? "bg-primary text-primary-foreground shadow-[0_18px_40px_rgba(37,99,235,0.24)]"
-                                : "desktop-panel border-border/70 hover:-translate-y-0.5"
-                            } ${action.disabled ? "cursor-not-allowed opacity-45" : ""}`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className={`rounded-2xl p-2.5 ${action.primary ? "bg-white/14" : "bg-primary/8 text-primary"}`}>
+                            <button
+                              key={action.title}
+                              type="button"
+                              onClick={action.onClick}
+                              disabled={action.disabled}
+                              className={`group rounded-lg border p-4 text-left transition-all ${
+                                action.primary
+                                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                  : "bg-background border-border hover:bg-muted"
+                              } ${action.disabled ? "cursor-not-allowed opacity-45" : ""}`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`rounded-md p-2.5 ${action.primary ? "bg-white/14" : "bg-primary/10 text-primary"}`}>
                                 <Icon className="h-4 w-4" />
                               </div>
                               <div className="min-w-0">
@@ -602,7 +597,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                   </section>
 
                   <section className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr),minmax(320px,0.8fr)]">
-                    <div className="rounded-[28px] border bg-card p-5">
+                    <div className="rounded-lg border border-border bg-background p-5 shadow-sm">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <h3 className="text-lg font-semibold">输出与状态</h3>
@@ -611,7 +606,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       </div>
 
                       <div className="mt-4 space-y-3">
-                        <div className="flex items-center justify-between gap-4 rounded-2xl border p-4">
+                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm">
                           <div className="flex items-center gap-3">
                             <FileOutput className="h-4 w-4 text-muted-foreground" />
                             <div>
@@ -619,13 +614,13 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                               <p className="text-sm text-muted-foreground">{isPdf && !document.is_file_missing ? "可直接导出原始 PDF" : "当前不是可导出的 PDF 文件"}</p>
                             </div>
                           </div>
-                          <Button variant="outline" size="sm" className="rounded-xl" disabled={!isPdf || !!document.is_file_missing} onClick={() => handleExportAsset("original_pdf", document.filename)}>
+                          <Button variant="outline" size="sm" className="rounded-lg" disabled={!isPdf || !!document.is_file_missing} onClick={() => handleExportAsset("original_pdf", document.filename)}>
                             <Download className="mr-1.5 h-4 w-4" />
                             导出
                           </Button>
                         </div>
 
-                        <div className="flex items-center justify-between gap-4 rounded-2xl border p-4">
+                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm">
                           <div className="flex items-center gap-3">
                             <Languages className="h-4 w-4 text-muted-foreground" />
                             <div>
@@ -636,15 +631,15 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant={translatedPdf ? "secondary" : "outline"}>{translatedPdf ? "已准备" : "未提供"}</Badge>
-                            <Button variant="outline" size="sm" className="rounded-xl" disabled={!translatedPdf || !!translatedPdf?.is_file_missing} onClick={() => handleExportAsset("translated_pdf", `${document.title}.translated.pdf`)}>
+                            <Badge variant={translatedPdf ? "secondary" : "outline"} className="rounded-full shadow-none font-normal text-xs">{translatedPdf ? "已准备" : "未提供"}</Badge>
+                            <Button variant="outline" size="sm" className="rounded-lg" disabled={!translatedPdf || !!translatedPdf?.is_file_missing} onClick={() => handleExportAsset("translated_pdf", `${document.title}.translated.pdf`)}>
                               <Download className="mr-1.5 h-4 w-4" />
                               导出
                             </Button>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between gap-4 rounded-2xl border p-4">
+                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background p-4 shadow-sm">
                           <div className="flex items-center gap-3">
                             <FileCode2 className="h-4 w-4 text-muted-foreground" />
                             <div>
@@ -655,8 +650,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant={parseReady ? "secondary" : "outline"}>{parseReady ? "已生成" : "未生成"}</Badge>
-                            <Button variant="outline" size="sm" className="rounded-xl" disabled={!parseReady} onClick={() => handleExportText("original", "md", "Markdown")}>
+                            <Badge variant={parseReady ? "secondary" : "outline"} className="rounded-full shadow-none font-normal text-xs">{parseReady ? "已生成" : "未生成"}</Badge>
+                            <Button variant="outline" size="sm" className="rounded-lg" disabled={!parseReady} onClick={() => handleExportText("original", "md", "Markdown")}>
                               <Download className="mr-1.5 h-4 w-4" />
                               导出
                             </Button>
@@ -664,11 +659,11 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         </div>
 
                         <div className="grid gap-3 md:grid-cols-3">
-                          <div className="rounded-2xl border p-4">
+                          <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                             <p className="text-sm font-medium">解析结果</p>
                             <div className="mt-3 flex items-center justify-between">
                               {getProgressBadge(document.parse_status, parseJob?.progress)}
-                              <Button variant="ghost" size="sm" className="rounded-xl" onClick={() => parseMutation.mutate()} disabled={parseMutation.isPending}>
+                              <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => parseMutation.mutate()} disabled={parseMutation.isPending}>
                                 <RefreshCcw className="mr-1.5 h-4 w-4" />
                                 重试
                               </Button>
@@ -676,11 +671,11 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                             {parseJob?.error_message ? <p className="mt-2 text-xs text-destructive">{parseJob.error_message}</p> : null}
                           </div>
 
-                          <div className="rounded-2xl border p-4">
+                          <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                             <p className="text-sm font-medium">翻译结果</p>
                             <div className="mt-3 flex items-center justify-between">
                               {getProgressBadge(document.translation_status, translationJob?.progress)}
-                              <Button variant="ghost" size="sm" className="rounded-xl" onClick={() => translationMutation.mutate()} disabled={translationMutation.isPending || !parseReady}>
+                              <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => translationMutation.mutate()} disabled={translationMutation.isPending || !parseReady}>
                                 <RefreshCcw className="mr-1.5 h-4 w-4" />
                                 重试
                               </Button>
@@ -688,11 +683,11 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                             {translationJob?.error_message ? <p className="mt-2 text-xs text-destructive">{translationJob.error_message}</p> : null}
                           </div>
 
-                          <div className="rounded-2xl border p-4">
+                          <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
                             <p className="text-sm font-medium">索引状态</p>
                             <div className="mt-3 flex items-center justify-between">
                               {getProgressBadge(document.index_status)}
-                              <Button variant="ghost" size="sm" className="rounded-xl" onClick={() => indexMutation.mutate()} disabled={indexMutation.isPending || !parseReady}>
+                              <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => indexMutation.mutate()} disabled={indexMutation.isPending || !parseReady}>
                                 <RefreshCcw className="mr-1.5 h-4 w-4" />
                                 重试
                               </Button>
@@ -703,7 +698,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     </div>
 
                     <div className="space-y-6">
-                      <section className="rounded-[28px] border bg-card p-5">
+                      <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
                         <h3 className="text-lg font-semibold">归档与标注</h3>
                         <div className="mt-4 space-y-4">
                           <div className="space-y-2">
@@ -712,7 +707,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                               value={document.category_id || "none"}
                               onValueChange={(value) => updateDocMutation.mutate({ id: document.id, categoryId: value === "none" ? "" : value })}
                             >
-                              <SelectTrigger className="h-9 rounded-xl">
+                              <SelectTrigger className="h-9 rounded-lg">
                                 <SelectValue placeholder="未分类" />
                               </SelectTrigger>
                               <SelectContent>
@@ -745,12 +740,12 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         </div>
                       </section>
 
-                      <section className="rounded-[28px] border bg-card p-5">
+                      <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
                         <h3 className="text-lg font-semibold">替换与维护</h3>
                         <div className="mt-4 space-y-3">
                           <Button
                             variant="outline"
-                            className="h-11 w-full justify-start rounded-2xl"
+                            className="h-11 w-full justify-start rounded-lg shadow-none"
                             onClick={async () => {
                               const filePath = await pickSingleFile(["pdf"])
                               if (filePath) replaceOriginalMutation.mutate(filePath)
@@ -762,7 +757,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           </Button>
                           <Button
                             variant="outline"
-                            className="h-11 w-full justify-start rounded-2xl"
+                            className="h-11 w-full justify-start rounded-lg shadow-none"
                             onClick={async () => {
                               const filePath = await pickSingleFile(["pdf"])
                               if (filePath) replaceTranslatedPdfMutation.mutate(filePath)
@@ -774,7 +769,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           </Button>
                           <Button
                             variant="outline"
-                            className="h-11 w-full justify-start rounded-2xl"
+                            className="h-11 w-full justify-start rounded-lg shadow-none"
                             onClick={async () => {
                               const filePath = await pickSingleFile(["md", "markdown", "txt"])
                               if (filePath) replaceMarkdownMutation.mutate(filePath)
@@ -787,10 +782,10 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         </div>
                       </section>
 
-                      <section className="rounded-[28px] border border-destructive/20 bg-destructive/5 p-5">
+                      <section className="rounded-lg border border-destructive/20 bg-destructive/5 p-5 shadow-sm">
                         <h3 className="text-lg font-semibold text-destructive">危险操作</h3>
                         <p className="mt-1 text-sm text-muted-foreground">删除不会直接永久清除，而是先进入回收站，方便你从一级页面集中恢复或清空。</p>
-                        <Button variant="destructive" className="mt-4 w-full rounded-2xl" onClick={() => setConfirmTrashOpen(true)}>
+                        <Button variant="destructive" className="mt-4 w-full rounded-lg shadow-none" onClick={() => setConfirmTrashOpen(true)}>
                           <Trash2 className="mr-2 h-4 w-4" />
                           移入回收站
                         </Button>

@@ -49,75 +49,75 @@ export function TagPicker({ documentId }: TagPickerProps) {
   )
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {/* Current tags */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-wrap min-h-[28px]">
         {documentTags.map((tag) => (
           <Badge
             key={tag.id}
             variant="secondary"
-            className="gap-1 pr-1"
+            className="gap-1.5 rounded-full py-1 pr-1.5 pl-2 shadow-none font-normal text-xs bg-muted text-foreground"
           >
             {tag.color && (
               <span
-                className="w-2 h-2 rounded-full"
+                className="w-2 h-2 rounded-full shrink-0"
                 style={{ backgroundColor: tag.color }}
               />
             )}
             {tag.name}
             <button
               onClick={() => removeMutation.mutate(tag.id)}
-              className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+              className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-foreground/10"
             >
               <X className="h-3 w-3" />
             </button>
           </Badge>
         ))}
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-6 px-2 text-xs"
+          className="h-7 gap-1 rounded-full border-dashed px-2.5 text-xs text-muted-foreground shadow-none hover:text-foreground"
           onClick={() => setIsOpen(!isOpen)}
         >
-          <Plus className="h-3 w-3 mr-1" />
+          <Plus className="h-3 w-3" />
           {t("tags.add")}
         </Button>
       </div>
 
       {/* Tag picker dropdown */}
       {isOpen && (
-        <div className="border rounded-lg p-2 space-y-2 bg-popover shadow-md">
+        <div className="rounded-lg border border-border bg-background p-2 space-y-2 shadow-sm">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("tags.search")}
-              className="h-8 pl-7 text-sm"
+              className="h-8 rounded-md pl-8 text-sm"
               autoFocus
             />
           </div>
-          <div className="max-h-[150px] overflow-auto space-y-0.5">
+          <div className="max-h-[160px] overflow-auto space-y-0.5">
             {availableTags.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-2">
+              <p className="text-xs text-muted-foreground text-center py-3">
                 {t("tags.no_available")}
               </p>
             ) : (
               availableTags.map((tag) => (
                 <button
                   key={tag.id}
-                  className="w-full flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-accent transition-colors text-left"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm hover:bg-muted transition-colors text-left"
                   onClick={() => {
                     addMutation.mutate(tag.id)
                   }}
                 >
                   {tag.color && (
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5"
                       style={{ backgroundColor: tag.color }}
                     />
                   )}
-                  {tag.name}
+                  <span className="truncate">{tag.name}</span>
                 </button>
               ))
             )}

@@ -43,10 +43,10 @@ export function LibraryBatchBar({
   const [folderDraft, setFolderDraft] = useState<string>("")
 
   return (
-    <div className="sticky top-[212px] z-10 mx-4 mt-4 rounded-3xl border bg-card/95 p-4 shadow-lg backdrop-blur sm:mx-6">
+    <div className="sticky top-[212px] z-10 mx-4 mt-4 rounded-lg border border-border bg-background p-4 shadow-sm sm:mx-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-primary">
+          <div className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-1.5 text-primary">
             <CheckSquare className="h-4 w-4" />
             已选 {selectedCount} 项
           </div>

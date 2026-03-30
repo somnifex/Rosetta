@@ -59,13 +59,13 @@ export function LibraryToolbar({
     <div className="sticky top-0 z-20 space-y-4 border-b border-border bg-background px-4 py-5 sm:px-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{totalLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={selectionMode ? "default" : "outline"}
-            className="gap-2"
+            className="gap-2 rounded-lg shadow-none"
             onClick={onToggleSelectionMode}
           >
             <SlidersHorizontal className="h-4 w-4" />
@@ -82,13 +82,13 @@ export function LibraryToolbar({
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="搜索标题、文件名、标签、分类或文件夹"
-            className="h-11 rounded-full bg-muted border-none pl-10 shadow-none focus-visible:ring-1"
+            className="h-10 rounded-full bg-muted border-none pl-10 shadow-none focus-visible:ring-1"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Select value={sortField} onValueChange={(value) => onSortChange(value as SortField)}>
-            <SelectTrigger className="h-11 w-[180px] rounded-full border border-border bg-background shadow-none">
+            <SelectTrigger className="h-10 w-[180px] rounded-full border border-border bg-background shadow-none">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -99,11 +99,11 @@ export function LibraryToolbar({
             </SelectContent>
           </Select>
 
-          <div className="flex rounded-full border border-border bg-background p-1 shadow-none">
+          <div className="flex rounded-full border border-border bg-background p-0.5 shadow-none">
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-9 w-9 rounded-full", viewMode === "grid" && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground")}
+              className={cn("h-8 w-8 rounded-full", viewMode === "grid" && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground")}
               onClick={() => onViewModeChange("grid")}
             >
               <Grid3X3 className="h-4 w-4" />
@@ -111,7 +111,7 @@ export function LibraryToolbar({
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-9 w-9 rounded-full", viewMode === "list" && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground")}
+              className={cn("h-8 w-8 rounded-full", viewMode === "list" && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground")}
               onClick={() => onViewModeChange("list")}
             >
               <List className="h-4 w-4" />
@@ -120,17 +120,17 @@ export function LibraryToolbar({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {statusOptions.map((option) => (
           <button
             key={option.key}
             type="button"
             onClick={() => onStatusChange(option.key)}
             className={cn(
-              "rounded-full border px-3 py-1.5 text-sm transition-colors",
+              "rounded-full border px-3 py-1 text-sm shadow-none transition-colors",
               selectedStatus === option.key
                 ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-card text-muted-foreground hover:text-foreground"
+                : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             {option.label}

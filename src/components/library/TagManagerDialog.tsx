@@ -5,13 +5,13 @@ import { api } from "@/lib/api"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Plus, Pencil, Trash2, Check, X } from "lucide-react"
+import { Plus, Pencil, Trash2, Check, X, Tags } from "lucide-react"
 
 interface TagManagerDialogProps {
   open: boolean
@@ -70,101 +70,121 @@ export function TagManagerDialog({ open, onOpenChange }: TagManagerDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>{t("tags.manager_title")}</DialogTitle>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Tags className="h-5 w-5" />
+            </div>
+            <div>
+              <DialogTitle className="text-base">{t("tags.manager_title")}</DialogTitle>
+              <DialogDescription className="mt-0.5 text-sm">
+                创建和管理文档标签，为你的文献建立标注体系
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-5 pt-1">
           {/* Create new tag */}
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={newColor}
-              onChange={(e) => setNewColor(e.target.value)}
-              className="h-8 w-8 rounded cursor-pointer border-0 p-0"
-            />
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder={t("tags.name_placeholder")}
-              className="flex-1"
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            />
-            <Button size="sm" onClick={handleCreate} disabled={!newName.trim()}>
-              <Plus className="h-4 w-4 mr-1" />
-              {t("tags.add")}
-            </Button>
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">新建标签</p>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <input
+                  type="color"
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  className="h-9 w-9 cursor-pointer rounded-lg border border-border bg-background p-0.5"
+                />
+              </div>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder={t("tags.name_placeholder")}
+                className="h-9 flex-1 rounded-lg"
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              />
+              <Button size="sm" className="h-9 rounded-lg px-4 shadow-none" onClick={handleCreate} disabled={!newName.trim()}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                {t("tags.add")}
+              </Button>
+            </div>
           </div>
 
           {/* Tag list */}
-          <div className="space-y-2 max-h-[300px] overflow-auto">
-            {tags.map((tag) =>
-              editingId === tag.id ? (
-                <div key={tag.id} className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={editColor}
-                    onChange={(e) => setEditColor(e.target.value)}
-                    className="h-8 w-8 rounded cursor-pointer border-0 p-0"
-                  />
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="flex-1"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleUpdate()
-                      if (e.key === "Escape") setEditingId(null)
-                    }}
-                  />
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleUpdate}>
-                    <Check className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingId(null)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <div key={tag.id} className="flex items-center gap-2 group">
-                  <Badge
-                    variant="secondary"
-                    className="flex-1 justify-start gap-2 py-1.5"
-                  >
+          <div>
+            <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              已有标签 · {tags.length}
+            </p>
+            <div className="max-h-[280px] space-y-1.5 overflow-auto">
+              {tags.map((tag) =>
+                editingId === tag.id ? (
+                  <div key={tag.id} className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2">
+                    <input
+                      type="color"
+                      value={editColor}
+                      onChange={(e) => setEditColor(e.target.value)}
+                      className="h-8 w-8 cursor-pointer rounded-md border border-border bg-background p-0.5"
+                    />
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="h-8 flex-1 rounded-md text-sm"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleUpdate()
+                        if (e.key === "Escape") setEditingId(null)
+                      }}
+                    />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-md" onClick={handleUpdate}>
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 rounded-md" onClick={() => setEditingId(null)}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div key={tag.id} className="group flex items-center gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-muted/50">
                     <span
-                      className="w-3 h-3 rounded-full shrink-0"
+                      className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/5"
                       style={{ backgroundColor: tag.color || "#6b7280" }}
                     />
-                    {tag.name}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => {
-                      setEditingId(tag.id)
-                      setEditName(tag.name)
-                      setEditColor(tag.color || "#6b7280")
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => deleteMutation.mutate(tag.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                  </Button>
+                    <span className="flex-1 truncate text-sm text-foreground">{tag.name}</span>
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 rounded-md"
+                        onClick={() => {
+                          setEditingId(tag.id)
+                          setEditName(tag.name)
+                          setEditColor(tag.color || "#6b7280")
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 rounded-md text-destructive hover:text-destructive"
+                        onClick={() => deleteMutation.mutate(tag.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              )}
+              {tags.length === 0 && (
+                <div className="py-8 text-center">
+                  <Tags className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+                  <p className="text-sm text-muted-foreground">
+                    {t("tags.empty")}
+                  </p>
                 </div>
-              )
-            )}
-            {tags.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                {t("tags.empty")}
-              </p>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </DialogContent>

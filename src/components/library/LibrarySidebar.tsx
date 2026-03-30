@@ -96,7 +96,7 @@ export function LibrarySidebar({
         >
           {children.length > 0 ? <Layers3 className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
           <span className="flex-1 truncate text-left">{category.name}</span>
-          <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+          <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
             {categoryCounts[category.id] || 0}
           </Badge>
         </button>
@@ -120,7 +120,7 @@ export function LibrarySidebar({
         >
           {children.length > 0 ? <FolderOpen className="h-4 w-4 shrink-0" /> : <FolderClosed className="h-4 w-4 shrink-0" />}
           <span className="flex-1 truncate text-left">{folder.name}</span>
-          <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+          <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
             {folderCounts[folder.id] || 0}
           </Badge>
         </button>
@@ -131,12 +131,12 @@ export function LibrarySidebar({
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-background xl:w-[280px]">
-      <div className="border-b px-4 py-4">
+      <div className="border-b border-border px-4 py-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           文档库
         </p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          分类、文件夹与回收站统一管理
+        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground/80">
+          分类、文件夹与回收站
         </p>
       </div>
 
@@ -153,7 +153,7 @@ export function LibrarySidebar({
           >
             <Layers3 className="h-4 w-4 shrink-0" />
             <span className="flex-1 text-left">全部文档</span>
-            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
               {totalCount}
             </Badge>
           </button>
@@ -168,7 +168,7 @@ export function LibrarySidebar({
           >
             <FileQuestion className="h-4 w-4 shrink-0" />
             <span className="flex-1 text-left">未分类</span>
-            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
               {uncategorizedCount}
             </Badge>
           </button>
@@ -179,15 +179,15 @@ export function LibrarySidebar({
           >
             <Archive className="h-4 w-4 shrink-0" />
             <span className="flex-1 text-left">回收站</span>
-            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
               {trashCount}
             </Badge>
           </button>
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between px-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="flex items-center justify-between px-2 pt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
               分类
             </p>
           </div>
@@ -197,12 +197,12 @@ export function LibrarySidebar({
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between px-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="flex items-center justify-between px-2 pt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
               文件夹
             </p>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onCreateFolder}>
-              <FolderPlus className="h-4 w-4" />
+            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md" onClick={onCreateFolder}>
+              <FolderPlus className="h-3.5 w-3.5" />
             </Button>
           </div>
           <button

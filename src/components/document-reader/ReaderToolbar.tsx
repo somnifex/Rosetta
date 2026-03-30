@@ -38,7 +38,7 @@ export function ReaderToolbar({
   onModeChange,
   onAskToggle,
   onBackToLibrary,
-  onOpenActions,
+  onOpenActions: _onOpenActions,
   pageNumber,
   totalPages,
   scale,

@@ -121,10 +121,10 @@ export function CategorySidebar({
         ) : (
           <div
             className={cn(
-              "group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors",
+              "group flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm cursor-pointer transition-colors",
               isSelected
-                ? "bg-primary/10 text-primary font-medium"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                ? "bg-primary text-primary-foreground font-medium"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             onClick={() => onSelectCategory(isSelected ? null : cat.id)}
@@ -143,7 +143,7 @@ export function CategorySidebar({
                   setEditingId(cat.id)
                   setEditName(cat.name)
                 }}
-                className="p-0.5 rounded hover:bg-muted"
+                className="p-0.5 rounded-md hover:bg-muted"
               >
                 <Pencil className="h-3 w-3" />
               </button>
@@ -152,7 +152,7 @@ export function CategorySidebar({
                   e.stopPropagation()
                   deleteMutation.mutate(cat.id)
                 }}
-                className="p-0.5 rounded hover:bg-destructive/10"
+                className="p-0.5 rounded-md hover:bg-destructive/10"
               >
                 <Trash2 className="h-3 w-3 text-destructive" />
               </button>
@@ -165,18 +165,18 @@ export function CategorySidebar({
   }
 
   return (
-    <div className="w-[220px] border-r bg-muted/30 flex flex-col shrink-0">
-      <div className="p-3 border-b">
-        <h3 className="text-sm font-semibold">{t("categories.title")}</h3>
+    <div className="w-[220px] border-r border-border bg-background flex flex-col shrink-0">
+      <div className="p-3 border-b border-border">
+        <h3 className="text-sm font-semibold text-foreground">{t("categories.title")}</h3>
       </div>
       <div className="flex-1 overflow-auto p-2 space-y-0.5">
         {/* All Documents */}
         <div
           className={cn(
-            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors",
+            "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm cursor-pointer transition-colors",
             selectedCategoryId === null
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
           )}
           onClick={() => onSelectCategory(null)}
         >
