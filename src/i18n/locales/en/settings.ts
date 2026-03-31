@@ -64,6 +64,17 @@ export default {
     start_silent_desc: "Start minimized to system tray without showing the main window",
     chat_behavior_saved: "Chat behavior settings saved",
     chat_behavior_save_error: "Failed to save chat behavior settings",
+    update: "Check for Updates",
+    update_desc: "Check if a newer version of Rosetta is available",
+    update_checking: "Checking for updates...",
+    update_available: "New version {{version}} available",
+    update_downloading: "Downloading update... {{progress}}%",
+    update_installing: "Installing update...",
+    update_up_to_date: "You are using the latest version",
+    update_error: "Failed to check for updates",
+    update_btn_check: "Check Now",
+    update_btn_download: "Download & Install",
+    current_version: "Current Version",
   },
   providers: {
     failover: {

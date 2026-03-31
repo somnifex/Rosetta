@@ -118,9 +118,12 @@ jobs:
       uses: tauri-apps/tauri-action@v0
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       with:
         tagName: ${{ needs.prepare-tag.outputs.tag }}
         releaseName: ${{ github.event.inputs.release_name != '' && github.event.inputs.release_name || format('Rosetta {0}', needs.prepare-tag.outputs.tag) }}
         releaseBody: ${{ github.event.inputs.release_notes != '' && github.event.inputs.release_notes || format('Automated release for {0}', needs.prepare-tag.outputs.tag) }}
         releaseDraft: ${{ github.event.inputs.draft }}
         prerelease: ${{ github.event.inputs.prerelease }}
+        updaterJsonPreferNsis: true

@@ -64,6 +64,17 @@ export default {
     start_silent_desc: "启动后最小化到系统托盘，不显示主窗口",
     chat_behavior_saved: "对话行为设置已保存",
     chat_behavior_save_error: "保存对话行为设置失败",
+    update: "检查更新",
+    update_desc: "检查是否有新版本的 Rosetta 可用",
+    update_checking: "正在检查更新...",
+    update_available: "发现新版本 {{version}}",
+    update_downloading: "正在下载更新... {{progress}}%",
+    update_installing: "正在安装更新...",
+    update_up_to_date: "当前已是最新版本",
+    update_error: "检查更新失败",
+    update_btn_check: "立即检查",
+    update_btn_download: "下载并安装",
+    current_version: "当前版本",
   },
   providers: {
     failover: {

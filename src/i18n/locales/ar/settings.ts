@@ -25,6 +25,17 @@ export default {
     autostart_desc: "تشغيل Rosetta تلقائياً عند بدء تشغيل النظام",
     start_silent: "بدء صامت",
     start_silent_desc: "البدء مصغراً في شريط المهام دون إظهار النافذة الرئيسية",
+    update: "التحقق من التحديثات",
+    update_desc: "التحقق مما إذا كان إصدار أحدث من Rosetta متاحاً",
+    update_checking: "جارٍ التحقق من التحديثات...",
+    update_available: "إصدار جديد {{version}} متاح",
+    update_downloading: "جارٍ تنزيل التحديث... {{progress}}%",
+    update_installing: "جارٍ تثبيت التحديث...",
+    update_up_to_date: "أنت تستخدم أحدث إصدار",
+    update_error: "فشل التحقق من التحديثات",
+    update_btn_check: "تحقق الآن",
+    update_btn_download: "تنزيل وتثبيت",
+    current_version: "الإصدار الحالي",
   },
   providers: {
     failover: {

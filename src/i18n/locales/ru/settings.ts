@@ -25,6 +25,17 @@ export default {
     autostart_desc: "Автоматически запускать Rosetta при загрузке системы",
     start_silent: "Тихий запуск",
     start_silent_desc: "Запускать свёрнутым в системный трей без отображения главного окна",
+    update: "Проверить обновления",
+    update_desc: "Проверить наличие новой версии Rosetta",
+    update_checking: "Проверка обновлений...",
+    update_available: "Доступна новая версия {{version}}",
+    update_downloading: "Загрузка обновления... {{progress}}%",
+    update_installing: "Установка обновления...",
+    update_up_to_date: "Вы используете последнюю версию",
+    update_error: "Не удалось проверить обновления",
+    update_btn_check: "Проверить сейчас",
+    update_btn_download: "Скачать и установить",
+    current_version: "Текущая версия",
   },
   providers: {
     failover: {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -11,6 +11,9 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart"
+import { check } from "@tauri-apps/plugin-updater"
+import { relaunch } from "@tauri-apps/plugin-process"
+import { getVersion } from "@tauri-apps/api/app"
 
 type AppTheme = "light" | "dark" | "system"
 const THEME_STORAGE_KEY = "pdf-translate:theme"
@@ -48,6 +51,61 @@ export default function GeneralTab() {
   )
   const [autostart, setAutostart] = useState(false)
   const [startSilent, setStartSilent] = useState(false)
+  const [currentVersion, setCurrentVersion] = useState("")
+  const [updateStatus, setUpdateStatus] = useState<
+    "idle" | "checking" | "available" | "downloading" | "installing" | "up_to_date" | "error"
+  >("idle")
+  const [updateVersion, setUpdateVersion] = useState("")
+  const [downloadProgress, setDownloadProgress] = useState(0)
+
+  useEffect(() => {
+    getVersion().then(setCurrentVersion).catch(() => {})
+  }, [])
+
+  const handleCheckUpdate = useCallback(async () => {
+    try {
+      setUpdateStatus("checking")
+      const update = await check()
+      if (update) {
+        setUpdateVersion(update.version)
+        setUpdateStatus("available")
+      } else {
+        setUpdateStatus("up_to_date")
+      }
+    } catch {
+      setUpdateStatus("error")
+    }
+  }, [])
+
+  const handleDownloadAndInstall = useCallback(async () => {
+    try {
+      setUpdateStatus("downloading")
+      setDownloadProgress(0)
+      const update = await check()
+      if (!update) return
+      let downloaded = 0
+      let contentLength = 0
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength ?? 0
+            break
+          case "Progress":
+            downloaded += event.data.chunkLength
+            if (contentLength > 0) {
+              setDownloadProgress(Math.round((downloaded / contentLength) * 100))
+            }
+            break
+          case "Finished":
+            setUpdateStatus("installing")
+            break
+        }
+      })
+      await relaunch()
+    } catch {
+      setUpdateStatus("error")
+    }
+  }, [])
 
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
@@ -198,6 +256,55 @@ export default function GeneralTab() {
               checked={startSilent}
               onCheckedChange={setStartSilent}
             />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{t("general.update")}</p>
+              <p className="text-xs text-muted-foreground">{t("general.update_desc")}</p>
+              {currentVersion && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t("general.current_version")}: v{currentVersion}
+                </p>
+              )}
+              {updateStatus === "checking" && (
+                <p className="text-xs text-blue-500 mt-1">{t("general.update_checking")}</p>
+              )}
+              {updateStatus === "available" && (
+                <p className="text-xs text-green-500 mt-1">
+                  {t("general.update_available", { version: updateVersion })}
+                </p>
+              )}
+              {updateStatus === "downloading" && (
+                <p className="text-xs text-blue-500 mt-1">
+                  {t("general.update_downloading", { progress: downloadProgress })}
+                </p>
+              )}
+              {updateStatus === "installing" && (
+                <p className="text-xs text-blue-500 mt-1">{t("general.update_installing")}</p>
+              )}
+              {updateStatus === "up_to_date" && (
+                <p className="text-xs text-green-500 mt-1">{t("general.update_up_to_date")}</p>
+              )}
+              {updateStatus === "error" && (
+                <p className="text-xs text-destructive mt-1">{t("general.update_error")}</p>
+              )}
+            </div>
+            <div>
+              {updateStatus === "available" ? (
+                <Button size="sm" onClick={handleDownloadAndInstall}>
+                  {t("general.update_btn_download")}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCheckUpdate}
+                  disabled={updateStatus === "checking" || updateStatus === "downloading" || updateStatus === "installing"}
+                >
+                  {t("general.update_btn_check")}
+                </Button>
+              )}
+            </div>
           </div>
           <div className="flex justify-end">
             <Button onClick={() => saveGeneralMutation.mutate()} disabled={saveGeneralMutation.isPending}>

@@ -10,6 +10,8 @@
     "fs:allow-app-read-recursive",
     "shell:default",
     "window-state:default",
-    "autostart:default"
+    "autostart:default",
+    "updater:default",
+    "process:default"
   ]
 }

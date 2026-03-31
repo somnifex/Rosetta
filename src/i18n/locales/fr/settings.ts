@@ -25,6 +25,17 @@ export default {
     autostart_desc: "Démarrer Rosetta automatiquement au démarrage du système",
     start_silent: "Démarrage silencieux",
     start_silent_desc: "Démarrer minimisé dans la barre des tâches sans afficher la fenêtre principale",
+    update: "Vérifier les mises à jour",
+    update_desc: "Vérifier si une nouvelle version de Rosetta est disponible",
+    update_checking: "Vérification des mises à jour...",
+    update_available: "Nouvelle version {{version}} disponible",
+    update_downloading: "Téléchargement de la mise à jour... {{progress}}%",
+    update_installing: "Installation de la mise à jour...",
+    update_up_to_date: "Vous utilisez la dernière version",
+    update_error: "Échec de la vérification des mises à jour",
+    update_btn_check: "Vérifier maintenant",
+    update_btn_download: "Télécharger et installer",
+    current_version: "Version actuelle",
   },
   providers: {
     failover: {

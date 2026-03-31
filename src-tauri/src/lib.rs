@@ -70,6 +70,8 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let app_dir = app_dirs::runtime_app_dir(app).map_err(|e| {
                 log::error!("Failed to get runtime app dir: {}", e);

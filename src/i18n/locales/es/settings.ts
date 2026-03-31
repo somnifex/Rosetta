@@ -25,6 +25,17 @@ export default {
     autostart_desc: "Iniciar Rosetta automáticamente al arrancar el sistema",
     start_silent: "Inicio silencioso",
     start_silent_desc: "Iniciar minimizado en la bandeja del sistema sin mostrar la ventana principal",
+    update: "Buscar actualizaciones",
+    update_desc: "Comprobar si hay una versión más reciente de Rosetta disponible",
+    update_checking: "Buscando actualizaciones...",
+    update_available: "Nueva versión {{version}} disponible",
+    update_downloading: "Descargando actualización... {{progress}}%",
+    update_installing: "Instalando actualización...",
+    update_up_to_date: "Está usando la última versión",
+    update_error: "Error al buscar actualizaciones",
+    update_btn_check: "Comprobar ahora",
+    update_btn_download: "Descargar e instalar",
+    current_version: "Versión actual",
   },
   providers: {
     failover: {
