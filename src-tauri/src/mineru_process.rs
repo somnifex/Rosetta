@@ -1,4 +1,3 @@
-use crate::database::Database;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
@@ -589,10 +588,12 @@ impl MinerUProcessManager {
         Ok(runtime_profile.clone())
     }
 
-    pub fn get_effective_url(&self, db: &Database) -> Result<String, String> {
-        let conn = db.get_connection();
-
-        let mode = get_setting_value(conn, "mineru.mode").unwrap_or_else(|| "builtin".to_string());
+    pub fn get_effective_url(
+        &self,
+        settings: &crate::settings::SettingsManager,
+    ) -> Result<String, String> {
+        let mode = get_setting_value(settings, "mineru.mode")
+            .unwrap_or_else(|| "builtin".to_string());
 
         match mode.as_str() {
             "builtin" => {
@@ -612,7 +613,7 @@ impl MinerUProcessManager {
                 Err("Built-in MinerU is not running. Start it in Settings first, or switch MinerU mode to External.".to_string())
             }
             "external" => {
-                let url = get_setting_value(conn, "mineru.external_url").unwrap_or_else(|| {
+                let url = get_setting_value(settings, "mineru.external_url").unwrap_or_else(|| {
                     std::env::var("MINERU_URL")
                         .unwrap_or_else(|_| "http://localhost:8000".to_string())
                 });
@@ -636,13 +637,8 @@ fn find_available_port(start_port: u16) -> Option<u16> {
     None
 }
 
-fn get_setting_value(conn: &rusqlite::Connection, key: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT value FROM app_settings WHERE key = ?1",
-        [key],
-        |row| row.get::<_, String>(0),
-    )
-    .ok()
+fn get_setting_value(settings: &crate::settings::SettingsManager, key: &str) -> Option<String> {
+    settings.get(key)
 }
 
 fn normalize_setting_or_default(value: Option<String>, default: &str) -> String {
@@ -1128,7 +1124,7 @@ fn find_known_model_file(root: &Path) -> Option<PathBuf> {
 
 pub(crate) fn refresh_model_download_status(
     model_manager: &MinerUModelManager,
-    conn: &rusqlite::Connection,
+    settings: &crate::settings::SettingsManager,
     app_dir: &Path,
 ) {
     let is_downloading = model_manager
@@ -1141,7 +1137,7 @@ pub(crate) fn refresh_model_download_status(
         return;
     }
 
-    let configured_dir = get_setting_value(conn, "mineru.models_dir").unwrap_or_default();
+    let configured_dir = get_setting_value(settings, "mineru.models_dir").unwrap_or_default();
 
     for candidate_dir in candidate_model_dirs(app_dir, &configured_dir) {
         if let Some(found_path) = find_known_model_file(&candidate_dir) {
@@ -1338,51 +1334,24 @@ fn check_python_version(python_cmd: &str) -> Result<String, String> {
 
 #[tauri::command]
 pub fn get_app_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.get_connection();
-    Ok(get_setting_value(conn, &key))
+    Ok(state.settings.get(&key))
 }
 
 #[tauri::command]
 pub fn set_app_setting(state: State<AppState>, key: String, value: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.get_connection();
-    let now = chrono::Utc::now().to_rfc3339();
-    let id = uuid::Uuid::new_v4().to_string();
-
-    conn.execute(
-        "INSERT INTO app_settings (id, key, value, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        (&id, &key, &value, &now, &now),
-    )
-    .map_err(|e| e.to_string())?;
-
+    state.settings.set(key.clone(), value.clone())?;
     crate::runtime_logs::handle_setting_change(&key, &value);
-
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_all_app_settings(state: State<AppState>) -> Result<Vec<AppSettingRow>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.get_connection();
-
-    let mut stmt = conn
-        .prepare("SELECT key, value FROM app_settings ORDER BY key")
-        .map_err(|e| e.to_string())?;
-
-    let settings = stmt
-        .query_map([], |row| {
-            Ok(AppSettingRow {
-                key: row.get(0)?,
-                value: row.get(1)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(settings)
+    let mut rows = Vec::new();
+    for (key, value) in state.settings.get_all() {
+        rows.push(AppSettingRow { key, value });
+    }
+    rows.sort_by(|a, b| a.key.cmp(&b.key));
+    Ok(rows)
 }
 
 // --- MinerU Lifecycle Commands ---
@@ -1393,11 +1362,10 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
     let venv_dir = app_dir.join("mineru_venv");
 
     let (python_path, port_str, use_venv, model_source, models_dir_raw, pip_index_url) = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let conn = db.get_connection();
+        let settings = &state.settings;
 
         let use_venv_str =
-            get_setting_value(conn, "mineru.use_venv").unwrap_or_else(|| "false".to_string());
+            get_setting_value(settings, "mineru.use_venv").unwrap_or_else(|| "false".to_string());
         let use_venv = use_venv_str == "true";
 
         let python_path = if use_venv {
@@ -1411,7 +1379,7 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
                 );
             }
         } else {
-            get_setting_value(conn, "mineru.python_path").unwrap_or_else(|| {
+            get_setting_value(settings, "mineru.python_path").unwrap_or_else(|| {
                 if cfg!(windows) {
                     "python".to_string()
                 } else {
@@ -1420,12 +1388,12 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
             })
         };
 
-        let port_str = get_setting_value(conn, "mineru.port").unwrap_or_else(|| "8765".to_string());
-        let model_source = get_setting_value(conn, "mineru.model_source")
+        let port_str = get_setting_value(settings, "mineru.port").unwrap_or_else(|| "8765".to_string());
+        let model_source = get_setting_value(settings, "mineru.model_source")
             .unwrap_or_else(|| "huggingface".to_string());
-        let models_dir_raw = get_setting_value(conn, "mineru.models_dir").unwrap_or_default();
+        let models_dir_raw = get_setting_value(settings, "mineru.models_dir").unwrap_or_default();
         let pip_index_url = normalize_setting_or_default(
-            get_setting_value(conn, "mineru.pip_index_url"),
+            get_setting_value(settings, "mineru.pip_index_url"),
             DEFAULT_PIP_INDEX_URL,
         );
 
@@ -1560,9 +1528,8 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
     let repo_dir = app_dir.join("MinerU");
 
     let (system_python, clone_url, pip_index_url, install_method) = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let conn = db.get_connection();
-        let python = get_setting_value(conn, "mineru.python_path").unwrap_or_else(|| {
+        let settings = &state.settings;
+        let python = get_setting_value(settings, "mineru.python_path").unwrap_or_else(|| {
             if cfg!(windows) {
                 "python".to_string()
             } else {
@@ -1570,15 +1537,15 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             }
         });
         let url = normalize_setting_or_default(
-            get_setting_value(conn, "mineru.clone_url"),
+            get_setting_value(settings, "mineru.clone_url"),
             DEFAULT_MINERU_CLONE_URL,
         );
         let pip_index_url = normalize_setting_or_default(
-            get_setting_value(conn, "mineru.pip_index_url"),
+            get_setting_value(settings, "mineru.pip_index_url"),
             DEFAULT_PIP_INDEX_URL,
         );
         let install_method =
-            get_setting_value(conn, "mineru.install_method").unwrap_or_else(|| "pip".to_string());
+            get_setting_value(settings, "mineru.install_method").unwrap_or_else(|| "pip".to_string());
         (python, url, pip_index_url, install_method)
     };
 
@@ -2073,20 +2040,16 @@ pub async fn download_mineru_models(
     let venv_dir = app_dir.join("mineru_venv");
 
     let (use_venv, model_source) = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let conn = db.get_connection();
         let use_venv =
-            get_setting_value(conn, "mineru.use_venv").unwrap_or_else(|| "false".to_string());
-        let model_source = get_setting_value(conn, "mineru.model_source")
+            get_setting_value(&state.settings, "mineru.use_venv").unwrap_or_else(|| "false".to_string());
+        let model_source = get_setting_value(&state.settings, "mineru.model_source")
             .unwrap_or_else(|| "huggingface".to_string());
         (use_venv == "true", model_source)
     };
 
     // Default models dir to app_data_dir/mineru_models for clean uninstall
     let models_dir = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let conn = db.get_connection();
-        let dir = get_setting_value(conn, "mineru.models_dir").unwrap_or_default();
+        let dir = get_setting_value(&state.settings, "mineru.models_dir").unwrap_or_default();
         resolve_models_dir(&app_dir, &dir)
             .to_str()
             .unwrap_or_default()
@@ -2239,8 +2202,7 @@ pub fn get_model_download_status(
     state: State<AppState>,
 ) -> Result<ModelDownloadStatusResponse, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    refresh_model_download_status(&state.model_manager, db.get_connection(), &app_dir);
+    refresh_model_download_status(&state.model_manager, &state.settings, &app_dir);
     state.model_manager.get_status()
 }
 

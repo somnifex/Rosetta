@@ -198,32 +198,29 @@ pub fn should_use_zvec(
     cache.check_or_probe(app_dir, &zvec_settings.python_path)
 }
 
-fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> {
-    conn.query_row("SELECT value FROM app_settings WHERE key = ?1", [key], |row| {
-        row.get::<_, String>(0)
-    })
-    .optional()
-    .map_err(|e| e.to_string())
+fn get_setting(app_dir: &Path, key: &str) -> Option<String> {
+    let manager = crate::settings::SettingsManager::new(app_dir);
+    manager.get(key)
 }
 
-pub fn load_rag_settings(conn: &Connection) -> Result<RagSettings, String> {
-    let chunk_size = get_setting(conn, "rag.chunk_size")?
+pub fn load_rag_settings(_conn: &Connection, app_dir: &Path) -> Result<RagSettings, String> {
+    let chunk_size = get_setting(app_dir, "rag.chunk_size")
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_CHUNK_SIZE);
 
-    let chunk_overlap = get_setting(conn, "rag.chunk_overlap")?
+    let chunk_overlap = get_setting(app_dir, "rag.chunk_overlap")
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(DEFAULT_CHUNK_OVERLAP)
         .min(chunk_size.saturating_sub(1));
 
-    let vector_backend =
-        get_setting(conn, "rag.vector_backend")?.unwrap_or_else(|| DEFAULT_VECTOR_BACKEND.to_string());
+    let vector_backend = get_setting(app_dir, "rag.vector_backend")
+        .unwrap_or_else(|| DEFAULT_VECTOR_BACKEND.to_string());
 
     let reranker_mode =
-        get_setting(conn, "rag.reranker_mode")?.unwrap_or_else(|| "disabled".to_string());
+        get_setting(app_dir, "rag.reranker_mode").unwrap_or_else(|| "disabled".to_string());
 
-    let reranker_top_n = get_setting(conn, "rag.reranker_top_n")?
+    let reranker_top_n = get_setting(app_dir, "rag.reranker_top_n")
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(5);
@@ -237,8 +234,8 @@ pub fn load_rag_settings(conn: &Connection) -> Result<RagSettings, String> {
     })
 }
 
-pub fn load_zvec_settings(conn: &Connection, app_dir: &Path) -> Result<ZvecSettings, String> {
-    let use_venv = get_setting(conn, "rag.zvec_use_venv")?
+pub fn load_zvec_settings(_conn: &Connection, app_dir: &Path) -> Result<ZvecSettings, String> {
+    let use_venv = get_setting(app_dir, "rag.zvec_use_venv")
         .map(|v| v == "true")
         .unwrap_or(false);
 
@@ -249,13 +246,13 @@ pub fn load_zvec_settings(conn: &Connection, app_dir: &Path) -> Result<ZvecSetti
             venv_python.to_str().unwrap_or("python").to_string()
         } else {
             log::warn!("zvec use_venv is true but venv python not found, falling back to configured path");
-            get_setting(conn, "rag.zvec_python_path")?.unwrap_or_else(default_python_path)
+            get_setting(app_dir, "rag.zvec_python_path").unwrap_or_else(default_python_path)
         }
     } else {
-        get_setting(conn, "rag.zvec_python_path")?.unwrap_or_else(default_python_path)
+        get_setting(app_dir, "rag.zvec_python_path").unwrap_or_else(default_python_path)
     };
 
-    let collections_dir = get_setting(conn, "rag.zvec_collections_dir")?
+    let collections_dir = get_setting(app_dir, "rag.zvec_collections_dir")
         .map(PathBuf::from)
         .filter(|value| !value.as_os_str().is_empty())
         .unwrap_or_else(|| default_collections_dir(app_dir));
@@ -577,7 +574,7 @@ pub fn probe_status(
     conn: &Connection,
     app_dir: &Path,
 ) -> Result<ZvecStatusResponse, String> {
-    let rag_settings = load_rag_settings(conn)?;
+    let rag_settings = load_rag_settings(conn, app_dir)?;
     let zvec_settings = load_zvec_settings(conn, app_dir)?;
 
     if !platform_supported() {
@@ -1037,10 +1034,10 @@ pub async fn setup_zvec_venv(
 
     let (system_python, pip_index_url) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let conn = db.get_connection();
-        let python = get_setting(conn, "rag.zvec_system_python")?
+        let _conn = db.get_connection();
+        let python = get_setting(&app_dir, "rag.zvec_system_python")
             .unwrap_or_else(default_python_path);
-        let pip_url = get_setting(conn, "rag.zvec_pip_index_url")?
+        let pip_url = get_setting(&app_dir, "rag.zvec_pip_index_url")
             .unwrap_or_else(|| "https://pypi.org/simple".to_string());
         (python, pip_url)
     };

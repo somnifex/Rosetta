@@ -293,7 +293,7 @@ async fn ensure_documents_indexed(
     let expected_backend = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
-        let rag_settings = crate::zvec::load_rag_settings(conn)?;
+        let rag_settings = crate::zvec::load_rag_settings(conn, app_dir)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, app_dir)?;
         if crate::zvec::should_use_zvec(
             &rag_settings,
@@ -667,7 +667,7 @@ async fn retrieve_context(
     let (rag_settings, zvec_settings, use_zvec_retrieval, expected_collection_key) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
-        let rag_settings = crate::zvec::load_rag_settings(conn)?;
+        let rag_settings = crate::zvec::load_rag_settings(conn, app_dir)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, app_dir)?;
         let use_zvec = crate::zvec::should_use_zvec(
             &rag_settings,
@@ -1114,8 +1114,7 @@ async fn run_rag_chat(
         Vec::new()
     };
     let base_sampling = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        load_llm_sampling_config(db.get_connection(), "chat")?
+        load_llm_sampling_config(&state.settings, "chat")?
     };
     let sampling = merge_sampling_config(base_sampling, request.sampling_override.as_ref());
     stream_chat_completion(app, request, sources, sampling).await

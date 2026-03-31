@@ -6,7 +6,7 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -35,26 +35,207 @@ pub struct RuntimeLogEntry {
     pub created_at: String,
 }
 
+fn parse_log_rank(level: &str) -> i32 {
+    match level {
+        "error" => 1,
+        "warn" => 2,
+        "info" => 3,
+        _ => 4,
+    }
+}
+
+fn unescape_log_field(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.peek().copied() {
+                Some('n') => {
+                    let _ = chars.next();
+                    out.push('\n');
+                }
+                Some('t') => {
+                    let _ = chars.next();
+                    out.push('\t');
+                }
+                Some('\\') => {
+                    let _ = chars.next();
+                    out.push('\\');
+                }
+                _ => out.push(ch),
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn parse_runtime_log_line(line: &str) -> Option<RuntimeLogEntry> {
+    let mut parts = line.splitn(4, '\t');
+    let created_at = parts.next()?.to_string();
+    let level = parts.next()?.to_string();
+    let message = unescape_log_field(parts.next()?);
+    let context_raw = parts.next().unwrap_or_default();
+    let context = if context_raw.is_empty() {
+        None
+    } else {
+        Some(unescape_log_field(context_raw))
+    };
+
+    Some(RuntimeLogEntry {
+        id: format!("{created_at}:{level}"),
+        level,
+        message,
+        context,
+        created_at,
+    })
+}
+
+fn read_tail_string(path: &Path, bytes: usize) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    let want = bytes.min(len as usize) as u64;
+    let start = len.saturating_sub(want);
+    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+
+    let mut buf = Vec::with_capacity(want as usize);
+    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&buf).to_string())
+}
+
+fn read_runtime_logs_tail_from_file(
+    file: &Path,
+    target_count: usize,
+    min_rank: i32,
+) -> Result<Vec<RuntimeLogEntry>, String> {
+    if !file.exists() || target_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let file_len = fs::metadata(file).map_err(|e| e.to_string())?.len() as usize;
+    if file_len == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut window = 256 * 1024usize;
+    let mut filtered = Vec::new();
+
+    loop {
+        let content = read_tail_string(file, window)?;
+        filtered.clear();
+
+        for line in content.lines() {
+            if let Some(entry) = parse_runtime_log_line(line) {
+                if parse_log_rank(&entry.level) <= min_rank {
+                    filtered.push(entry);
+                }
+            }
+        }
+
+        if filtered.len() >= target_count || window >= file_len {
+            break;
+        }
+
+        let next = window.saturating_mul(2);
+        if next <= window {
+            break;
+        }
+        window = next.min(file_len);
+    }
+
+    filtered.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    if filtered.len() > target_count {
+        filtered.truncate(target_count);
+    }
+    Ok(filtered)
+}
+
+fn read_runtime_logs_from_files(
+    app_dir: &Path,
+    limit: usize,
+    offset: usize,
+    min_level: Option<&str>,
+) -> Result<Vec<RuntimeLogEntry>, String> {
+    crate::runtime_logs::with_log_io_lock(|| {
+        let mut entries = Vec::new();
+        let log_dir = app_dir.join("logs");
+        let files = crate::runtime_logs::list_log_files(&log_dir)?;
+        let min_rank = min_level.map(parse_log_rank).unwrap_or(4);
+        let target = limit.saturating_add(offset);
+
+        for file in files {
+            let remaining = target.saturating_sub(entries.len());
+            if remaining == 0 {
+                break;
+            }
+
+            let mut chunk = read_runtime_logs_tail_from_file(&file, remaining, min_rank)?;
+            entries.append(&mut chunk);
+        }
+
+        entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        if offset >= entries.len() {
+            return Ok(Vec::new());
+        }
+
+        let end = (offset + limit).min(entries.len());
+        Ok(entries[offset..end].to_vec())
+    })
+}
+
 fn normalize_log_level_input(raw: &str) -> Option<&'static str> {
     crate::runtime_logs::normalize_level_for_query(raw)
 }
 
-fn load_log_retention_days(conn: &rusqlite::Connection) -> i64 {
-    let parsed = get_setting_value(conn, "logs.retention_days")
-        .ok()
-        .flatten()
+fn load_log_retention_days(settings: &crate::settings::SettingsManager) -> i64 {
+    let parsed = settings.get("logs.retention_days")
         .and_then(|value| value.trim().parse::<i64>().ok())
         .unwrap_or(DEFAULT_LOG_RETENTION_DAYS);
     parsed.clamp(1, 3650)
 }
 
-fn cleanup_expired_logs(conn: &rusqlite::Connection, retention_days: i64) -> Result<usize, String> {
-    let threshold = format!("-{retention_days} days");
-    conn.execute(
-        "DELETE FROM logs WHERE datetime(created_at) < datetime('now', ?1)",
-        [&threshold],
-    )
-    .map_err(|e| e.to_string())
+fn cleanup_expired_runtime_logs(app_dir: &Path, retention_days: i64) -> Result<usize, String> {
+    let log_dir = app_dir.join("logs");
+    let threshold = Utc::now() - chrono::Duration::days(retention_days);
+
+    crate::runtime_logs::with_log_io_lock(|| {
+        let files = crate::runtime_logs::list_log_files(&log_dir)?;
+        let mut removed = 0usize;
+
+        for file in files {
+            let content = fs::read_to_string(&file).map_err(|e| e.to_string())?;
+            let mut kept_lines = Vec::new();
+
+            for line in content.lines() {
+                let keep_line = match parse_runtime_log_line(line) {
+                    Some(entry) => chrono::DateTime::parse_from_rfc3339(&entry.created_at)
+                        .map(|dt| dt.with_timezone(&Utc) >= threshold)
+                        .unwrap_or(true),
+                    None => true,
+                };
+
+                if keep_line {
+                    kept_lines.push(line.to_string());
+                } else {
+                    removed += 1;
+                }
+            }
+
+            if kept_lines.is_empty() {
+                if file.exists() {
+                    fs::remove_file(&file).map_err(|e| e.to_string())?;
+                }
+                continue;
+            }
+
+            let rewritten = format!("{}\n", kept_lines.join("\n"));
+            fs::write(&file, rewritten).map_err(|e| e.to_string())?;
+        }
+
+        Ok(removed)
+    })
 }
 
 fn cleanup_deleted_document_job_logs(
@@ -140,9 +321,9 @@ fn cleanup_output_cache_files(
     Ok(removed)
 }
 
-pub(crate) fn run_periodic_cleanup(conn: &rusqlite::Connection, app_dir: &Path) -> Result<(), String> {
-    let retention_days = load_log_retention_days(conn);
-    let removed_logs = cleanup_expired_logs(conn, retention_days)?;
+pub(crate) fn run_periodic_cleanup(conn: &rusqlite::Connection, settings: &crate::settings::SettingsManager, app_dir: &Path) -> Result<(), String> {
+    let retention_days = load_log_retention_days(settings);
+    let removed_logs = cleanup_expired_runtime_logs(app_dir, retention_days)?;
     let (removed_parse_jobs, removed_translation_jobs) =
         cleanup_deleted_document_job_logs(conn, retention_days)?;
     let removed_cache_files = cleanup_output_cache_files(conn, app_dir)?;
@@ -153,7 +334,7 @@ pub(crate) fn run_periodic_cleanup(conn: &rusqlite::Connection, app_dir: &Path) 
         || removed_cache_files > 0
     {
         log::info!(
-            "Periodic cleanup removed {} log rows, {} parse job rows, {} translation job rows, {} orphan cache files",
+            "Periodic cleanup removed {} log entries, {} parse job rows, {} translation job rows, {} orphan cache files",
             removed_logs,
             removed_parse_jobs,
             removed_translation_jobs,
@@ -282,47 +463,43 @@ fn parse_bool(value: Option<String>, default_value: bool) -> bool {
         .unwrap_or(default_value)
 }
 
-fn get_setting_value(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>, String> {
-    conn.query_row("SELECT value FROM app_settings WHERE key = ?1", [key], |row| {
-        row.get::<_, String>(0)
-    })
-    .optional()
-    .map_err(|e| e.to_string())
+fn get_setting_value(settings: &crate::settings::SettingsManager, key: &str) -> Result<Option<String>, String> {
+    Ok(settings.get(key))
 }
 
 fn load_translation_runtime_settings(
-    conn: &rusqlite::Connection,
+    settings: &crate::settings::SettingsManager,
 ) -> Result<TranslationRuntimeSettings, String> {
     let chunk_size = parse_bounded_usize(
-        get_setting_value(conn, "translation.chunk_size")?,
+        get_setting_value(settings, "translation.chunk_size")?,
         DEFAULT_TRANSLATION_CHUNK_SIZE,
         256,
         32000,
     );
 
     let chunk_overlap = parse_bounded_usize(
-        get_setting_value(conn, "translation.chunk_overlap")?,
+        get_setting_value(settings, "translation.chunk_overlap")?,
         DEFAULT_TRANSLATION_CHUNK_OVERLAP,
         0,
         chunk_size.saturating_sub(1),
     );
 
     let max_concurrent_requests = parse_bounded_usize(
-        get_setting_value(conn, "translation.max_concurrent_requests")?,
+        get_setting_value(settings, "translation.max_concurrent_requests")?,
         DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS,
         1,
         32,
     );
 
     let max_requests_per_minute = parse_bounded_u32(
-        get_setting_value(conn, "translation.max_requests_per_minute")?,
+        get_setting_value(settings, "translation.max_requests_per_minute")?,
         DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE,
         1,
         600,
     );
 
     let smart_optimize_enabled = parse_bool(
-        get_setting_value(conn, "translation.smart_optimize_enabled")?,
+        get_setting_value(settings, "translation.smart_optimize_enabled")?,
         false,
     );
 
@@ -336,14 +513,14 @@ fn load_translation_runtime_settings(
 }
 
 pub(crate) fn load_llm_sampling_config(
-    conn: &rusqlite::Connection,
+    settings: &crate::settings::SettingsManager,
     scope: &str,
 ) -> Result<LlmSamplingConfig, String> {
     Ok(LlmSamplingConfig {
-        temperature: parse_optional_f64(get_setting_value(conn, &format!("llm.{scope}.temperature"))?),
-        top_p: parse_optional_f64(get_setting_value(conn, &format!("llm.{scope}.top_p"))?),
-        top_k: parse_optional_i32(get_setting_value(conn, &format!("llm.{scope}.top_k"))?),
-        max_tokens: parse_optional_i32(get_setting_value(conn, &format!("llm.{scope}.max_tokens"))?),
+        temperature: parse_optional_f64(get_setting_value(settings, &format!("llm.{scope}.temperature"))?),
+        top_p: parse_optional_f64(get_setting_value(settings, &format!("llm.{scope}.top_p"))?),
+        top_k: parse_optional_i32(get_setting_value(settings, &format!("llm.{scope}.top_k"))?),
+        max_tokens: parse_optional_i32(get_setting_value(settings, &format!("llm.{scope}.max_tokens"))?),
     })
 }
 
@@ -872,6 +1049,107 @@ fn compute_content_hash(content: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+fn load_latest_parsed_content_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<ParsedContent, String> {
+    let (id, doc_id, version, markdown_ref, json_ref, structure_ref, created_at): (
+        String,
+        String,
+        i32,
+        String,
+        String,
+        Option<String>,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT id, document_id, version, markdown_content, json_content, structure_tree, created_at
+             FROM parsed_contents
+             WHERE document_id = ?1
+             ORDER BY version DESC
+             LIMIT 1",
+            [document_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    let markdown_content = crate::content_store::read_content_blob(&markdown_ref)?;
+    let json_content = crate::content_store::read_content_blob(&json_ref)?;
+    let structure_tree = match structure_ref {
+        Some(raw) => Some(crate::content_store::read_content_blob(&raw)?),
+        None => None,
+    };
+
+    Ok(ParsedContent {
+        id,
+        document_id: doc_id,
+        version,
+        markdown_content,
+        json_content,
+        structure_tree,
+        created_at,
+    })
+}
+
+fn load_latest_parsed_markdown_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<String, String> {
+    load_latest_parsed_content_internal(conn, document_id).map(|row| row.markdown_content)
+}
+
+fn load_latest_translated_content_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<TranslatedContent, String> {
+    let (id, doc_id, version, content_ref, created_at): (String, String, i32, String, String) =
+        conn.query_row(
+            "SELECT id, document_id, version, content, created_at
+             FROM translated_contents
+             WHERE document_id = ?1
+             ORDER BY version DESC
+             LIMIT 1",
+            [document_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    let content = crate::content_store::read_content_blob(&content_ref)?;
+
+    Ok(TranslatedContent {
+        id,
+        document_id: doc_id,
+        version,
+        content,
+        created_at,
+    })
+}
+
+fn load_latest_translated_text_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<String, String> {
+    load_latest_translated_content_internal(conn, document_id).map(|row| row.content)
+}
+
 fn next_content_version(
     conn: &rusqlite::Connection,
     table_name: &str,
@@ -1021,6 +1299,9 @@ fn clear_document_derived_data(
     if remove_parsed_content {
         conn.execute("DELETE FROM parsed_contents WHERE document_id = ?1", [document_id])
             .map_err(|e| e.to_string())?;
+        if let Some(app_dir) = app_dir {
+            let _ = crate::content_store::remove_parsed_dir(app_dir, document_id);
+        }
         conn.execute(
             "UPDATE documents
              SET parse_status = 'pending', translation_status = 'pending', index_status = 'pending', updated_at = ?1
@@ -1043,6 +1324,9 @@ fn clear_document_derived_data(
         [document_id],
     )
     .map_err(|e| e.to_string())?;
+    if let Some(app_dir) = app_dir {
+        let _ = crate::content_store::remove_translated_dir(app_dir, document_id);
+    }
     delete_document_output_record_and_file(conn, "translated_pdf", document_id)?;
 
     Ok(())
@@ -2058,6 +2342,12 @@ fn permanently_delete_documents_internal(
                         path: None,
                         reason: error,
                     });
+                } else if let Err(error) = crate::content_store::remove_document_dir(&app_dir, document_id) {
+                    issues.push(DocumentCleanupIssue {
+                        resource_type: "document_contents".to_string(),
+                        path: None,
+                        reason: error,
+                    });
                 }
             }
         }
@@ -2736,7 +3026,8 @@ async fn execute_parse_job(
 
     let mineru_url = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        state.mineru_manager.get_effective_url(&db)?
+        let _conn = db.get_connection();
+        state.mineru_manager.get_effective_url(&state.settings)?
     };
     let client = if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
         crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
@@ -2756,6 +3047,15 @@ async fn execute_parse_job(
             let version = next_content_version(conn, "parsed_contents", document_id)?;
             clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
 
+            let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
+                app_dir.ok_or("App dir is required for parsed content storage")?,
+                document_id,
+                version,
+                &parse_result.markdown,
+                &parse_result.json,
+                Some(&parse_result.structure.to_string()),
+            )?;
+
             persist_mineru_processed_files(
                 conn,
                 document_id,
@@ -2767,7 +3067,7 @@ async fn execute_parse_job(
 
             conn.execute(
                 "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                (&content_id, document_id, &version, &parse_result.markdown, &parse_result.json, &parse_result.structure.to_string(), &now),
+                (&content_id, document_id, &version, &markdown_path, &json_path, &structure_path, &now),
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
@@ -2957,22 +3257,7 @@ pub fn get_parsed_content(
     )
     .map_err(|e| e.to_string())?;
 
-    conn.query_row(
-        "SELECT * FROM parsed_contents WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
-        [&document_id],
-        |row| {
-            Ok(ParsedContent {
-                id: row.get(0)?,
-                document_id: row.get(1)?,
-                version: row.get(2)?,
-                markdown_content: row.get(3)?,
-                json_content: row.get(4)?,
-                structure_tree: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        },
-    )
-    .map_err(|e| e.to_string())
+    load_latest_parsed_content_internal(conn, &document_id)
 }
 
 #[tauri::command]
@@ -3016,14 +3301,14 @@ pub async fn start_translation_job(
     let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
     let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
         .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
-    let mut sampling = load_llm_sampling_config(conn, "translate")?;
+    let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
     if sampling.temperature.is_none() {
         sampling.temperature = provider_record.legacy_temperature;
     }
     if sampling.max_tokens.is_none() {
         sampling.max_tokens = provider_record.legacy_max_tokens;
     }
-    let runtime_settings = load_translation_runtime_settings(conn)?;
+    let runtime_settings = load_translation_runtime_settings(&state.settings)?;
 
     let job_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -3171,25 +3456,16 @@ async fn execute_translation_job(
         let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
             .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
         let chat_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_CHAT);
-        let mut sampling = load_llm_sampling_config(conn, "translate")?;
+        let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
         if sampling.temperature.is_none() {
             sampling.temperature = provider_record.legacy_temperature;
         }
         if sampling.max_tokens.is_none() {
             sampling.max_tokens = provider_record.legacy_max_tokens;
         }
-        let runtime_settings = load_translation_runtime_settings(conn)?;
+        let runtime_settings = load_translation_runtime_settings(&state.settings)?;
 
-        let markdown_content: String = conn.query_row(
-            "SELECT pc.markdown_content
-             FROM parsed_contents pc
-             JOIN documents d ON d.id = pc.document_id
-             WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-             ORDER BY pc.version DESC
-             LIMIT 1",
-            [document_id],
-            |row| row.get(0),
-        ).map_err(|e| e.to_string())?;
+        let markdown_content = load_latest_parsed_markdown_internal(conn, document_id)?;
 
         (
             provider_record,
@@ -3472,9 +3748,16 @@ fn finalize_translation_job(
             let version = next_content_version(conn, "translated_contents", document_id)?;
             clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
 
+            let translated_path = crate::content_store::write_translated_version(
+                app_dir.ok_or("App dir is required for translated content storage")?,
+                document_id,
+                version,
+                &translated_text,
+            )?;
+
             conn.execute(
                 "INSERT INTO translated_contents (id, document_id, version, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                (&content_id, document_id, &version, &translated_text, &now),
+                (&content_id, document_id, &version, &translated_path, &now),
             ).map_err(|e| e.to_string())?;
 
             conn.execute(
@@ -3578,16 +3861,8 @@ async fn resume_translation_job_start(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
-        let current_markdown: String = conn.query_row(
-            "SELECT pc.markdown_content
-             FROM parsed_contents pc
-             JOIN documents d ON d.id = pc.document_id
-             WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-             ORDER BY pc.version DESC
-             LIMIT 1",
-            [&job_document_id],
-            |row| row.get(0),
-        ).map_err(|e| format!("Failed to load document content: {}", e))?;
+        let current_markdown = load_latest_parsed_markdown_internal(conn, &job_document_id)
+            .map_err(|e| format!("Failed to load document content: {}", e))?;
 
         if let Some(ref saved_hash) = job_content_hash {
             let current_hash = compute_content_hash(&current_markdown);
@@ -3606,7 +3881,7 @@ async fn resume_translation_job_start(
         let provider_models = load_provider_models_for_provider(conn, &job_provider_id)?;
         let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
             .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
-        let mut sampling = load_llm_sampling_config(conn, "translate")?;
+        let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
         if sampling.temperature.is_none() {
             sampling.temperature = provider_record.legacy_temperature;
         }
@@ -3903,20 +4178,7 @@ pub fn get_translated_content(
     )
     .map_err(|e| e.to_string())?;
 
-    conn.query_row(
-        "SELECT * FROM translated_contents WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
-        [&document_id],
-        |row| {
-            Ok(TranslatedContent {
-                id: row.get(0)?,
-                document_id: row.get(1)?,
-                version: row.get(2)?,
-                content: row.get(3)?,
-                created_at: row.get(4)?,
-            })
-        },
-    )
-    .map_err(|e| e.to_string())
+    load_latest_translated_content_internal(conn, &document_id)
 }
 
 #[tauri::command]
@@ -4106,11 +4368,19 @@ pub async fn replace_parsed_markdown(
     clear_document_derived_data(conn, Some(&app_dir), &document_id, false, &now)?;
     persist_mineru_processed_files(conn, &document_id, &markdown_content, "{}", "null", &now)?;
     let version = next_content_version(conn, "parsed_contents", &document_id)?;
+    let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
+        &app_dir,
+        &document_id,
+        version,
+        &markdown_content,
+        "{}",
+        None,
+    )?;
 
     conn.execute(
         "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
-         VALUES (?1, ?2, ?3, ?4, '{}', NULL, ?5)",
-        (&content_id, &document_id, &version, &markdown_content, &now),
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        (&content_id, &document_id, &version, &markdown_path, &json_path, &structure_path, &now),
     )
     .map_err(|e| e.to_string())?;
 
@@ -4122,22 +4392,7 @@ pub async fn replace_parsed_markdown(
     )
     .map_err(|e| e.to_string())?;
 
-    conn.query_row(
-        "SELECT * FROM parsed_contents WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
-        [&document_id],
-        |row| {
-            Ok(ParsedContent {
-                id: row.get(0)?,
-                document_id: row.get(1)?,
-                version: row.get(2)?,
-                markdown_content: row.get(3)?,
-                json_content: row.get(4)?,
-                structure_tree: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        },
-    )
-    .map_err(|e| e.to_string())
+    load_latest_parsed_content_internal(conn, &document_id)
 }
 
 #[tauri::command]
@@ -4259,18 +4514,9 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
-        let markdown_content: String = conn.query_row(
-            "SELECT pc.markdown_content
-             FROM parsed_contents pc
-             JOIN documents d ON d.id = pc.document_id
-             WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-             ORDER BY pc.version DESC
-             LIMIT 1",
-            [document_id],
-            |row| row.get(0),
-        ).map_err(|e| e.to_string())?;
+        let markdown_content = load_latest_parsed_markdown_internal(conn, document_id)?;
 
-        let rag_settings = crate::zvec::load_rag_settings(conn)?;
+        let rag_settings = crate::zvec::load_rag_settings(conn, app_dir)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, app_dir)?;
 
         (markdown_content, rag_settings, zvec_settings)
@@ -4765,7 +5011,7 @@ pub async fn search_documents(
         let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
         let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
             .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
-        let rag_settings = crate::zvec::load_rag_settings(conn)?;
+        let rag_settings = crate::zvec::load_rag_settings(conn, &app_dir)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, &app_dir)?;
 
         (
@@ -5076,52 +5322,11 @@ pub async fn export_document(
         .map_err(|e| e.to_string())?;
 
         match content_type.as_str() {
-            "original" => {
-                conn.query_row(
-                    "SELECT pc.markdown_content
-                     FROM parsed_contents pc
-                     JOIN documents d ON d.id = pc.document_id
-                     WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-                     ORDER BY pc.version DESC
-                     LIMIT 1",
-                    [&document_id],
-                    |row| row.get::<_, String>(0),
-                ).map_err(|e| e.to_string())?
-            }
-            "translated" => {
-                conn.query_row(
-                    "SELECT tc.content
-                     FROM translated_contents tc
-                     JOIN documents d ON d.id = tc.document_id
-                     WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
-                     ORDER BY tc.version DESC
-                     LIMIT 1",
-                    [&document_id],
-                    |row| row.get::<_, String>(0),
-                ).map_err(|e| e.to_string())?
-            }
+            "original" => load_latest_parsed_markdown_internal(conn, &document_id)?,
+            "translated" => load_latest_translated_text_internal(conn, &document_id)?,
             "bilingual" => {
-                let original: String = conn.query_row(
-                    "SELECT pc.markdown_content
-                     FROM parsed_contents pc
-                     JOIN documents d ON d.id = pc.document_id
-                     WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-                     ORDER BY pc.version DESC
-                     LIMIT 1",
-                    [&document_id],
-                    |row| row.get(0),
-                ).map_err(|e| e.to_string())?;
-
-                let translated: String = conn.query_row(
-                    "SELECT tc.content
-                     FROM translated_contents tc
-                     JOIN documents d ON d.id = tc.document_id
-                     WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
-                     ORDER BY tc.version DESC
-                     LIMIT 1",
-                    [&document_id],
-                    |row| row.get(0),
-                ).map_err(|e| e.to_string())?;
+                let original = load_latest_parsed_markdown_internal(conn, &document_id)?;
+                let translated = load_latest_translated_text_internal(conn, &document_id)?;
 
                 format!("# Original\n\n{}\n\n# Translation\n\n{}", original, translated)
             }
@@ -5422,66 +5627,21 @@ pub fn get_runtime_logs(
     state: State<AppState>,
     limit: Option<i64>,
     min_level: Option<String>,
+    offset: Option<i64>,
 ) -> Result<Vec<RuntimeLogEntry>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.get_connection();
-
-    let normalized_limit = limit.unwrap_or(500).clamp(10, 5000);
+    let normalized_limit = limit.unwrap_or(500).clamp(10, 5000) as usize;
+    let normalized_offset = offset.unwrap_or(0).max(0) as usize;
     let normalized_level = min_level
         .as_deref()
         .and_then(normalize_log_level_input)
         .map(|v| v.to_string());
 
-    let rank_sql = "CASE level WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END";
-
-    let sql = if normalized_level.is_some() {
-        format!(
-            "SELECT id, level, message, context, created_at
-             FROM logs
-             WHERE {rank_sql} <= CASE ?1 WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END
-             ORDER BY created_at DESC
-             LIMIT ?2"
-        )
-    } else {
-        "SELECT id, level, message, context, created_at
-         FROM logs
-         ORDER BY created_at DESC
-         LIMIT ?1"
-            .to_string()
-    };
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-
-    if let Some(level) = normalized_level {
-        let rows = stmt
-            .query_map((level, normalized_limit), |row| {
-                Ok(RuntimeLogEntry {
-                    id: row.get(0)?,
-                    level: row.get(1)?,
-                    message: row.get(2)?,
-                    context: row.get(3)?,
-                    created_at: row.get(4)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-        return rows
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string());
-    }
-
-    let rows = stmt
-        .query_map([normalized_limit], |row| {
-            Ok(RuntimeLogEntry {
-                id: row.get(0)?,
-                level: row.get(1)?,
-                message: row.get(2)?,
-                context: row.get(3)?,
-                created_at: row.get(4)?,
-            })
-        })
-        .map_err(|e| e.to_string())?;
-
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    read_runtime_logs_from_files(
+        &state.app_dir,
+        normalized_limit,
+        normalized_offset,
+        normalized_level.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -5490,9 +5650,6 @@ pub fn export_runtime_logs(
     file_path: String,
     options: Option<ExportRuntimeLogsOptions>,
 ) -> Result<String, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.get_connection();
-
     let min_level = options
         .as_ref()
         .and_then(|opt| opt.min_level.as_deref())
@@ -5503,38 +5660,29 @@ pub fn export_runtime_logs(
         .and_then(|opt| opt.days)
         .unwrap_or(7)
         .clamp(1, 3650);
-    let threshold = format!("-{days} days");
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT created_at, level, message, context
-             FROM logs
-             WHERE datetime(created_at) >= datetime('now', ?1)
-               AND CASE level WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END
-                   <= CASE ?2 WHEN 'error' THEN 1 WHEN 'warn' THEN 2 WHEN 'info' THEN 3 ELSE 4 END
-             ORDER BY created_at ASC",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let rows = stmt
-        .query_map((&threshold, min_level), |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+    let now = Utc::now();
+    let threshold = now - chrono::Duration::days(days);
+    let rows = read_runtime_logs_from_files(&state.app_dir, 50_000, 0, Some(min_level))?;
 
     let mut output = fs::File::create(&file_path).map_err(|e| e.to_string())?;
     writeln!(output, "# Rosetta Runtime Logs").map_err(|e| e.to_string())?;
     writeln!(output, "# min_level={min_level}, days={days}").map_err(|e| e.to_string())?;
     writeln!(output).map_err(|e| e.to_string())?;
 
-    for (created_at, level, message, context) in rows {
+    for row in rows.into_iter().rev() {
+        let created_time = chrono::DateTime::parse_from_rfc3339(&row.created_at)
+            .map(|dt| dt.with_timezone(&Utc))
+            .ok();
+        if let Some(created_time) = created_time {
+            if created_time < threshold {
+                continue;
+            }
+        }
+
+        let created_at = row.created_at;
+        let level = row.level;
+        let message = row.message;
+        let context = row.context;
         if let Some(context) = context {
             writeln!(output, "[{created_at}] [{level}] {message} | {context}")
                 .map_err(|e| e.to_string())?;
@@ -5550,7 +5698,7 @@ pub fn export_runtime_logs(
 pub fn run_cleanup_now(app: AppHandle, state: State<AppState>) -> Result<String, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    run_periodic_cleanup(db.get_connection(), &app_dir)?;
+    run_periodic_cleanup(db.get_connection(), &state.settings, &app_dir)?;
     Ok("Cleanup completed".to_string())
 }
 
@@ -5621,10 +5769,18 @@ pub async fn import_document(
         if normalized_file_type == "md" || normalized_file_type == "txt" {
             let content = FileHandler::read_text_file(source_path)?;
             let content_id = Uuid::new_v4().to_string();
+            let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
+                &app_dir,
+                &id,
+                1,
+                &content,
+                "{}",
+                None,
+            )?;
 
             conn.execute(
-                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, created_at) VALUES (?1, ?2, 1, ?3, '{}', ?4)",
-                (&content_id, &id, &content, &now),
+                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)",
+                (&content_id, &id, &markdown_path, &json_path, &structure_path, &now),
             )
             .map_err(|e| e.to_string())?;
         }
@@ -5735,9 +5891,17 @@ pub fn duplicate_document(
     if is_text {
         if let Ok(content) = FileHandler::read_text_file(&dest_path) {
             let content_id = Uuid::new_v4().to_string();
+            let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
+                &app_dir,
+                &new_id,
+                1,
+                &content,
+                "{}",
+                None,
+            )?;
             let _ = conn.execute(
-                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, created_at) VALUES (?1, ?2, 1, ?3, '{}', ?4)",
-                (&content_id, &new_id, &content, &now),
+                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)",
+                (&content_id, &new_id, &markdown_path, &json_path, &structure_path, &now),
             );
             let _ = conn.execute(
                 "UPDATE documents SET parse_status = 'completed' WHERE id = ?1",
@@ -6004,14 +6168,14 @@ pub async fn batch_start_translation_jobs(
         let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
         let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
             .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
-        let mut sampling = load_llm_sampling_config(conn, "translate")?;
+        let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
         if sampling.temperature.is_none() {
             sampling.temperature = provider_record.legacy_temperature;
         }
         if sampling.max_tokens.is_none() {
             sampling.max_tokens = provider_record.legacy_max_tokens;
         }
-        let runtime_settings = load_translation_runtime_settings(conn)?;
+        let runtime_settings = load_translation_runtime_settings(&state.settings)?;
         (provider_record, translate_model, sampling, runtime_settings)
     };
 
@@ -6404,52 +6568,16 @@ fn get_export_content(
     content_type: &str,
 ) -> Result<String, String> {
     match content_type {
-        "original" => {
-            conn.query_row(
-                "SELECT pc.markdown_content
-                 FROM parsed_contents pc
-                 JOIN documents d ON d.id = pc.document_id
-                 WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-                 ORDER BY pc.version DESC
-                 LIMIT 1",
-                [document_id],
-                |row| row.get::<_, String>(0),
-            ).map_err(|e| format!("No parsed content: {}", e))
-        }
-        "translated" => {
-            conn.query_row(
-                "SELECT tc.content
-                 FROM translated_contents tc
-                 JOIN documents d ON d.id = tc.document_id
-                 WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
-                 ORDER BY tc.version DESC
-                 LIMIT 1",
-                [document_id],
-                |row| row.get::<_, String>(0),
-            ).map_err(|e| format!("No translated content: {}", e))
-        }
+        "original" => load_latest_parsed_markdown_internal(conn, document_id)
+            .map_err(|e| format!("No parsed content: {}", e)),
+        "translated" => load_latest_translated_text_internal(conn, document_id)
+            .map_err(|e| format!("No translated content: {}", e)),
         "bilingual" => {
-            let original: String = conn.query_row(
-                "SELECT pc.markdown_content
-                 FROM parsed_contents pc
-                 JOIN documents d ON d.id = pc.document_id
-                 WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
-                 ORDER BY pc.version DESC
-                 LIMIT 1",
-                [document_id],
-                |row| row.get(0),
-            ).map_err(|e| format!("No parsed content: {}", e))?;
+            let original = load_latest_parsed_markdown_internal(conn, document_id)
+                .map_err(|e| format!("No parsed content: {}", e))?;
 
-            let translated: String = conn.query_row(
-                "SELECT tc.content
-                 FROM translated_contents tc
-                 JOIN documents d ON d.id = tc.document_id
-                 WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
-                 ORDER BY tc.version DESC
-                 LIMIT 1",
-                [document_id],
-                |row| row.get(0),
-            ).map_err(|e| format!("No translated content: {}", e))?;
+            let translated = load_latest_translated_text_internal(conn, document_id)
+                .map_err(|e| format!("No translated content: {}", e))?;
 
             Ok(format!("# Original\n\n{}\n\n# Translation\n\n{}", original, translated))
         }

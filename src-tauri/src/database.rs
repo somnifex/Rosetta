@@ -30,6 +30,7 @@ impl Database {
             include_str!("../migrations/005_provider_models.sql"),
             include_str!("../migrations/006_mineru_processed_files.sql"),
             include_str!("../migrations/007_chunk_persistence_and_index_jobs.sql"),
+            include_str!("../migrations/008_storage_compaction_markers.sql"),
         ];
 
         for schema in schemas {
@@ -166,6 +167,103 @@ impl Database {
 
         Ok(())
     }
+
+    pub fn apply_optional_storage_compaction(&self, enable: bool) -> Result<bool> {
+        if !enable {
+            return Ok(false);
+        }
+
+        let marker_key = "storage.compaction.v1";
+        if self.has_migration_marker(marker_key)? {
+            return Ok(false);
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Rebuild parsed_contents/translated_contents to reclaim pages left by old large TEXT rows.
+        if table_exists(&tx, "parsed_contents")? {
+            tx.execute_batch(
+                "CREATE TABLE parsed_contents_new (
+                    id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    markdown_content TEXT NOT NULL,
+                    json_content TEXT NOT NULL,
+                    structure_tree TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                    UNIQUE(document_id, version)
+                );
+                INSERT INTO parsed_contents_new (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
+                SELECT id, document_id, version, markdown_content, json_content, structure_tree, created_at
+                FROM parsed_contents;
+                DROP TABLE parsed_contents;
+                ALTER TABLE parsed_contents_new RENAME TO parsed_contents;
+                CREATE INDEX IF NOT EXISTS idx_parsed_contents_document ON parsed_contents(document_id);",
+            )?;
+        }
+
+        if table_exists(&tx, "translated_contents")? {
+            tx.execute_batch(
+                "CREATE TABLE translated_contents_new (
+                    id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                    UNIQUE(document_id, version)
+                );
+                INSERT INTO translated_contents_new (id, document_id, version, content, created_at)
+                SELECT id, document_id, version, content, created_at
+                FROM translated_contents;
+                DROP TABLE translated_contents;
+                ALTER TABLE translated_contents_new RENAME TO translated_contents;
+                CREATE INDEX IF NOT EXISTS idx_translated_contents_document ON translated_contents(document_id);",
+            )?;
+        }
+
+        // These tables are now migrated to file/system settings and can be removed.
+        tx.execute_batch("DROP TABLE IF EXISTS app_settings; DROP TABLE IF EXISTS logs;")?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        tx.execute(
+            "INSERT INTO migration_markers(marker_key, marker_value, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(marker_key) DO UPDATE
+             SET marker_value = excluded.marker_value,
+                 updated_at = excluded.updated_at",
+            [marker_key, &now, &now],
+        )?;
+
+        tx.commit()?;
+        Ok(true)
+    }
+
+    fn has_migration_marker(&self, marker_key: &str) -> Result<bool> {
+        if !table_exists(&self.conn, "migration_markers")? {
+            return Ok(false);
+        }
+
+        let exists = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM migration_markers WHERE marker_key = ?1)",
+                [marker_key],
+                |row| row.get::<_, i64>(0),
+            )?
+            != 0;
+        Ok(exists)
+    }
+}
+
+fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
+    let exists = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?1)",
+        [table],
+        |row| row.get::<_, i64>(0),
+    )? != 0;
+    Ok(exists)
 }
 
 fn ensure_table_column(conn: &Connection, table: &str, column: &str, alter_sql: &str) -> Result<()> {

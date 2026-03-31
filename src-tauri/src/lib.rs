@@ -1,6 +1,7 @@
 mod app_dirs;
 mod chunking;
 mod commands;
+mod content_store;
 mod database;
 mod embedder;
 mod file_handler;
@@ -12,6 +13,7 @@ mod rate_limiter;
 mod reranker;
 mod retry;
 mod runtime_logs;
+mod settings;
 mod sync_backup;
 mod translator;
 mod webdav;
@@ -20,13 +22,16 @@ mod zvec;
 use database::Database;
 use mineru_process::{MinerUModelManager, MinerUProcessManager, MinerUVenvManager};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::async_runtime::JoinHandle;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, RunEvent};
 
 pub struct AppState {
+    pub app_dir: PathBuf,
     pub db: Arc<Mutex<Database>>,
+    pub settings: Arc<settings::SettingsManager>,
     pub mineru_manager: Arc<MinerUProcessManager>,
     pub venv_manager: Arc<MinerUVenvManager>,
     pub model_manager: Arc<MinerUModelManager>,
@@ -42,7 +47,9 @@ pub struct AppState {
 impl Clone for AppState {
     fn clone(&self) -> Self {
         Self {
+            app_dir: self.app_dir.clone(),
             db: Arc::clone(&self.db),
+            settings: Arc::clone(&self.settings),
             mineru_manager: Arc::clone(&self.mineru_manager),
             venv_manager: Arc::clone(&self.venv_manager),
             model_manager: Arc::clone(&self.model_manager),
@@ -92,15 +99,92 @@ pub fn run() {
                 e
             })?;
 
-            let logger_level = db
-                .get_connection()
-                .query_row(
-                    "SELECT value FROM app_settings WHERE key = 'logs.level'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap_or_else(|_| "info".to_string());
-            runtime_logs::configure_runtime_logger(db_path.clone(), &logger_level);
+            let settings_manager = Arc::new(settings::SettingsManager::new(&app_dir));
+            
+            // Migrate legacy settings from DB
+            {
+                let conn = db.get_connection();
+                if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM app_settings") {
+                    if let Ok(rows) = stmt
+                        .query_map([], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        })
+                        .and_then(|iter| iter.collect::<Result<Vec<_>, _>>())
+                    {
+                        let mut merged = settings_manager.get_all();
+                        let mut changed = false;
+
+                        for (key, value) in rows {
+                            if !merged.contains_key(&key) {
+                                merged.insert(key, value);
+                                changed = true;
+                            }
+                        }
+
+                        if changed {
+                            settings_manager.replace_all(merged).map_err(|e| {
+                                log::error!("Failed to migrate legacy settings into settings.json: {}", e);
+                                e
+                            })?;
+                        }
+                    }
+                }
+            }
+
+            let mut needs_vacuum = false;
+
+            // Migrate legacy parsed/translated large TEXT blobs into file storage once.
+            {
+                let conn = db.get_connection();
+                match content_store::migrate_legacy_contents(conn, &app_dir) {
+                    Ok(true) => {
+                        needs_vacuum = true;
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        log::warn!("Failed to migrate legacy document contents: {}", e);
+                    }
+                }
+
+                match runtime_logs::migrate_legacy_logs(conn, &app_dir.join("logs")) {
+                    Ok(true) => {
+                        needs_vacuum = true;
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        log::warn!("Failed to migrate legacy runtime logs: {}", e);
+                    }
+                }
+
+                if needs_vacuum {
+                    let _ = conn.execute_batch("VACUUM");
+                }
+            }
+
+            // Optional hard-close compaction (rebuild light tables + drop legacy settings/log tables).
+            {
+                let compact_enabled = settings_manager
+                    .get("storage.compact_legacy_tables")
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+                    || std::env::var("ROSETTA_COMPACT_LEGACY_TABLES")
+                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                        .unwrap_or(false);
+
+                match db.apply_optional_storage_compaction(compact_enabled) {
+                    Ok(true) => {
+                        let _ = db.get_connection().execute_batch("VACUUM");
+                        log::info!("Optional storage compaction applied.");
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        log::warn!("Optional storage compaction failed: {}", e);
+                    }
+                }
+            }
+
+            let logger_level = settings_manager.get_with_default("logs.level", "info");
+            runtime_logs::configure_runtime_logger(app_dir.join("logs"), &logger_level);
 
             if let Err(e) = db.recover_incomplete_tasks() {
                 log::error!("Failed to recover incomplete tasks: {}", e);
@@ -115,16 +199,18 @@ pub fn run() {
 
             let db_arc = Arc::new(Mutex::new(db));
 
-            if let Ok(db_guard) = db_arc.lock() {
+            if db_arc.lock().is_ok() {
                 mineru_process::refresh_model_download_status(
                     &model_manager,
-                    db_guard.get_connection(),
+                    &settings_manager,
                     &app_dir,
                 );
             }
 
             app.manage(AppState {
+                app_dir: app_dir.clone(),
                 db: Arc::clone(&db_arc),
+                settings: Arc::clone(&settings_manager),
                 mineru_manager: Arc::clone(&mineru_manager),
                 venv_manager: Arc::clone(&venv_manager),
                 model_manager: Arc::clone(&model_manager),
@@ -159,32 +245,14 @@ pub fn run() {
                 }
             }
 
-            // Auto-start MinerU if configured
-            let db_for_autostart = Arc::clone(&db_arc);
+            let settings_for_autostart = Arc::clone(&settings_manager);
             let manager_for_autostart = Arc::clone(&mineru_manager);
             let app_dir_for_autostart = app_dir.clone();
             tauri::async_runtime::spawn(async move {
                 let (mode, auto_start, python_path, port_str, use_venv, model_source, models_dir) = {
-                    let Ok(db) = db_for_autostart.lock() else {
-                        log::error!("Failed to lock database for MinerU auto-start");
-                        return;
-                    };
-                    let conn = db.get_connection();
-                    let mode = conn.query_row(
-                        "SELECT value FROM app_settings WHERE key = 'mineru.mode'",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    ).unwrap_or_else(|_| "builtin".to_string());
-                    let auto_start = conn.query_row(
-                        "SELECT value FROM app_settings WHERE key = 'mineru.auto_start'",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    ).unwrap_or_else(|_| "false".to_string());
-                    let use_venv_str = conn.query_row(
-                        "SELECT value FROM app_settings WHERE key = 'mineru.use_venv'",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    ).unwrap_or_else(|_| "false".to_string());
+                    let mode = settings_for_autostart.get_with_default("mineru.mode", "builtin");
+                    let auto_start = settings_for_autostart.get_with_default("mineru.auto_start", "false");
+                    let use_venv_str = settings_for_autostart.get_with_default("mineru.use_venv", "false");
                     let use_venv = use_venv_str == "true";
                     let python_path = if use_venv {
                         let venv_dir = app_dir_for_autostart.join("mineru_venv");
@@ -193,34 +261,14 @@ pub fn run() {
                             venv_python.to_str().unwrap_or("python").to_string()
                         } else {
                             log::warn!("use_venv is true but venv python not found, falling back to system python");
-                            conn.query_row(
-                                "SELECT value FROM app_settings WHERE key = 'mineru.python_path'",
-                                [],
-                                |row| row.get::<_, String>(0),
-                            ).unwrap_or_else(|_| if cfg!(windows) { "python".to_string() } else { "python3".to_string() })
+                            settings_for_autostart.get_with_default("mineru.python_path", if cfg!(windows) { "python" } else { "python3" })
                         }
                     } else {
-                        conn.query_row(
-                            "SELECT value FROM app_settings WHERE key = 'mineru.python_path'",
-                            [],
-                            |row| row.get::<_, String>(0),
-                        ).unwrap_or_else(|_| if cfg!(windows) { "python".to_string() } else { "python3".to_string() })
+                        settings_for_autostart.get_with_default("mineru.python_path", if cfg!(windows) { "python" } else { "python3" })
                     };
-                    let port_str = conn.query_row(
-                        "SELECT value FROM app_settings WHERE key = 'mineru.port'",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    ).unwrap_or_else(|_| "8765".to_string());
-                    let model_source = conn.query_row(
-                        "SELECT value FROM app_settings WHERE key = 'mineru.model_source'",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    ).unwrap_or_else(|_| "huggingface".to_string());
-                    let models_dir = conn.query_row(
-                        "SELECT value FROM app_settings WHERE key = 'mineru.models_dir'",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    ).unwrap_or_else(|_| String::new());
+                    let port_str = settings_for_autostart.get_with_default("mineru.port", "8765");
+                    let model_source = settings_for_autostart.get_with_default("mineru.model_source", "huggingface");
+                    let models_dir = settings_for_autostart.get_with_default("mineru.models_dir", "");
                     // Default models dir to app_data_dir/mineru_models
                     let models_dir = if models_dir.trim().is_empty() {
                         app_dir_for_autostart.join("mineru_models").to_str().unwrap_or_default().to_string()
@@ -244,15 +292,18 @@ pub fn run() {
 
             let cleanup_db = Arc::clone(&db_arc);
             let cleanup_app_dir = app_dir.clone();
+            let cleanup_settings = Arc::clone(&settings_manager);
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
                     let Ok(db_guard) = cleanup_db.lock() else {
                         continue;
                     };
-                    if let Err(error) =
-                        commands::run_periodic_cleanup(db_guard.get_connection(), &cleanup_app_dir)
-                    {
+                    if let Err(error) = commands::run_periodic_cleanup(
+                        db_guard.get_connection(),
+                        &cleanup_settings,
+                        &cleanup_app_dir,
+                    ) {
                         log::warn!("Periodic cleanup failed: {}", error);
                     }
                 }
@@ -334,19 +385,7 @@ pub fn run() {
 
             // Silent start: hide window if the setting is enabled
             {
-                let start_silent = db_arc
-                    .lock()
-                    .ok()
-                    .and_then(|db| {
-                        db.get_connection()
-                            .query_row(
-                                "SELECT value FROM app_settings WHERE key = 'general.start_silent'",
-                                [],
-                                |row| row.get::<_, String>(0),
-                            )
-                            .ok()
-                    })
-                    .unwrap_or_default();
+                let start_silent = settings_manager.get_with_default("general.start_silent", "false");
 
                 if start_silent == "true" {
                     if let Some(window) = app.get_webview_window("main") {

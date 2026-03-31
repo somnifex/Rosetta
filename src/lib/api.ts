@@ -673,8 +673,8 @@ export const api = {
     safeInvoke<Array<{ key: string; value: string }>>("get_all_app_settings"),
 
   // Runtime Logs
-  getRuntimeLogs: (limit?: number, minLevel?: string) =>
-    safeInvoke<RuntimeLogEntry[]>("get_runtime_logs", { limit, minLevel }),
+  getRuntimeLogs: (limit?: number, minLevel?: string, offset?: number) =>
+    safeInvoke<RuntimeLogEntry[]>("get_runtime_logs", { limit, minLevel, offset }),
   exportRuntimeLogs: (
     filePath: string,
     options?: { minLevel?: string; days?: number }

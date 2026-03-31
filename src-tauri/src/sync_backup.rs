@@ -61,20 +61,14 @@ pub fn collect_backup_data(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    // Always collect app_settings
-    let mut settings_stmt = conn
-        .prepare("SELECT key, value FROM app_settings")
-        .map_err(|e| e.to_string())?;
-    let app_settings: Vec<SettingRow> = settings_stmt
-        .query_map([], |row| {
-            Ok(SettingRow {
-                key: row.get(0)?,
-                value: row.get(1)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+    // Always collect settings from settings.json manager.
+    let mut app_settings: Vec<SettingRow> = state
+        .settings
+        .get_all()
+        .into_iter()
+        .map(|(key, value)| SettingRow { key, value })
+        .collect();
+    app_settings.sort_by(|a, b| a.key.cmp(&b.key));
 
     let mut payload = BackupPayload {
         app_settings,
@@ -102,11 +96,8 @@ pub fn collect_backup_data(
         payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
         payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
         payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
-        payload.parsed_contents = Some(query_table_as_json(conn, "SELECT * FROM parsed_contents")?);
-        payload.translated_contents = Some(query_table_as_json(
-            conn,
-            "SELECT * FROM translated_contents",
-        )?);
+        payload.parsed_contents = Some(query_parsed_contents_for_backup(conn)?);
+        payload.translated_contents = Some(query_translated_contents_for_backup(conn)?);
         payload.chunks = Some(query_table_as_json(conn, "SELECT id, document_id, content, translated_content, chunk_index, page_number, section_title, metadata, created_at FROM chunks")?);
     }
 
@@ -152,15 +143,11 @@ pub fn apply_backup_data(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    // Always restore app_settings
-    for setting in &envelope.payload.app_settings {
-        conn.execute(
-            "INSERT INTO app_settings (id, key, value, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?1, ?2, datetime('now'), datetime('now')) ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = datetime('now')",
-            (&setting.key, &setting.value),
-        ).map_err(|e| format!("Failed to restore setting {}: {}", setting.key, e))?;
-    }
+    merge_backup_settings(state.inner(), &envelope.payload.app_settings)?;
 
     if envelope.scope == "full" {
+        crate::content_store::clear_all_document_dirs(&state.app_dir)?;
+
         // Restore full data - clear and re-insert
         // Order matters due to foreign keys
         conn.execute_batch("DELETE FROM document_tags; DELETE FROM document_folders; DELETE FROM chunks; DELETE FROM translated_contents; DELETE FROM parsed_contents; DELETE FROM documents; DELETE FROM folders; DELETE FROM categories; DELETE FROM tags; DELETE FROM provider_models; DELETE FROM providers;")
@@ -187,14 +174,10 @@ pub fn apply_backup_data(
             }
         }
         if let Some(parsed) = &envelope.payload.parsed_contents {
-            for row in parsed {
-                insert_json_row(conn, "parsed_contents", row)?;
-            }
+            restore_parsed_contents_from_backup(conn, &state.app_dir, parsed)?;
         }
         if let Some(translated) = &envelope.payload.translated_contents {
-            for row in translated {
-                insert_json_row(conn, "translated_contents", row)?;
-            }
+            restore_translated_contents_from_backup(conn, &state.app_dir, translated)?;
         }
         if let Some(chunks) = &envelope.payload.chunks {
             for row in chunks {
@@ -289,19 +272,13 @@ pub async fn webdav_upload_backup(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
-        let mut settings_stmt = conn
-            .prepare("SELECT key, value FROM app_settings")
-            .map_err(|e| e.to_string())?;
-        let app_settings: Vec<SettingRow> = settings_stmt
-            .query_map([], |row| {
-                Ok(SettingRow {
-                    key: row.get(0)?,
-                    value: row.get(1)?,
-                })
-            })
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+        let mut app_settings: Vec<SettingRow> = state
+            .settings
+            .get_all()
+            .into_iter()
+            .map(|(key, value)| SettingRow { key, value })
+            .collect();
+        app_settings.sort_by(|a, b| a.key.cmp(&b.key));
 
         let mut payload = BackupPayload {
             app_settings,
@@ -329,12 +306,8 @@ pub async fn webdav_upload_backup(
             payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
             payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
             payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
-            payload.parsed_contents =
-                Some(query_table_as_json(conn, "SELECT * FROM parsed_contents")?);
-            payload.translated_contents = Some(query_table_as_json(
-                conn,
-                "SELECT * FROM translated_contents",
-            )?);
+            payload.parsed_contents = Some(query_parsed_contents_for_backup(conn)?);
+            payload.translated_contents = Some(query_translated_contents_for_backup(conn)?);
             payload.chunks = Some(query_table_as_json(conn, "SELECT id, document_id, content, translated_content, chunk_index, page_number, section_title, metadata, created_at FROM chunks")?);
         }
 
@@ -434,6 +407,217 @@ fn query_table_as_json(
         .map_err(|e| e.to_string())?;
 
     Ok(rows)
+}
+
+fn query_parsed_contents_for_backup(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, document_id, version, markdown_content, json_content, structure_tree, created_at
+             FROM parsed_contents",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, document_id, version, markdown_ref, json_ref, structure_ref, created_at) in rows {
+        let markdown_content = crate::content_store::read_content_blob(&markdown_ref)?;
+        let json_content = crate::content_store::read_content_blob(&json_ref)?;
+        let structure_tree = match structure_ref {
+            Some(v) => Some(crate::content_store::read_content_blob(&v)?),
+            None => None,
+        };
+
+        out.push(serde_json::json!({
+            "id": id,
+            "document_id": document_id,
+            "version": version,
+            "markdown_content": markdown_content,
+            "json_content": json_content,
+            "structure_tree": structure_tree,
+            "created_at": created_at
+        }));
+    }
+
+    Ok(out)
+}
+
+fn query_translated_contents_for_backup(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, document_id, version, content, created_at FROM translated_contents")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, document_id, version, content_ref, created_at) in rows {
+        let content = crate::content_store::read_content_blob(&content_ref)?;
+        out.push(serde_json::json!({
+            "id": id,
+            "document_id": document_id,
+            "version": version,
+            "content": content,
+            "created_at": created_at
+        }));
+    }
+
+    Ok(out)
+}
+
+fn merge_backup_settings(state: &AppState, settings: &[SettingRow]) -> Result<(), String> {
+    if settings.is_empty() {
+        return Ok(());
+    }
+
+    let mut merged = state.settings.get_all();
+    for setting in settings {
+        merged.insert(setting.key.clone(), setting.value.clone());
+    }
+    state.settings.replace_all(merged)
+}
+
+fn json_object_field<'a>(
+    row: &'a serde_json::Value,
+    table: &str,
+) -> Result<&'a serde_json::Map<String, serde_json::Value>, String> {
+    row.as_object()
+        .ok_or_else(|| format!("Expected object for table {table}"))
+}
+
+fn json_required_string_field(
+    row: &serde_json::Value,
+    table: &str,
+    field: &str,
+) -> Result<String, String> {
+    json_object_field(row, table)?
+        .get(field)
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+        .ok_or_else(|| format!("Missing or invalid {table}.{field}"))
+}
+
+fn json_optional_string_field(
+    row: &serde_json::Value,
+    table: &str,
+    field: &str,
+) -> Result<Option<String>, String> {
+    match json_object_field(row, table)?.get(field) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(format!("Invalid {table}.{field}")),
+    }
+}
+
+fn json_required_i32_field(
+    row: &serde_json::Value,
+    table: &str,
+    field: &str,
+) -> Result<i32, String> {
+    let value = json_object_field(row, table)?
+        .get(field)
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| format!("Missing or invalid {table}.{field}"))?;
+    i32::try_from(value).map_err(|_| format!("Out-of-range {table}.{field}: {value}"))
+}
+
+fn restore_parsed_contents_from_backup(
+    conn: &rusqlite::Connection,
+    app_dir: &std::path::Path,
+    rows: &[serde_json::Value],
+) -> Result<(), String> {
+    for row in rows {
+        let id = json_required_string_field(row, "parsed_contents", "id")?;
+        let document_id = json_required_string_field(row, "parsed_contents", "document_id")?;
+        let version = json_required_i32_field(row, "parsed_contents", "version")?;
+        let markdown_content =
+            json_required_string_field(row, "parsed_contents", "markdown_content")?;
+        let json_content = json_required_string_field(row, "parsed_contents", "json_content")?;
+        let structure_tree =
+            json_optional_string_field(row, "parsed_contents", "structure_tree")?;
+        let created_at = json_required_string_field(row, "parsed_contents", "created_at")?;
+
+        let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
+            app_dir,
+            &document_id,
+            version,
+            &markdown_content,
+            &json_content,
+            structure_tree.as_deref(),
+        )?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (
+                &id,
+                &document_id,
+                version,
+                &markdown_path,
+                &json_path,
+                &structure_path,
+                &created_at,
+            ),
+        )
+        .map_err(|e| format!("Failed to restore parsed_contents row {id}: {e}"))?;
+    }
+
+    Ok(())
+}
+
+fn restore_translated_contents_from_backup(
+    conn: &rusqlite::Connection,
+    app_dir: &std::path::Path,
+    rows: &[serde_json::Value],
+) -> Result<(), String> {
+    for row in rows {
+        let id = json_required_string_field(row, "translated_contents", "id")?;
+        let document_id = json_required_string_field(row, "translated_contents", "document_id")?;
+        let version = json_required_i32_field(row, "translated_contents", "version")?;
+        let content = json_required_string_field(row, "translated_contents", "content")?;
+        let created_at = json_required_string_field(row, "translated_contents", "created_at")?;
+
+        let content_path =
+            crate::content_store::write_translated_version(app_dir, &document_id, version, &content)?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO translated_contents (id, document_id, version, content, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (&id, &document_id, version, &content_path, &created_at),
+        )
+        .map_err(|e| format!("Failed to restore translated_contents row {id}: {e}"))?;
+    }
+
+    Ok(())
 }
 
 fn base64_encode(data: &[u8]) -> String {
