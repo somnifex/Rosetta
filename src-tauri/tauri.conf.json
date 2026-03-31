@@ -44,7 +44,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5MThCNzVEODJEREYwQzQKUldURThOMkNYYmNZT1hodU1NWnhlU09vdXpqNHh4TThWVnJWbGVBVTRUblFtSjdORmI1T1lRTG0K",
       "endpoints": [
         "https://github.com/somnifex/Rosetta/releases/latest/download/latest.json"
       ]

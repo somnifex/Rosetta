@@ -13,6 +13,10 @@ dist-ssr
 *.local
 .env
 
+# Tauri signing keys
+*.key
+*.key.pub
+
 # Release prep and local tooling
 .claude/
 .history/
