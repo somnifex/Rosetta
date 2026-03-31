@@ -33,6 +33,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react"
+import { getActiveProviderForType } from "@/lib/providers"
 
 type SortField = "updated" | "created" | "name" | "size"
 type ViewMode = "grid" | "list"
@@ -152,6 +153,8 @@ export default function Library() {
 
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: api.getCategories })
   const { data: folders = [] } = useQuery({ queryKey: ["folders"], queryFn: api.getFolders })
+  const { data: tags = [] } = useQuery({ queryKey: ["tags"], queryFn: api.getTags })
+  const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.getProviders })
 
   const importMutation = useMutation({
     mutationFn: ({ filePath, fileType }: { filePath: string; fileType: string }) => api.importDocument(filePath, fileType),
@@ -226,12 +229,12 @@ export default function Library() {
       invalidateLibraryQueries()
       selection.clearSelection()
       toast({
-        title: outcome.failed > 0 ? "批量操作已完成" : "批量操作成功",
-        description: `成功 ${outcome.success} 项，失败 ${outcome.failed} 项`,
+        title: outcome.failed > 0 ? t("batch.update_partial") : t("batch.update_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
         variant: outcome.failed > 0 ? "destructive" : "default",
       })
     },
-    onError: (error: Error) => toast({ title: "批量更新失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("batch.update_error"), description: error.message, variant: "destructive" }),
   })
 
   const moveToTrashMutation = useMutation({
@@ -242,12 +245,12 @@ export default function Library() {
       selection.clearSelection()
       setSelectedDocumentId(null)
       toast({
-        title: outcome.failed > 0 ? "部分文档已移入回收站" : "文档已移入回收站",
-        description: `成功 ${outcome.success} 项，失败 ${outcome.failed} 项`,
+        title: outcome.failed > 0 ? t("batch.trash_partial") : t("batch.trash_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
         variant: outcome.failed > 0 ? "destructive" : "default",
       })
     },
-    onError: (error: Error) => toast({ title: "删除失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("batch.trash_error"), description: error.message, variant: "destructive" }),
   })
 
   const restoreMutation = useMutation({
@@ -257,12 +260,12 @@ export default function Library() {
       invalidateLibraryQueries()
       selection.clearSelection()
       toast({
-        title: outcome.failed > 0 ? "部分文档恢复成功" : "文档已恢复",
-        description: `成功 ${outcome.success} 项，失败 ${outcome.failed} 项`,
+        title: outcome.failed > 0 ? t("batch.restore_partial") : t("batch.restore_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
         variant: outcome.failed > 0 ? "destructive" : "default",
       })
     },
-    onError: (error: Error) => toast({ title: "恢复失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("batch.restore_error"), description: error.message, variant: "destructive" }),
   })
 
   const permanentDeleteMutation = useMutation({
@@ -271,12 +274,12 @@ export default function Library() {
       invalidateLibraryQueries()
       selection.clearSelection()
       toast({
-        title: report.failed > 0 ? "部分文档永久删除失败" : "永久删除完成",
-        description: `成功 ${report.deleted} 项，失败 ${report.failed} 项`,
+        title: report.failed > 0 ? t("batch.permanent_delete_partial") : t("batch.permanent_delete_success"),
+        description: t("batch.result_summary", { success: report.deleted, failed: report.failed }),
         variant: report.failed > 0 ? "destructive" : "default",
       })
     },
-    onError: (error: Error) => toast({ title: "永久删除失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("batch.permanent_delete_error"), description: error.message, variant: "destructive" }),
   })
 
   const emptyTrashMutation = useMutation({
@@ -285,12 +288,115 @@ export default function Library() {
       invalidateLibraryQueries()
       selection.clearSelection()
       toast({
-        title: report.failed > 0 ? "回收站已部分清空" : "回收站已清空",
-        description: `成功 ${report.deleted} 项，失败 ${report.failed} 项`,
+        title: report.failed > 0 ? t("batch.empty_trash_partial") : t("batch.empty_trash_success"),
+        description: t("batch.result_summary", { success: report.deleted, failed: report.failed }),
         variant: report.failed > 0 ? "destructive" : "default",
       })
     },
-    onError: (error: Error) => toast({ title: "清空回收站失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("batch.empty_trash_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchParseMutation = useMutation({
+    mutationFn: api.batchStartParseJobs,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      invalidateLibraryQueries()
+      toast({
+        title: outcome.failed > 0 ? t("batch.parse_partial") : t("batch.parse_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.parse_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchTranslateMutation = useMutation({
+    mutationFn: api.batchStartTranslationJobs,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      invalidateLibraryQueries()
+      toast({
+        title: outcome.failed > 0 ? t("batch.translate_partial") : t("batch.translate_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.translate_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchIndexMutation = useMutation({
+    mutationFn: api.batchStartIndexJobs,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      invalidateLibraryQueries()
+      selection.clearSelection()
+      toast({
+        title: outcome.failed > 0 ? t("batch.index_partial") : t("batch.index_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.index_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchAddTagsMutation = useMutation({
+    mutationFn: api.batchAddTags,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      invalidateLibraryQueries()
+      queryClient.invalidateQueries({ queryKey: ["tags"] })
+      selection.clearSelection()
+      toast({
+        title: outcome.failed > 0 ? t("batch.tag_error") : t("batch.tag_add_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.tag_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchRemoveTagsMutation = useMutation({
+    mutationFn: api.batchRemoveTags,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      invalidateLibraryQueries()
+      queryClient.invalidateQueries({ queryKey: ["tags"] })
+      selection.clearSelection()
+      toast({
+        title: outcome.failed > 0 ? t("batch.tag_error") : t("batch.tag_remove_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.tag_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchSetLanguageMutation = useMutation({
+    mutationFn: api.batchSetLanguage,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      invalidateLibraryQueries()
+      selection.clearSelection()
+      toast({
+        title: outcome.failed > 0 ? t("batch.language_error") : t("batch.language_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.language_error"), description: error.message, variant: "destructive" }),
+  })
+
+  const batchExportMutation = useMutation({
+    mutationFn: api.batchExportDocuments,
+    onSuccess: (report) => {
+      const outcome = formatOutcome(report)
+      toast({
+        title: outcome.failed > 0 ? t("batch.export_partial") : t("batch.export_success"),
+        description: t("batch.result_summary", { success: outcome.success, failed: outcome.failed }),
+        variant: outcome.failed > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: Error) => toast({ title: t("batch.export_error"), description: error.message, variant: "destructive" }),
   })
 
   const handleDropFiles = useCallback(async (paths: string[]) => {
@@ -578,6 +684,7 @@ export default function Library() {
             selectedCount={selection.selectedCount}
             categories={categories}
             folders={folders}
+            tags={tags}
             currentViewIds={currentViewIds}
             onSelectAll={() => selection.selectAll(currentViewIds)}
             onClear={selection.clearSelection}
@@ -586,6 +693,29 @@ export default function Library() {
             onDelete={() => openDeleteConfirm(selection.selectedIds)}
             onRestore={() => restoreMutation.mutate(selection.selectedIds)}
             onPermanentDelete={() => openPermanentDeleteConfirm(selection.selectedIds)}
+            onBatchParse={() => batchParseMutation.mutate(selection.selectedIds)}
+            onBatchTranslate={() => {
+              const provider = getActiveProviderForType(providers, "translate")
+              if (!provider) {
+                toast({ title: t("batch.no_translate_provider"), variant: "destructive" })
+                return
+              }
+              batchTranslateMutation.mutate({ documentIds: selection.selectedIds, providerId: provider.id })
+            }}
+            onBatchIndex={() => {
+              const provider = getActiveProviderForType(providers, "embed")
+              if (!provider) {
+                toast({ title: t("batch.no_embed_provider"), variant: "destructive" })
+                return
+              }
+              batchIndexMutation.mutate({ documentIds: selection.selectedIds, providerId: provider.id })
+            }}
+            onBatchAddTags={(tagIds) => batchAddTagsMutation.mutate({ documentIds: selection.selectedIds, tagIds })}
+            onBatchRemoveTags={(tagIds) => batchRemoveTagsMutation.mutate({ documentIds: selection.selectedIds, tagIds })}
+            onBatchSetLanguage={(source, target) => batchSetLanguageMutation.mutate({ documentIds: selection.selectedIds, sourceLanguage: source, targetLanguage: target })}
+            onBatchExport={(format, contentType, outputDir) => batchExportMutation.mutate({ documentIds: selection.selectedIds, format, contentType, outputDir })}
+            isParsePending={batchParseMutation.isPending}
+            isTranslatePending={batchTranslateMutation.isPending}
           />
         )}
 

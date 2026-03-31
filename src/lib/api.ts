@@ -381,6 +381,53 @@ export const api = {
   permanentlyDeleteDocuments: (documentIds: string[]) =>
     safeInvoke<PermanentDeleteReport>("permanently_delete_documents", { documentIds }),
   emptyTrash: () => safeInvoke<PermanentDeleteReport>("empty_trash"),
+
+  // Batch pipeline operations
+  batchStartParseJobs: (documentIds: string[]) =>
+    safeInvoke<BatchActionReport>("batch_start_parse_jobs", { documentIds }),
+  batchStartTranslationJobs: (data: { documentIds: string[]; providerId: string }) =>
+    safeInvoke<BatchActionReport>("batch_start_translation_jobs", {
+      documentIds: data.documentIds,
+      providerId: data.providerId,
+    }),
+  batchStartIndexJobs: (data: { documentIds: string[]; providerId: string }) =>
+    safeInvoke<BatchActionReport>("batch_start_index_jobs", {
+      documentIds: data.documentIds,
+      providerId: data.providerId,
+    }),
+  batchAddTags: (data: { documentIds: string[]; tagIds: string[] }) =>
+    safeInvoke<BatchActionReport>("batch_add_tags", {
+      documentIds: data.documentIds,
+      tagIds: data.tagIds,
+    }),
+  batchRemoveTags: (data: { documentIds: string[]; tagIds: string[] }) =>
+    safeInvoke<BatchActionReport>("batch_remove_tags", {
+      documentIds: data.documentIds,
+      tagIds: data.tagIds,
+    }),
+  batchSetLanguage: (data: {
+    documentIds: string[]
+    sourceLanguage?: string
+    targetLanguage?: string
+  }) =>
+    safeInvoke<BatchActionReport>("batch_set_language", {
+      documentIds: data.documentIds,
+      sourceLanguage: data.sourceLanguage,
+      targetLanguage: data.targetLanguage,
+    }),
+  batchExportDocuments: (data: {
+    documentIds: string[]
+    format: string
+    contentType: string
+    outputDir: string
+  }) =>
+    safeInvoke<BatchActionReport>("batch_export_documents", {
+      documentIds: data.documentIds,
+      format: data.format,
+      contentType: data.contentType,
+      outputDir: data.outputDir,
+    }),
+
   importPdf: (filePath: string) => safeInvoke<Document>("import_pdf", { filePath }),
   importDocument: (filePath: string, fileType: string) =>
     safeInvoke<Document>("import_document", { filePath, fileType }),

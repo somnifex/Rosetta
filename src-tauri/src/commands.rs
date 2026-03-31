@@ -5060,3 +5060,715 @@ pub fn get_document_chunks(
 
     Ok(chunks)
 }
+
+// --- Batch Operations ---
+
+#[tauri::command]
+pub async fn batch_start_parse_jobs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_ids: Vec<String>,
+) -> Result<BatchActionReport, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let status: String = {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+            match conn.query_row(
+                "SELECT parse_status FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                [document_id],
+                |row| row.get::<_, String>(0),
+            ) {
+                Ok(s) => s,
+                Err(_) => {
+                    failures.push(BatchActionFailure {
+                        document_id: document_id.clone(),
+                        reason: "Document not found".to_string(),
+                    });
+                    continue;
+                }
+            }
+        };
+
+        if status == "parsing" {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Already parsing".to_string(),
+            });
+            continue;
+        }
+
+        match enqueue_parse_job(state.inner(), Some(app_dir.clone()), document_id, true) {
+            Ok(_) => succeeded += 1,
+            Err(e) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: e,
+                });
+            }
+        }
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+fn enqueue_translation_job_internal(
+    state: &AppState,
+    app_dir: PathBuf,
+    document_id: &str,
+    provider_id: &str,
+    source_language: &str,
+    target_language: &str,
+    sampling: &LlmSamplingConfig,
+    runtime_settings: &TranslationRuntimeSettings,
+    translate_model: &ProviderModel,
+    provider_record: &ProviderRecord,
+) -> Result<TranslationJob, String> {
+    let job_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    let config = serde_json::json!({
+        "source_language": source_language,
+        "target_language": target_language,
+        "provider_name": provider_record.name,
+        "model_id": translate_model.id,
+        "model_name": translate_model.model_name,
+        "sampling": {
+            "temperature": sampling.temperature,
+            "top_p": sampling.top_p,
+            "top_k": sampling.top_k,
+            "max_tokens": sampling.max_tokens,
+        },
+        "runtime": {
+            "chunk_size": runtime_settings.chunk_size,
+            "chunk_overlap": runtime_settings.chunk_overlap,
+            "max_concurrent_requests": runtime_settings.max_concurrent_requests,
+            "max_requests_per_minute": runtime_settings.max_requests_per_minute,
+            "smart_optimize_enabled": runtime_settings.smart_optimize_enabled,
+        },
+    })
+    .to_string();
+
+    let job = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        conn.execute(
+            "INSERT INTO translation_jobs (id, document_id, provider_id, status, progress, config, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', 0, ?4, ?5, ?6)",
+            (&job_id, document_id, provider_id, &config, &now, &now),
+        ).map_err(|e| e.to_string())?;
+
+        conn.query_row(
+            "SELECT * FROM translation_jobs WHERE id = ?1",
+            [&job_id],
+            |row| {
+                Ok(TranslationJob {
+                    id: row.get(0)?,
+                    document_id: row.get(1)?,
+                    provider_id: row.get(2)?,
+                    status: row.get(3)?,
+                    progress: row.get(4)?,
+                    total_chunks: row.get(5)?,
+                    completed_chunks: row.get(6)?,
+                    error_message: row.get(7)?,
+                    config: row.get(8)?,
+                    started_at: row.get(9)?,
+                    completed_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?
+    };
+
+    let job_id_clone = job_id.clone();
+    let document_id_clone = document_id.to_string();
+    let provider_id_clone = provider_id.to_string();
+    let source_language_clone = source_language.to_string();
+    let target_language_clone = target_language.to_string();
+    let state_clone = state.clone();
+    let app_dir_clone = app_dir.clone();
+
+    let handle = tauri::async_runtime::spawn(async move {
+        let result = execute_translation_job(
+            &state_clone,
+            Some(app_dir_clone.as_path()),
+            &job_id_clone,
+            &document_id_clone,
+            &provider_id_clone,
+            &source_language_clone,
+            &target_language_clone,
+        )
+        .await;
+        if let Ok(mut handles) = state_clone.translation_job_handles.lock() {
+            handles.remove(&job_id_clone);
+        }
+        if let Err(e) = result {
+            log::error!("Translation job {} failed: {}", job_id_clone, e);
+        }
+    });
+
+    let mut handles = state.translation_job_handles.lock().map_err(|e| e.to_string())?;
+    handles.insert(job_id.clone(), handle);
+
+    Ok(job)
+}
+
+#[tauri::command]
+pub async fn batch_start_translation_jobs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_ids: Vec<String>,
+    provider_id: String,
+) -> Result<BatchActionReport, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+
+    let (provider_record, translate_model, sampling, runtime_settings) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let provider_record = load_provider_record_by_id(conn, &provider_id)?;
+        let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
+        let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+            .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let mut sampling = load_llm_sampling_config(conn, "translate")?;
+        if sampling.temperature.is_none() {
+            sampling.temperature = provider_record.legacy_temperature;
+        }
+        if sampling.max_tokens.is_none() {
+            sampling.max_tokens = provider_record.legacy_max_tokens;
+        }
+        let runtime_settings = load_translation_runtime_settings(conn)?;
+        (provider_record, translate_model, sampling, runtime_settings)
+    };
+
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let (parse_status, translation_status, source_lang, target_lang) = {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+            match conn.query_row(
+                "SELECT parse_status, translation_status, source_language, target_language FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                [document_id],
+                |row| Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                )),
+            ) {
+                Ok(r) => r,
+                Err(_) => {
+                    failures.push(BatchActionFailure {
+                        document_id: document_id.clone(),
+                        reason: "Document not found".to_string(),
+                    });
+                    continue;
+                }
+            }
+        };
+
+        if parse_status != "completed" {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document has not been parsed yet".to_string(),
+            });
+            continue;
+        }
+
+        if translation_status == "translating" {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Already translating".to_string(),
+            });
+            continue;
+        }
+
+        let source_language = source_lang.unwrap_or_else(|| "English".to_string());
+        let target_language = target_lang.unwrap_or_else(|| "Chinese".to_string());
+
+        match enqueue_translation_job_internal(
+            state.inner(),
+            app_dir.clone(),
+            document_id,
+            &provider_id,
+            &source_language,
+            &target_language,
+            &sampling,
+            &runtime_settings,
+            &translate_model,
+            &provider_record,
+        ) {
+            Ok(_) => succeeded += 1,
+            Err(e) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: e,
+                });
+            }
+        }
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+fn enqueue_index_job_internal(
+    state: &AppState,
+    app_dir: &Path,
+    document_id: &str,
+    provider_id: &str,
+) -> Result<(), String> {
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+        let updated = conn
+            .execute(
+                "UPDATE documents
+                 SET index_status = 'indexing', updated_at = ?1
+                 WHERE id = ?2 AND deleted_at IS NULL",
+                (&now, document_id),
+            )
+            .map_err(|e| e.to_string())?;
+
+        if updated == 0 {
+            return Err("Document not found".to_string());
+        }
+    }
+
+    let document_id_clone = document_id.to_string();
+    let provider_id_clone = provider_id.to_string();
+    let state_clone = state.clone();
+    let app_dir_clone = app_dir.to_path_buf();
+
+    let handle = tauri::async_runtime::spawn(async move {
+        let result = execute_index_job(
+            &state_clone,
+            &app_dir_clone,
+            &document_id_clone,
+            &provider_id_clone,
+        )
+        .await;
+        if let Ok(mut handles) = state_clone.index_job_handles.lock() {
+            handles.remove(&document_id_clone);
+        }
+        if let Err(e) = result {
+            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &e);
+        }
+    });
+
+    let mut handles = state.index_job_handles.lock().map_err(|e| e.to_string())?;
+    handles.insert(document_id.to_string(), handle);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn batch_start_index_jobs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    document_ids: Vec<String>,
+    provider_id: String,
+) -> Result<BatchActionReport, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let provider_record = load_provider_record_by_id(conn, &provider_id)?;
+        let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
+        find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
+            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
+    }
+
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let (parse_status, index_status) = {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+            match conn.query_row(
+                "SELECT parse_status, index_status FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                [document_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            ) {
+                Ok(r) => r,
+                Err(_) => {
+                    failures.push(BatchActionFailure {
+                        document_id: document_id.clone(),
+                        reason: "Document not found".to_string(),
+                    });
+                    continue;
+                }
+            }
+        };
+
+        if parse_status != "completed" {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document has not been parsed yet".to_string(),
+            });
+            continue;
+        }
+
+        if index_status == "indexing" {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Already indexing".to_string(),
+            });
+            continue;
+        }
+
+        match enqueue_index_job_internal(state.inner(), &app_dir, document_id, &provider_id) {
+            Ok(_) => succeeded += 1,
+            Err(e) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: e,
+                });
+            }
+        }
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+#[tauri::command]
+pub fn batch_add_tags(
+    state: State<AppState>,
+    document_ids: Vec<String>,
+    tag_ids: Vec<String>,
+) -> Result<BatchActionReport, String> {
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        let exists = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL)",
+                [document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())?
+            != 0;
+
+        if !exists {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document not found".to_string(),
+            });
+            continue;
+        }
+
+        let now = Utc::now().to_rfc3339();
+        for tag_id in tag_ids.iter() {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO document_tags (document_id, tag_id, created_at) VALUES (?1, ?2, ?3)",
+                (document_id, tag_id, &now),
+            );
+        }
+        succeeded += 1;
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+#[tauri::command]
+pub fn batch_remove_tags(
+    state: State<AppState>,
+    document_ids: Vec<String>,
+    tag_ids: Vec<String>,
+) -> Result<BatchActionReport, String> {
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        let exists = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL)",
+                [document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())?
+            != 0;
+
+        if !exists {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document not found".to_string(),
+            });
+            continue;
+        }
+
+        for tag_id in tag_ids.iter() {
+            let _ = conn.execute(
+                "DELETE FROM document_tags WHERE document_id = ?1 AND tag_id = ?2",
+                (document_id, tag_id),
+            );
+        }
+        succeeded += 1;
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+#[tauri::command]
+pub fn batch_set_language(
+    state: State<AppState>,
+    document_ids: Vec<String>,
+    source_language: Option<String>,
+    target_language: Option<String>,
+) -> Result<BatchActionReport, String> {
+    if source_language.is_none() && target_language.is_none() {
+        let unique_ids = unique_document_ids(&document_ids);
+        return Ok(BatchActionReport {
+            requested: unique_ids.len(),
+            succeeded: 0,
+            failed: 0,
+            failures: Vec::new(),
+        });
+    }
+
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+
+        let exists = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL)",
+                [document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())?
+            != 0;
+
+        if !exists {
+            failures.push(BatchActionFailure {
+                document_id: document_id.clone(),
+                reason: "Document not found".to_string(),
+            });
+            continue;
+        }
+
+        if let Some(ref lang) = source_language {
+            conn.execute(
+                "UPDATE documents SET source_language = ?1, updated_at = ?2 WHERE id = ?3",
+                (lang, &now, document_id),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        if let Some(ref lang) = target_language {
+            conn.execute(
+                "UPDATE documents SET target_language = ?1, updated_at = ?2 WHERE id = ?3",
+                (lang, &now, document_id),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        succeeded += 1;
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
+
+fn get_export_content(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    content_type: &str,
+) -> Result<String, String> {
+    match content_type {
+        "original" => {
+            conn.query_row(
+                "SELECT pc.markdown_content
+                 FROM parsed_contents pc
+                 JOIN documents d ON d.id = pc.document_id
+                 WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+                 ORDER BY pc.version DESC
+                 LIMIT 1",
+                [document_id],
+                |row| row.get::<_, String>(0),
+            ).map_err(|e| format!("No parsed content: {}", e))
+        }
+        "translated" => {
+            conn.query_row(
+                "SELECT tc.content
+                 FROM translated_contents tc
+                 JOIN documents d ON d.id = tc.document_id
+                 WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
+                 ORDER BY tc.version DESC
+                 LIMIT 1",
+                [document_id],
+                |row| row.get::<_, String>(0),
+            ).map_err(|e| format!("No translated content: {}", e))
+        }
+        "bilingual" => {
+            let original: String = conn.query_row(
+                "SELECT pc.markdown_content
+                 FROM parsed_contents pc
+                 JOIN documents d ON d.id = pc.document_id
+                 WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+                 ORDER BY pc.version DESC
+                 LIMIT 1",
+                [document_id],
+                |row| row.get(0),
+            ).map_err(|e| format!("No parsed content: {}", e))?;
+
+            let translated: String = conn.query_row(
+                "SELECT tc.content
+                 FROM translated_contents tc
+                 JOIN documents d ON d.id = tc.document_id
+                 WHERE tc.document_id = ?1 AND d.deleted_at IS NULL
+                 ORDER BY tc.version DESC
+                 LIMIT 1",
+                [document_id],
+                |row| row.get(0),
+            ).map_err(|e| format!("No translated content: {}", e))?;
+
+            Ok(format!("# Original\n\n{}\n\n# Translation\n\n{}", original, translated))
+        }
+        _ => Err("Invalid content type".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn batch_export_documents(
+    state: State<'_, AppState>,
+    document_ids: Vec<String>,
+    format: String,
+    content_type: String,
+    output_dir: String,
+) -> Result<BatchActionReport, String> {
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    let ext = match format.as_str() {
+        "txt" => "txt",
+        _ => "md",
+    };
+
+    for document_id in unique_ids.iter() {
+        let (title, content) = {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = db.get_connection();
+
+            let title = match conn.query_row(
+                "SELECT title FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                [document_id],
+                |row| row.get::<_, String>(0),
+            ) {
+                Ok(t) => t,
+                Err(_) => {
+                    failures.push(BatchActionFailure {
+                        document_id: document_id.clone(),
+                        reason: "Document not found".to_string(),
+                    });
+                    continue;
+                }
+            };
+
+            match get_export_content(conn, document_id, &content_type) {
+                Ok(c) => (title, c),
+                Err(e) => {
+                    failures.push(BatchActionFailure {
+                        document_id: document_id.clone(),
+                        reason: e,
+                    });
+                    continue;
+                }
+            }
+        };
+
+        let safe_title: String = title
+            .chars()
+            .map(|c| if c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' { '_' } else { c })
+            .collect();
+
+        let mut output_path = PathBuf::from(&output_dir).join(format!("{}.{}", safe_title, ext));
+        let mut counter = 1;
+        while output_path.exists() {
+            output_path = PathBuf::from(&output_dir).join(format!("{}_{}.{}", safe_title, counter, ext));
+            counter += 1;
+        }
+
+        match tokio::fs::write(&output_path, content.as_bytes()).await {
+            Ok(_) => {
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                let conn = db.get_connection();
+                let now = Utc::now().to_rfc3339();
+                let export_id = Uuid::new_v4().to_string();
+                let path_str = output_path.to_string_lossy().to_string();
+                let _ = conn.execute(
+                    "INSERT INTO export_records (id, document_id, format, content_type, file_path, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    (&export_id, document_id, &format, &content_type, &path_str, &now),
+                );
+                succeeded += 1;
+            }
+            Err(e) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: format!("Failed to write file: {}", e),
+                });
+            }
+        }
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
+}
