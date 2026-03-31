@@ -9,6 +9,20 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
+/// Apply `CREATE_NO_WINDOW` on Windows to prevent console window flashes.
+/// Works with both `std::process::Command` and `tokio::process::Command`.
+macro_rules! hide_console_window {
+    ($cmd:expr) => {{
+        #[cfg(target_os = "windows")]
+        {
+            #[allow(unused_imports)]
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            $cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+    }};
+}
+
 const DEFAULT_CHUNK_OVERLAP: usize = 50;
 const DEFAULT_CHUNK_SIZE: usize = 512;
 const DEFAULT_VECTOR_BACKEND: &str = "zvec";
@@ -482,13 +496,7 @@ fn run_bridge<T: for<'de> Deserialize<'de>>(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        child.creation_flags(CREATE_NO_WINDOW);
-    }
+    hide_console_window!(child);
 
     let mut child = child
         .spawn()
@@ -735,8 +743,10 @@ pub async fn install_reranker_deps(
         resolve_python_for_deps(&app_dir, db.get_connection())?
     };
 
-    let output = tokio::process::Command::new(&python_path)
-        .args(["-m", "pip", "install", "sentence-transformers"])
+    let mut pip_cmd = tokio::process::Command::new(&python_path);
+    pip_cmd.args(["-m", "pip", "install", "sentence-transformers"]);
+    hide_console_window!(pip_cmd);
+    let output = pip_cmd
         .output()
         .await
         .map_err(|e| format!("Failed to run pip: {e}"))?;
@@ -841,11 +851,7 @@ pub async fn download_reranker_model(
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        #[cfg(target_os = "windows")]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            child.creation_flags(CREATE_NO_WINDOW);
-        }
+        hide_console_window!(child);
 
         let mut child = match child.spawn() {
             Ok(c) => c,
@@ -985,6 +991,7 @@ async fn run_venv_pip(
     command.env("PIP_CONFIG_FILE", if cfg!(windows) { "NUL" } else { "/dev/null" });
     command.env_remove("PIP_INDEX_URL");
     command.env_remove("PIP_EXTRA_INDEX_URL");
+    hide_console_window!(command);
 
     let output = command
         .output()
@@ -1047,10 +1054,10 @@ pub async fn setup_zvec_venv(
     tauri::async_runtime::spawn(async move {
         // Validate system Python
         manager.set_status("creating", "Checking Python version...");
-        let output = tokio::process::Command::new(&system_python)
-            .args(["--version"])
-            .output()
-            .await;
+        let mut py_cmd = tokio::process::Command::new(&system_python);
+        py_cmd.args(["--version"]);
+        hide_console_window!(py_cmd);
+        let output = py_cmd.output().await;
         match output {
             Ok(o) if o.status.success() => {
                 let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -1082,10 +1089,10 @@ pub async fn setup_zvec_venv(
         // Step 1: Create venv
         manager.set_status("creating", "Creating virtual environment...");
         let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
-        let output = tokio::process::Command::new(&system_python)
-            .args(["-m", "venv", &venv_dir_str])
-            .output()
-            .await;
+        let mut venv_cmd = tokio::process::Command::new(&system_python);
+        venv_cmd.args(["-m", "venv", &venv_dir_str]);
+        hide_console_window!(venv_cmd);
+        let output = venv_cmd.output().await;
 
         match output {
             Ok(o) if !o.status.success() => {
@@ -1132,10 +1139,10 @@ pub async fn setup_zvec_venv(
         }
 
         // Verify
-        let verify = tokio::process::Command::new(&venv_python_str)
-            .args(["-c", "import zvec; print(zvec.__version__)"])
-            .output()
-            .await;
+        let mut verify_cmd = tokio::process::Command::new(&venv_python_str);
+        verify_cmd.args(["-c", "import zvec; print(zvec.__version__)"]);
+        hide_console_window!(verify_cmd);
+        let verify = verify_cmd.output().await;
 
         match verify {
             Ok(o) if o.status.success() => {
@@ -1178,9 +1185,11 @@ pub fn check_zvec_venv_exists(
         let python_cmd = python_exe.to_string_lossy().to_string();
 
         // Check if zvec can be imported
-        let ok = std::process::Command::new(&python_cmd)
-            .args(["-c", "import zvec"])
-            .stderr(std::process::Stdio::null())
+        let mut cmd = std::process::Command::new(&python_cmd);
+        cmd.args(["-c", "import zvec"])
+            .stderr(std::process::Stdio::null());
+        hide_console_window!(cmd);
+        let ok = cmd
             .status()
             .map(|s| s.success())
             .unwrap_or(false);

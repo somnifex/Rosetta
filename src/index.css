@@ -191,6 +191,12 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.65);
   }
 
+  .dark .chat-claude-composer {
+    box-shadow:
+      0 10px 30px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
   .reader-noise {
     background-image:
       radial-gradient(circle at top, rgba(255,255,255,0.7), transparent 34%),
@@ -201,6 +207,19 @@
         transparent 10px,
         rgba(148, 163, 184, 0.04) 10px,
         rgba(148, 163, 184, 0.04) 11px
+      );
+  }
+
+  .dark .reader-noise {
+    background-image:
+      radial-gradient(circle at top, rgba(255,255,255,0.04), transparent 34%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 10px,
+        rgba(148, 163, 184, 0.03) 10px,
+        rgba(148, 163, 184, 0.03) 11px
       );
   }
 
@@ -300,6 +319,11 @@
   }
 
   .reader-prose pre {
+    border: 1px solid hsl(var(--border) / 0.3);
+    background: hsl(var(--muted) / 0.85);
+  }
+
+  .dark .reader-prose pre {
     border: 1px solid rgba(15, 23, 42, 0.08);
     background: linear-gradient(180deg, #111827, #0f172a);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -412,7 +436,10 @@
   .dark .reader-paper {
     background: hsl(var(--card));
     border-color: hsl(var(--border) / 0.72);
-}
+    box-shadow:
+      0 28px 70px rgba(0, 0, 0, 0.3),
+      0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  }
 
   .dark .reader-prose a {
     color: hsl(199 89% 70%);

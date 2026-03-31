@@ -9,6 +9,20 @@ use tauri::{AppHandle, State};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
+/// Apply `CREATE_NO_WINDOW` on Windows to prevent console window flashes.
+/// Works with both `std::process::Command` and `tokio::process::Command`.
+macro_rules! hide_console_window {
+    ($cmd:expr) => {{
+        #[cfg(target_os = "windows")]
+        {
+            #[allow(unused_imports)]
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            $cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+    }};
+}
+
 const DEFAULT_MINERU_CLONE_URL: &str = "https://github.com/opendatalab/MinerU.git";
 const DEFAULT_PIP_INDEX_URL: &str = "https://pypi.org/simple";
 const PYTORCH_CUDA_INDEX_URL: &str = "https://download.pytorch.org/whl/cu126";
@@ -345,11 +359,7 @@ impl MinerUProcessManager {
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(false);
 
-        #[cfg(target_os = "windows")]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
+        hide_console_window!(command);
 
         // Inject model source env var
         if !model_source.is_empty() && model_source != "huggingface" {
@@ -388,11 +398,7 @@ impl MinerUProcessManager {
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::piped())
                         .kill_on_drop(false);
-                    #[cfg(target_os = "windows")]
-                    {
-                        const CREATE_NO_WINDOW: u32 = 0x08000000;
-                        fallback.creation_flags(CREATE_NO_WINDOW);
-                    }
+                    hide_console_window!(fallback);
                     if !model_source.is_empty() && model_source != "huggingface" {
                         fallback.env("MINERU_MODEL_SOURCE", model_source);
                     }
@@ -756,8 +762,10 @@ except Exception:
 print(json.dumps(result))
 "#;
 
-    let output = std::process::Command::new(python_cmd)
-        .args(["-c", script])
+    let mut cmd = std::process::Command::new(python_cmd);
+    cmd.args(["-c", script]);
+    hide_console_window!(cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("Failed to run Python runtime probe: {}", e))?;
 
@@ -884,20 +892,22 @@ fn parse_python_minor(version: &str) -> Option<u32> {
 }
 
 fn has_nvidia_gpu() -> bool {
-    std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=name", "--format=csv,noheader"])
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args(["--query-gpu=name", "--format=csv,noheader"])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
+        .stderr(std::process::Stdio::null());
+    hide_console_window!(cmd);
+    cmd.status()
         .map(|s| s.success())
         .unwrap_or(false)
 }
 
 fn torch_is_cpu_only(python_cmd: &str) -> bool {
-    let output = std::process::Command::new(python_cmd)
-        .args(["-c", "import torch; print(torch.version.cuda or '')"])
-        .stderr(std::process::Stdio::null())
-        .output();
+    let mut cmd = std::process::Command::new(python_cmd);
+    cmd.args(["-c", "import torch; print(torch.version.cuda or '')"])
+        .stderr(std::process::Stdio::null());
+    hide_console_window!(cmd);
+    let output = cmd.output();
     match output {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().is_empty(),
         _ => false,
@@ -932,9 +942,10 @@ fn configure_pip_command(command: &mut Command) {
 
 #[cfg(target_os = "windows")]
 fn kill_process_tree(pid: u32) {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
+    let mut cmd = std::process::Command::new("taskkill");
+    cmd.args(["/PID", &pid.to_string(), "/T", "/F"]);
+    hide_console_window!(cmd);
+    let _ = cmd.status();
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -950,9 +961,10 @@ fn kill_lingering_processes_in_venv(venv_dir: &Path) {
          Stop-Process -Force -ErrorAction SilentlyContinue"
     );
 
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &script])
-        .status();
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-Command", &script]);
+    hide_console_window!(cmd);
+    let _ = cmd.status();
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1155,10 +1167,11 @@ fn pip_packages_for_module(module_name: &str) -> Vec<String> {
 fn python_has_module(python_cmd: &str, module_name: &str) -> bool {
     let script = format!("import {module_name}");
 
-    std::process::Command::new(python_cmd)
-        .args(["-c", &script])
-        .stderr(std::process::Stdio::null())
-        .status()
+    let mut cmd = std::process::Command::new(python_cmd);
+    cmd.args(["-c", &script])
+        .stderr(std::process::Stdio::null());
+    hide_console_window!(cmd);
+    cmd.status()
         .map(|status| status.success())
         .unwrap_or(false)
 }
@@ -1207,6 +1220,7 @@ async fn install_missing_mineru_modules_in_venv(
     let mut install_command = Command::new(python_cmd);
     install_command.args(&install_args);
     configure_pip_command(&mut install_command);
+    hide_console_window!(install_command);
     let output = install_command
         .output()
         .await
@@ -1254,6 +1268,7 @@ async fn upgrade_to_cuda_torch_if_needed(
     let mut cmd = Command::new(python_cmd);
     cmd.args(&cuda_args);
     configure_pip_command(&mut cmd);
+    hide_console_window!(cmd);
 
     match cmd.output().await {
         Ok(o) if o.status.success() => {
@@ -1278,11 +1293,13 @@ async fn upgrade_to_cuda_torch_if_needed(
 }
 
 fn check_python_version(python_cmd: &str) -> Result<String, String> {
-    let output = std::process::Command::new(python_cmd)
-        .args([
-            "-c",
-            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')",
-        ])
+    let mut cmd = std::process::Command::new(python_cmd);
+    cmd.args([
+        "-c",
+        "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')",
+    ]);
+    hide_console_window!(cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("Failed to run Python: {}", e))?;
 
@@ -1602,10 +1619,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             ),
         );
         let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
-        let output = Command::new(&system_python)
-            .args(["-m", "venv", &venv_dir_str])
-            .output()
-            .await;
+        let mut venv_cmd = Command::new(&system_python);
+        venv_cmd.args(["-m", "venv", &venv_dir_str]);
+        hide_console_window!(venv_cmd);
+        let output = venv_cmd.output().await;
 
         match output {
             Ok(o) if !o.status.success() => {
@@ -1625,11 +1642,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             let repo_dir_str = repo_dir.to_str().unwrap_or_default().to_string();
             if repo_dir.join(".git").exists() {
                 venv_manager.set_status("creating", "Updating MinerU repository (git pull)...");
-                let output = Command::new("git")
-                    .args(["pull", "--ff-only"])
-                    .current_dir(&repo_dir)
-                    .output()
-                    .await;
+                let mut git_cmd = Command::new("git");
+                git_cmd.args(["pull", "--ff-only"]).current_dir(&repo_dir);
+                hide_console_window!(git_cmd);
+                let output = git_cmd.output().await;
                 if let Ok(o) = &output {
                     if !o.status.success() {
                         log::warn!(
@@ -1644,10 +1660,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
                 if repo_dir.exists() {
                     let _ = std::fs::remove_dir_all(&repo_dir);
                 }
-                let output = Command::new("git")
-                    .args(["clone", "--depth", "1", &clone_url, &repo_dir_str])
-                    .output()
-                    .await;
+                let mut git_cmd = Command::new("git");
+                git_cmd.args(["clone", "--depth", "1", &clone_url, &repo_dir_str]);
+                hide_console_window!(git_cmd);
+                let output = git_cmd.output().await;
 
                 match output {
                     Ok(o) if !o.status.success() => {
@@ -1689,6 +1705,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         let mut build_tool_command = Command::new(&venv_python_str);
         build_tool_command.args(&build_tool_args);
         configure_pip_command(&mut build_tool_command);
+        hide_console_window!(build_tool_command);
         let output = build_tool_command.output().await;
 
         match output {
@@ -1742,6 +1759,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             let mut install_command = Command::new(&venv_python_str);
             install_command.args(&install_args).current_dir(&repo_dir);
             configure_pip_command(&mut install_command);
+            hide_console_window!(install_command);
             let output = install_command.output().await;
 
             match output {
@@ -1767,6 +1785,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             let mut install_command = Command::new(&venv_python_str);
             install_command.args(&install_args);
             configure_pip_command(&mut install_command);
+            hide_console_window!(install_command);
             let output = install_command.output().await;
 
             match output {
@@ -1812,6 +1831,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             let mut repair_command = Command::new(&venv_python_str);
             repair_command.args(&repair_args);
             configure_pip_command(&mut repair_command);
+            hide_console_window!(repair_command);
             let output = repair_command.output().await;
 
             match output {
@@ -2142,12 +2162,7 @@ pub async fn download_mineru_models(
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        // On Windows, prevent a console window from flashing
-        #[cfg(target_os = "windows")]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
+        hide_console_window!(command);
 
         match command.spawn() {
             Ok(mut child) => {

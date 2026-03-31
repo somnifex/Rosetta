@@ -189,7 +189,13 @@ export default function Chat() {
   const [conversations, setConversations] = useState<ChatConversation[]>(() =>
     loadConversations()
   )
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem("rosetta:chat-active-id") ?? null
+    } catch {
+      return null
+    }
+  })
   const [input, setInput] = useState("")
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -210,6 +216,25 @@ export default function Chat() {
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const conversationsRef = useRef(conversations)
+  conversationsRef.current = conversations
+  const savePendingRef = useRef<ChatConversation[] | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function flushPendingSave() {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    if (savePendingRef.current) {
+      saveConversations(savePendingRef.current)
+      savePendingRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => flushPendingSave()
+  }, [])
 
   const deferredHistoryQuery = useDeferredValue(historyQuery)
   const activeConversation =
@@ -267,16 +292,23 @@ export default function Chat() {
   )
 
   useEffect(() => {
-    if (!activeId && conversations[0]) {
-      setActiveId(conversations[0].id)
+    if (activeId && conversations.some((conversation) => conversation.id === activeId)) {
+      return
     }
+    setActiveId(conversations[0]?.id ?? null)
   }, [activeId, conversations])
 
   useEffect(() => {
-    if (activeId && !conversations.some((conversation) => conversation.id === activeId)) {
-      setActiveId(conversations[0]?.id ?? null)
+    try {
+      if (activeId) {
+        sessionStorage.setItem("rosetta:chat-active-id", activeId)
+      } else {
+        sessionStorage.removeItem("rosetta:chat-active-id")
+      }
+    } catch {
+      // ignore storage errors
     }
-  }, [activeId, conversations])
+  }, [activeId])
 
   useEffect(() => {
     const targetId = (location.state as { conversationId?: string } | null)?.conversationId
@@ -299,14 +331,20 @@ export default function Chat() {
     inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 220)}px`
   }, [input])
 
-  function persist(next: ChatConversation[]) {
-    setConversations(next)
-    saveConversations(next)
+  function persist(updater: (current: ChatConversation[]) => ChatConversation[]) {
+    setConversations((current) => {
+      const next = updater(current)
+      saveConversations(next)
+      return next
+    })
   }
 
   function applyConversationUpdates(id: string, updates: Partial<ChatConversation>) {
-    const next = patchConversation(conversations, id, updates)
-    persist(next)
+    setConversations((current) => {
+      const next = patchConversation(current, id, updates)
+      saveConversations(next)
+      return next
+    })
   }
 
   function applyConversationUpdatesLive(
@@ -315,7 +353,16 @@ export default function Chat() {
   ) {
     setConversations((current) => {
       const next = patchConversation(current, id, updates)
-      saveConversations(next)
+      savePendingRef.current = next
+      if (!saveTimerRef.current) {
+        saveTimerRef.current = setTimeout(() => {
+          saveTimerRef.current = null
+          if (savePendingRef.current) {
+            saveConversations(savePendingRef.current)
+            savePendingRef.current = null
+          }
+        }, 500)
+      }
       return next
     })
   }
@@ -359,14 +406,12 @@ export default function Chat() {
       titleSource: "fallback",
       scope: "general",
     })
-    const next = replaceConversation(conversations, conversation)
-    persist(next)
+    persist((current) => replaceConversation(current, conversation))
     openConversation(conversation.id)
   }
 
   function handleDeleteConversation(id: string) {
-    const next = removeConversation(conversations, id)
-    persist(next)
+    persist((current) => removeConversation(current, id))
     if (titleGeneratingId === id) {
       setTitleGeneratingId(null)
     }
@@ -378,6 +423,9 @@ export default function Chat() {
   ) {
     const userMessageCount = finalMessages.filter((message) => message.role === "user").length
     if (conversation.titleSource === "manual" || userMessageCount !== 1) return
+
+    const currentConv = conversationsRef.current.find((c) => c.id === conversation.id)
+    if (currentConv?.titleSource === "manual") return
 
     const fallbackTitle = deriveConversationTitleCandidate(
       finalMessages.find((message) => message.role === "user")?.content ?? "",
@@ -618,6 +666,7 @@ export default function Chat() {
         })
       }
     } finally {
+      flushPendingSave()
       setIsStreaming(false)
       setUseLocalRagForNextTurn(false)
       abortRef.current = null
@@ -629,15 +678,13 @@ export default function Chat() {
     if (isStreaming) return
 
     let conversation = activeConversation
-    let nextConversations = conversations
     if (!conversation) {
       conversation = createConversation(t("new_chat"), {
         title: t("new_chat"),
         titleSource: "fallback",
         scope: "general",
       })
-      nextConversations = replaceConversation(nextConversations, conversation)
-      persist(nextConversations)
+      persist((current) => replaceConversation(current, conversation!))
       setActiveId(conversation.id)
     }
 
@@ -681,19 +728,22 @@ export default function Chat() {
   }
 
   async function handleRetryFromUserMessage(messageId: string, editedContent?: string) {
-    if (!activeConversation || isStreaming) return
+    if (!activeId || isStreaming) return
 
-    const targetIndex = activeConversation.messages.findIndex(
+    const currentConversation = conversationsRef.current.find((c) => c.id === activeId)
+    if (!currentConversation) return
+
+    const targetIndex = currentConversation.messages.findIndex(
       (message) => message.id === messageId && message.role === "user"
     )
     if (targetIndex < 0) return
 
-    const sourceMessage = activeConversation.messages[targetIndex]
-    const baseMessages = activeConversation.messages.slice(0, targetIndex)
+    const sourceMessage = currentConversation.messages[targetIndex]
+    const baseMessages = currentConversation.messages.slice(0, targetIndex)
     const nextContent = (editedContent ?? sourceMessage.content).trim()
     const sourceAttachments = sourceMessage.attachments ?? []
     const composerAttachments =
-      activeConversation.scope === "document" ? [] : dedupeAttachments(sourceAttachments)
+      currentConversation.scope === "document" ? [] : dedupeAttachments(sourceAttachments)
 
     if (!nextContent && composerAttachments.length === 0) return
 
@@ -708,16 +758,16 @@ export default function Chat() {
     const updatedMessages = [...baseMessages, retryUserMessage]
     const userCountBeforeRetry = baseMessages.filter((message) => message.role === "user").length
 
-    applyConversationUpdates(activeConversation.id, {
+    applyConversationUpdates(currentConversation.id, {
       messages: updatedMessages,
       title:
-        userCountBeforeRetry === 0 && activeConversation.titleSource !== "manual"
+        userCountBeforeRetry === 0 && currentConversation.titleSource !== "manual"
           ? deriveConversationTitleCandidate(retryUserMessage.content, t("new_chat"))
-          : activeConversation.title,
+          : currentConversation.title,
       titleSource:
-        userCountBeforeRetry === 0 && activeConversation.titleSource !== "manual"
+        userCountBeforeRetry === 0 && currentConversation.titleSource !== "manual"
           ? "fallback"
-          : activeConversation.titleSource,
+          : currentConversation.titleSource,
     })
 
     setEditingMessageId(null)
@@ -726,7 +776,7 @@ export default function Chat() {
     setAttachments([])
 
     await runAssistantTurn(
-      activeConversation,
+      currentConversation,
       updatedMessages,
       retryUserMessage,
       composerAttachments,
@@ -757,8 +807,8 @@ export default function Chat() {
   }
 
   function handleConversationSettingsChange(updates: Partial<ChatConversation>) {
-    if (!activeConversation) return
-    applyConversationUpdates(activeConversation.id, updates)
+    if (!activeId) return
+    applyConversationUpdates(activeId, updates)
   }
 
   const activeMessages = activeConversation?.messages ?? []
