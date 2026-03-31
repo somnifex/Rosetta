@@ -35,6 +35,20 @@ export default {
     retry: "إعادة المحاولة",
     cancelTask: "إيقاف المهمة",
     deleteTask: "حذف المهمة",
+    resume: "استئناف",
+    resumeStarted: "تم بدء الاستئناف",
+    retryFailed: "إعادة محاولة الأجزاء الفاشلة",
+    retryStarted: "جاري إعادة محاولة الأجزاء الفاشلة",
+  },
+  chunkDetail: "{{completed}}/{{total}} جزء مكتمل، {{failed}} فاشل",
+  contextMenu: {
+    copy: "نسخ",
+    taskId: "معرف المهمة",
+    docId: "معرف المستند",
+    docName: "اسم المستند",
+    copyTaskId: "نسخ معرف المهمة",
+    copyDocId: "نسخ معرف المستند",
+    copyDocName: "نسخ اسم المستند",
   },
   empty: {
     all: {

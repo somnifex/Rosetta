@@ -35,6 +35,20 @@ export default {
     retry: "Retry",
     cancelTask: "Stop Task",
     deleteTask: "Delete Task",
+    resume: "Resume",
+    resumeStarted: "Resume started",
+    retryFailed: "Retry Failed Chunks",
+    retryStarted: "Retrying failed chunks",
+  },
+  chunkDetail: "{{completed}}/{{total}} chunks completed, {{failed}} failed",
+  contextMenu: {
+    copy: "Copy",
+    taskId: "Task ID",
+    docId: "Document ID",
+    docName: "Document Name",
+    copyTaskId: "Copy Task ID",
+    copyDocId: "Copy Document ID",
+    copyDocName: "Copy Document Name",
   },
   empty: {
     all: {

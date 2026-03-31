@@ -22,6 +22,7 @@ use mineru_process::{MinerUModelManager, MinerUProcessManager, MinerUVenvManager
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::async_runtime::JoinHandle;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, RunEvent};
 
 pub struct AppState {
@@ -65,6 +66,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let app_dir = app_dirs::runtime_app_dir(app).map_err(|e| {
                 log::error!("Failed to get runtime app dir: {}", e);
@@ -251,6 +256,103 @@ pub fn run() {
                 }
             });
 
+            // System tray setup
+            let quit_item = tauri::menu::MenuItem::with_id(app, "quit", "Quit Rosetta", true, None::<&str>)?;
+            let show_item = tauri::menu::MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+            let menu = tauri::menu::Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .tooltip("Rosetta")
+                .on_menu_event(|app: &tauri::AppHandle, event| {
+                    match event.id.as_ref() {
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // Intercept window close: minimize to tray when tasks are active
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let has_active = {
+                                let t = state
+                                    .translation_job_handles
+                                    .lock()
+                                    .map(|h| !h.is_empty())
+                                    .unwrap_or(false);
+                                let i = state
+                                    .index_job_handles
+                                    .lock()
+                                    .map(|h| !h.is_empty())
+                                    .unwrap_or(false);
+                                let p = state
+                                    .parse_job_handles
+                                    .lock()
+                                    .map(|h| !h.is_empty())
+                                    .unwrap_or(false);
+                                t || i || p
+                            };
+                            if has_active {
+                                api.prevent_close();
+                                if let Some(w) = app_handle.get_webview_window("main") {
+                                    let _ = w.hide();
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Silent start: hide window if the setting is enabled
+            {
+                let start_silent = db_arc
+                    .lock()
+                    .ok()
+                    .and_then(|db| {
+                        db.get_connection()
+                            .query_row(
+                                "SELECT value FROM app_settings WHERE key = 'general.start_silent'",
+                                [],
+                                |row| row.get::<_, String>(0),
+                            )
+                            .ok()
+                    })
+                    .unwrap_or_default();
+
+                if start_silent == "true" {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -298,6 +400,8 @@ pub fn run() {
             commands::delete_translation_job,
             commands::get_translation_job,
             commands::get_all_translation_jobs,
+            commands::resume_translation_job,
+            commands::retry_failed_translation_chunks,
             commands::get_translated_content,
             commands::get_document_outputs,
             commands::replace_original_document_file,
@@ -305,6 +409,10 @@ pub fn run() {
             commands::replace_parsed_markdown,
             commands::start_index_job,
             commands::cancel_index_job,
+            commands::get_all_index_jobs,
+            commands::delete_index_job,
+            commands::resume_index_job,
+            commands::retry_failed_index_chunks,
             commands::search_documents,
             rag_chat::start_rag_chat,
             rag_chat::cancel_rag_chat,
@@ -357,10 +465,26 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<AppState>() {
-                    let _ = state.mineru_manager.stop();
+            match event {
+                RunEvent::ExitRequested { api, .. } => {
+                    if let Some(state) = app.try_state::<AppState>() {
+                        let has_active = {
+                            let t = state.translation_job_handles.lock().map(|h| !h.is_empty()).unwrap_or(false);
+                            let i = state.index_job_handles.lock().map(|h| !h.is_empty()).unwrap_or(false);
+                            let p = state.parse_job_handles.lock().map(|h| !h.is_empty()).unwrap_or(false);
+                            t || i || p
+                        };
+                        if has_active {
+                            api.prevent_exit();
+                        }
+                    }
                 }
+                RunEvent::Exit => {
+                    if let Some(state) = app.try_state::<AppState>() {
+                        let _ = state.mineru_manager.stop();
+                    }
+                }
+                _ => {}
             }
         });
 }

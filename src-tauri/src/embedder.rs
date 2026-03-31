@@ -2,6 +2,8 @@ use crate::chunking::{Chunk, ChunkingConfig, TextChunker};
 use crate::rate_limiter::{RateLimitConfig, RequestLimiter};
 use crate::retry::{should_retry_network_error, with_retry, RetryConfig};
 use futures;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -164,6 +166,170 @@ impl Embedder {
         .await?;
 
         Ok(result)
+    }
+
+    /// 智能embed（增量版）：在每个分片完成时回调结果以支持持久化
+    pub async fn embed_with_chunks_incremental<F>(
+        &self,
+        text: &str,
+        mut on_chunk_result: F,
+    ) -> Result<Vec<EmbedResult>, String>
+    where
+        F: FnMut(usize, usize, &EmbedResult, bool),
+    {
+        if text.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let chunker = TextChunker::new(self.chunking_config.clone());
+        let chunks = chunker.chunk(text);
+
+        if chunks.is_empty() {
+            return Err("Failed to chunk text".to_string());
+        }
+
+        log::info!(
+            "Text split into {} chunks for incremental embedding (total chars: {}), using concurrency={}, rate_limit={}/min",
+            chunks.len(),
+            text.len(),
+            self.rate_limit_config.max_concurrent_requests,
+            self.rate_limit_config.max_requests_per_minute
+        );
+
+        let total_chunks = chunks.len();
+        let mut embed_tasks = FuturesUnordered::new();
+
+        for chunk in chunks {
+            let embedder = self.clone_params();
+            let request_limiter = Arc::clone(&self.request_limiter);
+
+            embed_tasks.push(async move {
+                let result = request_limiter
+                    .execute(|| async {
+                        embedder.embed_chunk(&chunk).await
+                    })
+                    .await;
+
+                match result {
+                    Ok(embedding) => (
+                        EmbedResult {
+                            chunk_index: chunk.index,
+                            text: chunk.text.clone(),
+                            embedding,
+                            start_pos: chunk.start_pos,
+                            end_pos: chunk.end_pos,
+                        },
+                        true,
+                    ),
+                    Err(e) => {
+                        log::error!("Failed to embed chunk {}: {}", chunk.index, e);
+                        (
+                            EmbedResult {
+                                chunk_index: chunk.index,
+                                text: chunk.text.clone(),
+                                embedding: Vec::new(),
+                                start_pos: chunk.start_pos,
+                                end_pos: chunk.end_pos,
+                            },
+                            false,
+                        )
+                    }
+                }
+            });
+        }
+
+        let mut completed = 0usize;
+        let mut results: Vec<EmbedResult> = Vec::with_capacity(total_chunks);
+        let mut failed_count = 0usize;
+        while let Some((result, success)) = embed_tasks.next().await {
+            completed += 1;
+            on_chunk_result(completed, total_chunks, &result, success);
+            if !success {
+                failed_count += 1;
+            }
+            results.push(result);
+        }
+
+        if failed_count > 0 {
+            log::warn!("Failed to embed {} out of {} chunks", failed_count, total_chunks);
+        }
+
+        Ok(results)
+    }
+
+    /// 仅嵌入指定的分片列表（用于断点续传和重试失败分片）
+    pub async fn embed_specific_chunks<F>(
+        &self,
+        chunks: Vec<Chunk>,
+        total_chunks: usize,
+        initial_completed: usize,
+        mut on_chunk_result: F,
+    ) -> Result<Vec<EmbedResult>, String>
+    where
+        F: FnMut(usize, usize, &EmbedResult, bool),
+    {
+        if chunks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        log::info!(
+            "Embedding {} specific chunks (of {} total), using concurrency={}, rate_limit={}/min",
+            chunks.len(),
+            total_chunks,
+            self.rate_limit_config.max_concurrent_requests,
+            self.rate_limit_config.max_requests_per_minute
+        );
+
+        let mut embed_tasks = FuturesUnordered::new();
+
+        for chunk in chunks {
+            let embedder = self.clone_params();
+            let request_limiter = Arc::clone(&self.request_limiter);
+
+            embed_tasks.push(async move {
+                let result = request_limiter
+                    .execute(|| async {
+                        embedder.embed_chunk(&chunk).await
+                    })
+                    .await;
+
+                match result {
+                    Ok(embedding) => (
+                        EmbedResult {
+                            chunk_index: chunk.index,
+                            text: chunk.text.clone(),
+                            embedding,
+                            start_pos: chunk.start_pos,
+                            end_pos: chunk.end_pos,
+                        },
+                        true,
+                    ),
+                    Err(e) => {
+                        log::error!("Failed to embed chunk {}: {}", chunk.index, e);
+                        (
+                            EmbedResult {
+                                chunk_index: chunk.index,
+                                text: chunk.text.clone(),
+                                embedding: Vec::new(),
+                                start_pos: chunk.start_pos,
+                                end_pos: chunk.end_pos,
+                            },
+                            false,
+                        )
+                    }
+                }
+            });
+        }
+
+        let mut completed = initial_completed;
+        let mut results: Vec<EmbedResult> = Vec::new();
+        while let Some((result, success)) = embed_tasks.next().await {
+            completed += 1;
+            on_chunk_result(completed, total_chunks, &result, success);
+            results.push(result);
+        }
+
+        Ok(results)
     }
 
     /// 智能embed：自动分片长文本，返回带位置的embed结果

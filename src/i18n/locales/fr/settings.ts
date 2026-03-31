@@ -21,6 +21,10 @@ export default {
       dark: "Sombre",
       system: "Système",
     },
+    autostart: "Lancer au démarrage",
+    autostart_desc: "Démarrer Rosetta automatiquement au démarrage du système",
+    start_silent: "Démarrage silencieux",
+    start_silent_desc: "Démarrer minimisé dans la barre des tâches sans afficher la fenêtre principale",
   },
   providers: {
     failover: {

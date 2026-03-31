@@ -356,7 +356,19 @@ async fn ensure_documents_indexed(
         };
 
         if needs_index {
-            execute_index_job_with_embedding_provider(state, app_dir, document_id, provider).await?;
+            let auto_job_id = uuid::Uuid::new_v4().to_string();
+            // Create an index_jobs row for auto-indexing during RAG chat
+            {
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                let conn = db.get_connection();
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = conn.execute(
+                    "INSERT INTO index_jobs (id, document_id, provider_id, status, config, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, 'pending', '{}', ?4, ?4)",
+                    (&auto_job_id, document_id, &provider.embedding_model, &now),
+                );
+            }
+            execute_index_job_with_embedding_provider(state, app_dir, document_id, provider, &auto_job_id).await?;
         }
     }
 

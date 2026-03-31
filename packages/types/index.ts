@@ -74,8 +74,26 @@ export interface TranslationJob {
   progress: number
   total_chunks: number
   completed_chunks: number
+  failed_chunks?: number
   error_message?: string
   config: TranslationConfig
+  started_at?: string
+  completed_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface IndexJob {
+  id: string
+  document_id: string
+  document_title: string
+  provider_id: string
+  status: string
+  progress: number
+  total_chunks: number
+  completed_chunks: number
+  error_message?: string
+  config?: string
   started_at?: string
   completed_at?: string
   created_at: string

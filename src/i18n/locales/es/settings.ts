@@ -21,6 +21,10 @@ export default {
       dark: "Oscuro",
       system: "Sistema",
     },
+    autostart: "Iniciar con el sistema",
+    autostart_desc: "Iniciar Rosetta automáticamente al arrancar el sistema",
+    start_silent: "Inicio silencioso",
+    start_silent_desc: "Iniciar minimizado en la bandeja del sistema sin mostrar la ventana principal",
   },
   providers: {
     failover: {

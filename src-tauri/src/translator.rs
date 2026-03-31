@@ -299,6 +299,222 @@ impl Translator {
         Ok(result)
     }
 
+    /// 智能翻译（增量版）：自动分片长文本，在每个分片完成时回调结果以支持持久化
+    pub async fn translate_with_chunks_incremental<F>(
+        &self,
+        text: &str,
+        source_lang: &str,
+        target_lang: &str,
+        mut on_chunk_result: F,
+    ) -> Result<Vec<TranslationResult>, String>
+    where
+        F: FnMut(usize, usize, &TranslationResult),
+    {
+        if text.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let chunker = TextChunker::new(self.chunking_config.clone());
+        let chunks = chunker.chunk(text);
+
+        if chunks.is_empty() {
+            return Err("Failed to chunk text".to_string());
+        }
+
+        log::info!(
+            "Text split into {} chunks for incremental translation (total chars: {}), using concurrency={}, rate_limit={}/min",
+            chunks.len(),
+            text.len(),
+            self.rate_limit_config.max_concurrent_requests,
+            self.rate_limit_config.max_requests_per_minute
+        );
+
+        if chunks.len() == 1 {
+            let result = match self.translate(text, source_lang, target_lang).await {
+                Ok(translated_text) => TranslationResult {
+                    chunk_index: 0,
+                    translated_text,
+                    start_pos: 0,
+                    end_pos: text.len(),
+                    success: true,
+                    error: None,
+                },
+                Err(e) => TranslationResult {
+                    chunk_index: 0,
+                    translated_text: String::new(),
+                    start_pos: 0,
+                    end_pos: text.len(),
+                    success: false,
+                    error: Some(e),
+                },
+            };
+            on_chunk_result(1, 1, &result);
+            return Ok(vec![result]);
+        }
+
+        let total_chunks = chunks.len();
+        let chunk_lookup: HashMap<usize, Chunk> = chunks
+            .iter()
+            .cloned()
+            .map(|chunk| (chunk.index, chunk))
+            .collect();
+
+        let mut translation_tasks = FuturesUnordered::new();
+
+        for chunk in chunks {
+            let translator = self.clone_params();
+            let source_lang = source_lang.to_string();
+            let target_lang = target_lang.to_string();
+            let request_limiter = Arc::clone(&self.request_limiter);
+
+            translation_tasks.push(async move {
+                let result = request_limiter
+                    .execute(|| async {
+                        translator
+                            .translate_chunk(&chunk, &source_lang, &target_lang)
+                            .await
+                    })
+                    .await;
+
+                match result {
+                    Ok(translated_text) => TranslationResult {
+                        chunk_index: chunk.index,
+                        translated_text,
+                        start_pos: chunk.start_pos,
+                        end_pos: chunk.end_pos,
+                        success: true,
+                        error: None,
+                    },
+                    Err(e) => TranslationResult {
+                        chunk_index: chunk.index,
+                        translated_text: String::new(),
+                        start_pos: chunk.start_pos,
+                        end_pos: chunk.end_pos,
+                        success: false,
+                        error: Some(e),
+                    },
+                }
+            });
+        }
+
+        let mut completed_chunks = 0usize;
+        let mut results: Vec<TranslationResult> = Vec::with_capacity(total_chunks);
+        while let Some(result) = translation_tasks.next().await {
+            completed_chunks += 1;
+            on_chunk_result(completed_chunks, total_chunks, &result);
+            results.push(result);
+        }
+
+        // Retry failed chunks
+        let failed_chunks: Vec<_> = results.iter().filter(|r| !r.success).collect();
+
+        if !failed_chunks.is_empty() {
+            log::warn!(
+                "Failed to translate {} chunks, retrying...",
+                failed_chunks.len()
+            );
+
+            let retried = self
+                .retry_failed_chunks(
+                    failed_chunks.into_iter().cloned().collect(),
+                    &chunk_lookup,
+                    source_lang,
+                    target_lang,
+                )
+                .await?;
+
+            let mut retried_map = HashMap::new();
+            for item in retried {
+                retried_map.insert(item.chunk_index, item);
+            }
+
+            for item in &mut results {
+                if !item.success {
+                    if let Some(retried) = retried_map.remove(&item.chunk_index) {
+                        on_chunk_result(completed_chunks, total_chunks, &retried);
+                        *item = retried;
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// 仅翻译指定的分片列表（用于断点续传和重试失败分片）
+    pub async fn translate_specific_chunks<F>(
+        &self,
+        chunks: Vec<Chunk>,
+        source_lang: &str,
+        target_lang: &str,
+        total_chunks: usize,
+        initial_completed: usize,
+        mut on_chunk_result: F,
+    ) -> Result<Vec<TranslationResult>, String>
+    where
+        F: FnMut(usize, usize, &TranslationResult),
+    {
+        if chunks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        log::info!(
+            "Translating {} specific chunks (of {} total), using concurrency={}, rate_limit={}/min",
+            chunks.len(),
+            total_chunks,
+            self.rate_limit_config.max_concurrent_requests,
+            self.rate_limit_config.max_requests_per_minute
+        );
+
+        let mut translation_tasks = FuturesUnordered::new();
+
+        for chunk in chunks {
+            let translator = self.clone_params();
+            let source_lang = source_lang.to_string();
+            let target_lang = target_lang.to_string();
+            let request_limiter = Arc::clone(&self.request_limiter);
+
+            translation_tasks.push(async move {
+                let result = request_limiter
+                    .execute(|| async {
+                        translator
+                            .translate_chunk(&chunk, &source_lang, &target_lang)
+                            .await
+                    })
+                    .await;
+
+                match result {
+                    Ok(translated_text) => TranslationResult {
+                        chunk_index: chunk.index,
+                        translated_text,
+                        start_pos: chunk.start_pos,
+                        end_pos: chunk.end_pos,
+                        success: true,
+                        error: None,
+                    },
+                    Err(e) => TranslationResult {
+                        chunk_index: chunk.index,
+                        translated_text: String::new(),
+                        start_pos: chunk.start_pos,
+                        end_pos: chunk.end_pos,
+                        success: false,
+                        error: Some(e),
+                    },
+                }
+            });
+        }
+
+        let mut completed = initial_completed;
+        let mut results: Vec<TranslationResult> = Vec::new();
+        while let Some(result) = translation_tasks.next().await {
+            completed += 1;
+            on_chunk_result(completed, total_chunks, &result);
+            results.push(result);
+        }
+
+        Ok(results)
+    }
+
     /// 智能翻译：自动分片长文本，并在每个分片完成时回调进度
     pub async fn translate_with_chunks_progress<F>(
         &self,

@@ -10,6 +10,7 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
+import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart"
 
 type AppTheme = "light" | "dark" | "system"
 const THEME_STORAGE_KEY = "pdf-translate:theme"
@@ -45,6 +46,8 @@ export default function GeneralTab() {
   const [theme, setTheme] = useState<AppTheme>(
     normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY) ?? undefined)
   )
+  const [autostart, setAutostart] = useState(false)
+  const [startSilent, setStartSilent] = useState(false)
 
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
@@ -55,7 +58,7 @@ export default function GeneralTab() {
     if (loaded || !appSettings) return
 
     loadChatBehaviorSettings()
-      .then((settings) => {
+      .then(async (settings) => {
         const settingsMap = new Map(appSettings.map((item) => [item.key, item.value]))
         setDefaultTargetLanguage(settingsMap.get("general.default_target_language") ?? "")
 
@@ -63,6 +66,15 @@ export default function GeneralTab() {
         setTheme(storedTheme)
         localStorage.setItem(THEME_STORAGE_KEY, storedTheme)
         applyTheme(storedTheme)
+
+        setStartSilent(settingsMap.get("general.start_silent") === "true")
+
+        try {
+          const enabled = await isAutostartEnabled()
+          setAutostart(enabled)
+        } catch {
+          // autostart plugin may not be available in dev/browser mode
+        }
 
         setModelBehaviorDescription(settings.modelBehaviorDescription)
         setDocumentAppendPrompt(settings.documentAppendPrompt)
@@ -106,6 +118,20 @@ export default function GeneralTab() {
       await api.setAppSetting("general.theme", normalizedTheme)
       localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme)
       applyTheme(normalizedTheme)
+
+      // Autostart
+      try {
+        if (autostart) {
+          await enableAutostart()
+        } else {
+          await disableAutostart()
+        }
+      } catch {
+        // autostart plugin may not be available in dev/browser mode
+      }
+
+      // Silent start
+      await api.setAppSetting("general.start_silent", startSilent ? "true" : "false")
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appSettings"] })
@@ -150,6 +176,28 @@ export default function GeneralTab() {
               <option value="dark">{t("general.theme_options.dark")}</option>
               <option value="system">{t("general.theme_options.system")}</option>
             </select>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{t("general.autostart")}</p>
+              <p className="text-xs text-muted-foreground">{t("general.autostart_desc")}</p>
+            </div>
+            <Switch
+              data-setting-key="general.autostart"
+              checked={autostart}
+              onCheckedChange={setAutostart}
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{t("general.start_silent")}</p>
+              <p className="text-xs text-muted-foreground">{t("general.start_silent_desc")}</p>
+            </div>
+            <Switch
+              data-setting-key="general.start_silent"
+              checked={startSilent}
+              onCheckedChange={setStartSilent}
+            />
           </div>
           <div className="flex justify-end">
             <Button onClick={() => saveGeneralMutation.mutate()} disabled={saveGeneralMutation.isPending}>

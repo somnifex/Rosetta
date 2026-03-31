@@ -35,6 +35,20 @@ export default {
     retry: "Повторить",
     cancelTask: "Остановить задачу",
     deleteTask: "Удалить задачу",
+    resume: "Возобновить",
+    resumeStarted: "Возобновление начато",
+    retryFailed: "Повторить неудачные фрагменты",
+    retryStarted: "Повтор неудачных фрагментов начат",
+  },
+  chunkDetail: "{{completed}}/{{total}} фрагментов выполнено, {{failed}} неудачных",
+  contextMenu: {
+    copy: "Копировать",
+    taskId: "ID задачи",
+    docId: "ID документа",
+    docName: "Название документа",
+    copyTaskId: "Копировать ID задачи",
+    copyDocId: "Копировать ID документа",
+    copyDocName: "Копировать название документа",
   },
   empty: {
     all: {

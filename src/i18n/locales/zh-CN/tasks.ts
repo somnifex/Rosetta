@@ -35,6 +35,20 @@ export default {
     retry: "重试",
     cancelTask: "终止任务",
     deleteTask: "删除任务",
+    resume: "断点继续",
+    resumeStarted: "已开始断点续传",
+    retryFailed: "仅重试失败分片",
+    retryStarted: "已开始重试失败分片",
+  },
+  chunkDetail: "{{completed}}/{{total}} 个分片已完成，{{failed}} 个失败",
+  contextMenu: {
+    copy: "复制",
+    taskId: "任务 ID",
+    docId: "文档 ID",
+    docName: "文档名称",
+    copyTaskId: "复制任务 ID",
+    copyDocId: "复制文档 ID",
+    copyDocName: "复制文档名称",
   },
   empty: {
     all: {

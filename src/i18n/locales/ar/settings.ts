@@ -21,6 +21,10 @@ export default {
       dark: "داكن",
       system: "النظام",
     },
+    autostart: "التشغيل عند بدء النظام",
+    autostart_desc: "تشغيل Rosetta تلقائياً عند بدء تشغيل النظام",
+    start_silent: "بدء صامت",
+    start_silent_desc: "البدء مصغراً في شريط المهام دون إظهار النافذة الرئيسية",
   },
   providers: {
     failover: {

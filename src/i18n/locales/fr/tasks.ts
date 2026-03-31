@@ -35,6 +35,20 @@ export default {
     retry: "Réessayer",
     cancelTask: "Arrêter la tâche",
     deleteTask: "Supprimer la tâche",
+    resume: "Reprendre",
+    resumeStarted: "Reprise lancée",
+    retryFailed: "Réessayer les fragments échoués",
+    retryStarted: "Réessai des fragments échoués",
+  },
+  chunkDetail: "{{completed}}/{{total}} fragments terminés, {{failed}} échoués",
+  contextMenu: {
+    copy: "Copier",
+    taskId: "ID de tâche",
+    docId: "ID de document",
+    docName: "Nom du document",
+    copyTaskId: "Copier l'ID de tâche",
+    copyDocId: "Copier l'ID de document",
+    copyDocName: "Copier le nom du document",
   },
   empty: {
     all: {

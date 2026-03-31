@@ -466,10 +466,12 @@ export const api = {
   getAllTranslationJobs: () => safeInvoke<Array<{
     id: string; document_id: string; document_title: string; provider_id: string;
     status: string; progress: number; total_chunks: number; completed_chunks: number;
-    error_message: string | null; config: string;
+    failed_chunks: number; error_message: string | null; config: string;
     started_at: string | null; completed_at: string | null;
     created_at: string; updated_at: string;
   }>>("get_all_translation_jobs"),
+  resumeTranslationJob: (jobId: string) => safeInvoke<TranslationJob>("resume_translation_job", { jobId }),
+  retryFailedTranslationChunks: (jobId: string) => safeInvoke<TranslationJob>("retry_failed_translation_chunks", { jobId }),
   getTranslatedContent: (documentId: string) => safeInvoke<TranslatedContent>("get_translated_content", { documentId }),
   getDocumentOutputs: (documentId: string) => safeInvoke<DocumentOutput[]>("get_document_outputs", { documentId }),
   replaceOriginalDocumentFile: (documentId: string, filePath: string) =>
@@ -482,6 +484,16 @@ export const api = {
   // RAG & Search
   startIndexJob: (documentId: string, providerId: string) => safeInvoke<string>("start_index_job", { documentId, providerId }),
   cancelIndexJob: (documentId: string) => safeInvoke<void>("cancel_index_job", { documentId }),
+  getAllIndexJobs: () => safeInvoke<Array<{
+    id: string; document_id: string; document_title: string; provider_id: string;
+    status: string; progress: number; total_chunks: number; completed_chunks: number;
+    error_message: string | null; config: string | null;
+    started_at: string | null; completed_at: string | null;
+    created_at: string; updated_at: string;
+  }>>("get_all_index_jobs"),
+  deleteIndexJob: (jobId: string) => safeInvoke<void>("delete_index_job", { jobId }),
+  resumeIndexJob: (jobId: string) => safeInvoke<string>("resume_index_job", { jobId }),
+  retryFailedIndexChunks: (jobId: string) => safeInvoke<string>("retry_failed_index_chunks", { jobId }),
   searchDocuments: (query: string, providerId: string, limit: number) =>
     safeInvoke<Array<{ chunk_id: string; document_id: string; content: string; score: number }>>(
       "search_documents",

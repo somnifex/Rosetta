@@ -19,6 +19,8 @@ import {
   AlertCircle,
   Square,
   Trash2,
+  Play,
+  RefreshCw,
 } from "lucide-react"
 import { api } from "@/lib/api"
 import {
@@ -40,6 +42,9 @@ interface UnifiedTask {
   type: "parse" | "translation" | "index"
   status: string
   progress: number
+  totalChunks: number
+  completedChunks: number
+  failedChunks: number
   errorMessage: string | null
   startedAt: string | null
   completedAt: string | null
@@ -51,6 +56,8 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
     case "completed":
       return "default"
     case "failed":
+      return "destructive"
+    case "partial":
       return "destructive"
     case "parsing":
     case "translating":
@@ -117,6 +124,7 @@ export default function Tasks() {
   const invalidateTaskQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["parseJobs"] })
     queryClient.invalidateQueries({ queryKey: ["translationJobs"] })
+    queryClient.invalidateQueries({ queryKey: ["indexJobs"] })
     queryClient.invalidateQueries({ queryKey: ["documents"] })
   }
 
@@ -147,7 +155,11 @@ export default function Tasks() {
         await api.deleteParseJob(task.id)
         return
       }
-      await api.deleteTranslationJob(task.id)
+      if (task.type === "translation") {
+        await api.deleteTranslationJob(task.id)
+        return
+      }
+      await api.deleteIndexJob(task.id)
     },
     onSuccess: (_data, task) => {
       invalidateTaskQueries()
@@ -155,6 +167,40 @@ export default function Tasks() {
     },
     onError: (error) => {
       toast({ title: t("actions.deleteTask"), description: error.message, variant: "destructive" })
+    },
+  })
+
+  const resumeMutation = useMutation<unknown, Error, UnifiedTask>({
+    mutationFn: async (task) => {
+      if (task.type === "translation") {
+        return api.resumeTranslationJob(task.id)
+      }
+      return api.resumeIndexJob(task.id)
+    },
+    onSuccess: (_data, task) => {
+      invalidateTaskQueries()
+      queryClient.invalidateQueries({ queryKey: ["document", task.documentId] })
+      toast({ title: t("actions.resume"), description: t("actions.resumeStarted") })
+    },
+    onError: (error) => {
+      toast({ title: t("actions.resume"), description: error.message, variant: "destructive" })
+    },
+  })
+
+  const retryFailedMutation = useMutation<unknown, Error, UnifiedTask>({
+    mutationFn: async (task) => {
+      if (task.type === "translation") {
+        return api.retryFailedTranslationChunks(task.id)
+      }
+      return api.retryFailedIndexChunks(task.id)
+    },
+    onSuccess: (_data, task) => {
+      invalidateTaskQueries()
+      queryClient.invalidateQueries({ queryKey: ["document", task.documentId] })
+      toast({ title: t("actions.retryFailed"), description: t("actions.retryStarted") })
+    },
+    onError: (error) => {
+      toast({ title: t("actions.retryFailed"), description: error.message, variant: "destructive" })
     },
   })
 
@@ -170,10 +216,10 @@ export default function Tasks() {
     refetchInterval: 3000,
   })
 
-  const { data: documents = [] } = useQuery({
-    queryKey: ["documents"],
-    queryFn: () => api.getDocuments(),
-    refetchInterval: 5000,
+  const { data: indexJobs = [] } = useQuery({
+    queryKey: ["indexJobs"],
+    queryFn: () => api.getAllIndexJobs(),
+    refetchInterval: 3000,
   })
 
   // Build unified task list
@@ -184,6 +230,9 @@ export default function Tasks() {
     type: "parse" as const,
     status: j.status,
     progress: j.progress,
+    totalChunks: 0,
+    completedChunks: 0,
+    failedChunks: 0,
     errorMessage: j.error_message,
     startedAt: j.started_at,
     completedAt: j.completed_at,
@@ -197,27 +246,30 @@ export default function Tasks() {
     type: "translation" as const,
     status: j.status,
     progress: j.progress,
+    totalChunks: j.total_chunks,
+    completedChunks: j.completed_chunks,
+    failedChunks: j.failed_chunks ?? 0,
     errorMessage: j.error_message,
     startedAt: j.started_at,
     completedAt: j.completed_at,
     createdAt: j.created_at,
   }))
 
-  // Indexing tasks derived from documents with active index status
-  const indexTasks: UnifiedTask[] = documents
-    .filter((d) => d.index_status && d.index_status !== "pending")
-    .map((d) => ({
-      id: `index-${d.id}`,
-      documentId: d.id,
-      documentTitle: d.title,
-      type: "index" as const,
-      status: d.index_status,
-      progress: d.index_status === "completed" ? 100 : d.index_status === "indexing" ? 50 : 0,
-      errorMessage: null,
-      startedAt: d.updated_at,
-      completedAt: d.index_status === "completed" || d.index_status === "failed" ? d.updated_at : null,
-      createdAt: d.updated_at,
-    }))
+  const indexTasks: UnifiedTask[] = indexJobs.map((j) => ({
+    id: j.id,
+    documentId: j.document_id,
+    documentTitle: j.document_title,
+    type: "index" as const,
+    status: j.status,
+    progress: j.progress,
+    totalChunks: j.total_chunks,
+    completedChunks: j.completed_chunks,
+    failedChunks: 0,
+    errorMessage: j.error_message,
+    startedAt: j.started_at,
+    completedAt: j.completed_at,
+    createdAt: j.created_at,
+  }))
 
   const allTasks = [...parseTasks, ...translationTasks, ...indexTasks].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -241,10 +293,14 @@ export default function Tasks() {
           const canCancel = task.type === "index"
             ? task.status === "indexing"
             : isActive
-          const canDelete = task.type !== "index" && !isActive
+          const canDelete = !isActive
+          const canResume = (task.status === "partial" || task.status === "failed") && (task.type === "translation" || task.type === "index")
+          const canRetryFailed = task.status === "partial" && (task.type === "translation" || task.type === "index")
           const isCancelling = cancelTaskMutation.isPending && cancelTaskMutation.variables?.id === task.id
           const isDeleting = deleteTaskMutation.isPending && deleteTaskMutation.variables?.id === task.id
-          const actionsDisabled = isCancelling || isDeleting
+          const isResuming = resumeMutation.isPending && resumeMutation.variables?.id === task.id
+          const isRetrying = retryFailedMutation.isPending && retryFailedMutation.variables?.id === task.id
+          const actionsDisabled = isCancelling || isDeleting || isResuming || isRetrying
 
           return (
           <ContextMenu key={task.id}>
@@ -256,7 +312,7 @@ export default function Tasks() {
                 <TypeIcon type={task.type} />
                 <StatusIcon status={task.status} />
               </div>
-  
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium truncate">{task.documentTitle}</span>
@@ -267,26 +323,36 @@ export default function Tasks() {
                     {t(`type.${task.type}`)}
                   </Badge>
                 </div>
-  
+
                 {(task.status === "parsing" || task.status === "translating" || task.status === "indexing") && (
                   <div className="flex items-center gap-2">
                     <Progress value={task.progress} className="flex-1 h-1.5" />
                     <span className="text-xs text-muted-foreground shrink-0">{Math.round(task.progress)}%</span>
                   </div>
                 )}
-  
+
+                {task.status === "partial" && task.totalChunks > 0 && (
+                  <p className="text-xs text-yellow-600 mt-1">
+                    {t("chunkDetail", {
+                      completed: task.completedChunks,
+                      total: task.totalChunks,
+                      failed: task.failedChunks,
+                    })}
+                  </p>
+                )}
+
                 {task.errorMessage && (
                   <p className="text-xs text-destructive mt-1 truncate" title={task.errorMessage}>
                     {task.errorMessage}
                   </p>
                 )}
-  
+
                 <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
                   <span>{formatTime(task.createdAt)}</span>
                   <span>{t("columns.duration")}: {formatDuration(task.startedAt, task.completedAt)}</span>
                 </div>
               </div>
-  
+
               <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
@@ -297,6 +363,30 @@ export default function Tasks() {
                 >
                   <ExternalLink className="h-4 w-4" />
                 </Button>
+
+                {canResume && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resumeMutation.mutate(task)}
+                    title={t("actions.resume")}
+                    disabled={actionsDisabled}
+                  >
+                    {isResuming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  </Button>
+                )}
+
+                {canRetryFailed && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => retryFailedMutation.mutate(task)}
+                    title={t("actions.retryFailed")}
+                    disabled={actionsDisabled}
+                  >
+                    {isRetrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  </Button>
+                )}
 
                 {canCancel && (
                   <Button
@@ -328,28 +418,40 @@ export default function Tasks() {
             <ContextMenuContent className="w-56">
               <ContextMenuItem onClick={() => navigate(`/document/${task.documentId}`)}>
                 <ExternalLink className="mr-2 h-4 w-4" />
-                查看文档源
+                {t("actions.viewDocument")}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuSub>
-                <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger>{t("contextMenu.copy", "Copy")}</ContextMenuSubTrigger>
                 <ContextMenuSubContent>
-                  <ContextMenuItem onClick={() => ctx.handleCopy(task.id, "任务 ID")}>复制任务 ID</ContextMenuItem>
-                  <ContextMenuItem onClick={() => ctx.handleCopy(task.documentId, "文档 ID")}>复制文档 ID</ContextMenuItem>
-                  <ContextMenuItem onClick={() => ctx.handleCopy(task.documentTitle, "文档名称")}>复制文档名称</ContextMenuItem>
+                  <ContextMenuItem onClick={() => ctx.handleCopy(task.id, t("contextMenu.taskId", "Task ID"))}>{t("contextMenu.copyTaskId", "Copy Task ID")}</ContextMenuItem>
+                  <ContextMenuItem onClick={() => ctx.handleCopy(task.documentId, t("contextMenu.docId", "Document ID"))}>{t("contextMenu.copyDocId", "Copy Document ID")}</ContextMenuItem>
+                  <ContextMenuItem onClick={() => ctx.handleCopy(task.documentTitle, t("contextMenu.docName", "Document Name"))}>{t("contextMenu.copyDocName", "Copy Document Name")}</ContextMenuItem>
                 </ContextMenuSubContent>
               </ContextMenuSub>
-              {(canCancel || canDelete) && <ContextMenuSeparator />}
+              {(canResume || canRetryFailed || canCancel || canDelete) && <ContextMenuSeparator />}
+              {canResume && (
+                <ContextMenuItem onClick={() => resumeMutation.mutate(task)}>
+                  <Play className="mr-2 h-4 w-4" />
+                  {t("actions.resume")}
+                </ContextMenuItem>
+              )}
+              {canRetryFailed && (
+                <ContextMenuItem onClick={() => retryFailedMutation.mutate(task)}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {t("actions.retryFailed")}
+                </ContextMenuItem>
+              )}
               {canCancel && (
                 <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => cancelTaskMutation.mutate(task)}>
                   <Square className="mr-2 h-4 w-4" />
-                  取消任务
+                  {t("actions.cancelTask")}
                 </ContextMenuItem>
               )}
               {canDelete && (
                 <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteTaskMutation.mutate(task)}>
                   <Trash2 className="mr-2 h-4 w-4" />
-                  删除记录
+                  {t("actions.deleteTask")}
                 </ContextMenuItem>
               )}
             </ContextMenuContent>

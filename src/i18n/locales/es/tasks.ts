@@ -35,6 +35,20 @@ export default {
     retry: "Reintentar",
     cancelTask: "Detener tarea",
     deleteTask: "Eliminar tarea",
+    resume: "Reanudar",
+    resumeStarted: "Reanudación iniciada",
+    retryFailed: "Reintentar fragmentos fallidos",
+    retryStarted: "Reintentando fragmentos fallidos",
+  },
+  chunkDetail: "{{completed}}/{{total}} fragmentos completados, {{failed}} fallidos",
+  contextMenu: {
+    copy: "Copiar",
+    taskId: "ID de tarea",
+    docId: "ID de documento",
+    docName: "Nombre del documento",
+    copyTaskId: "Copiar ID de tarea",
+    copyDocId: "Copiar ID de documento",
+    copyDocName: "Copiar nombre del documento",
   },
   empty: {
     all: {

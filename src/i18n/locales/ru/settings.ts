@@ -21,6 +21,10 @@ export default {
       dark: "Тёмная",
       system: "Системная",
     },
+    autostart: "Запуск при старте системы",
+    autostart_desc: "Автоматически запускать Rosetta при загрузке системы",
+    start_silent: "Тихий запуск",
+    start_silent_desc: "Запускать свёрнутым в системный трей без отображения главного окна",
   },
   providers: {
     failover: {

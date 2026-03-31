@@ -864,6 +864,14 @@ fn load_document_outputs_internal(
     Ok(outputs)
 }
 
+fn compute_content_hash(content: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 fn next_content_version(
     conn: &rusqlite::Connection,
     table_name: &str,
@@ -1441,7 +1449,7 @@ fn cancel_translation_job_internal(
     Ok(updated > 0)
 }
 
-fn mark_index_job_failed(state: &AppState, document_id: &str, message: &str) -> Result<(), String> {
+fn mark_index_job_failed(state: &AppState, document_id: &str, index_job_id: &str, message: &str) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
@@ -1454,7 +1462,14 @@ fn mark_index_job_failed(state: &AppState, document_id: &str, message: &str) -> 
     )
     .map_err(|e| e.to_string())?;
 
-    log::error!("Index job for document {} failed: {}", document_id, message);
+    conn.execute(
+        "UPDATE index_jobs
+         SET status = 'failed', error_message = ?1, completed_at = ?2, updated_at = ?2
+         WHERE id = ?3",
+        (message, &now, index_job_id),
+    ).map_err(|e| e.to_string())?;
+
+    log::error!("Index job {} for document {} failed: {}", index_job_id, document_id, message);
     Ok(())
 }
 
@@ -1503,6 +1518,12 @@ fn cancel_index_job_internal(
             (&now, document_id),
         )
         .map_err(|e| e.to_string())?;
+
+    // Also cancel any active index_jobs for this document
+    conn.execute(
+        "UPDATE index_jobs SET status = 'failed', error_message = 'Cancelled by user', completed_at = ?1, updated_at = ?1 WHERE document_id = ?2 AND status IN ('pending', 'indexing')",
+        (&now, document_id),
+    ).map_err(|e| e.to_string())?;
 
     Ok(had_handle || updated > 0)
 }
@@ -2866,6 +2887,7 @@ pub struct TranslationJobWithDoc {
     pub progress: f64,
     pub total_chunks: i32,
     pub completed_chunks: i32,
+    pub failed_chunks: i32,
     pub error_message: Option<String>,
     pub config: String,
     pub started_at: Option<String>,
@@ -2884,7 +2906,7 @@ pub fn get_all_translation_jobs(
     let mut stmt = conn
         .prepare(
             "SELECT tj.id, tj.document_id, d.title, tj.provider_id, tj.status, tj.progress,
-                    tj.total_chunks, tj.completed_chunks, tj.error_message, tj.config,
+                    tj.total_chunks, tj.completed_chunks, COALESCE(tj.failed_chunks, 0), tj.error_message, tj.config,
                     tj.started_at, tj.completed_at, tj.created_at, tj.updated_at
              FROM translation_jobs tj
              JOIN documents d ON tj.document_id = d.id
@@ -2904,12 +2926,13 @@ pub fn get_all_translation_jobs(
                 progress: row.get(5)?,
                 total_chunks: row.get(6)?,
                 completed_chunks: row.get(7)?,
-                error_message: row.get(8)?,
-                config: row.get(9)?,
-                started_at: row.get(10)?,
-                completed_at: row.get(11)?,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                failed_chunks: row.get(8)?,
+                error_message: row.get(9)?,
+                config: row.get(10)?,
+                started_at: row.get(11)?,
+                completed_at: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3253,12 +3276,51 @@ async fn execute_translation_job(
         }
     }
 
+    // Pre-populate translation_chunks and compute content_hash
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let content_hash = compute_content_hash(&markdown_content);
+
+        let chunker = crate::chunking::TextChunker::new(crate::chunking::ChunkingConfig {
+            max_tokens_per_chunk: runtime_settings.chunk_size,
+            overlap_tokens: runtime_settings.chunk_overlap,
+            preserve_sentences: true,
+            tokens_per_char_estimate: 0.25,
+        });
+        let chunks = chunker.chunk(&markdown_content);
+        let now = Utc::now().to_rfc3339();
+
+        conn.execute(
+            "UPDATE translation_jobs SET content_hash = ?1, total_chunks = ?2, updated_at = ?3 WHERE id = ?4",
+            (&content_hash, chunks.len() as i32, &now, job_id),
+        ).map_err(|e| e.to_string())?;
+
+        for chunk in &chunks {
+            conn.execute(
+                "INSERT OR IGNORE INTO translation_chunks
+                 (id, job_id, document_id, chunk_index, source_text, start_pos, end_pos, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?8)",
+                (
+                    &Uuid::new_v4().to_string(),
+                    job_id,
+                    document_id,
+                    chunk.index as i32,
+                    &chunk.text,
+                    chunk.start_pos as i64,
+                    chunk.end_pos as i64,
+                    &now,
+                ),
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
     let result = translator
-        .translate_with_chunks_progress(
+        .translate_with_chunks_incremental(
             &markdown_content,
             source_language,
             target_language,
-            |completed, total| {
+            |completed, total, chunk_result| {
                 let progress = if total > 0 {
                     (completed as f64 / total as f64) * 100.0
                 } else {
@@ -3272,6 +3334,7 @@ async fn execute_translation_job(
                 match state.db.lock() {
                     Ok(db) => {
                         let conn = db.get_connection();
+                        // Update job progress
                         if let Err(error) = conn.execute(
                             "UPDATE translation_jobs
                              SET progress = ?1, total_chunks = ?2, completed_chunks = ?3, updated_at = ?4
@@ -3280,6 +3343,29 @@ async fn execute_translation_job(
                         ) {
                             log::warn!(
                                 "Failed to update translation progress for job {}: {}",
+                                job_id,
+                                error
+                            );
+                        }
+                        // Persist chunk result incrementally
+                        let status = if chunk_result.success { "completed" } else { "failed" };
+                        let error_msg = chunk_result.error.as_deref();
+                        if let Err(error) = conn.execute(
+                            "UPDATE translation_chunks
+                             SET translated_text = ?1, status = ?2, error_message = ?3, updated_at = ?4
+                             WHERE job_id = ?5 AND chunk_index = ?6",
+                            (
+                                &chunk_result.translated_text,
+                                status,
+                                &error_msg,
+                                &now,
+                                job_id,
+                                chunk_result.chunk_index as i32,
+                            ),
+                        ) {
+                            log::warn!(
+                                "Failed to persist translation chunk {} for job {}: {}",
+                                chunk_result.chunk_index,
                                 job_id,
                                 error
                             );
@@ -3297,6 +3383,19 @@ async fn execute_translation_job(
         )
         .await;
 
+    finalize_translation_job(state, app_dir, job_id, document_id, source_language, target_language, result)
+}
+
+/// Finalize a translation job after all chunks have been processed
+fn finalize_translation_job(
+    state: &AppState,
+    app_dir: Option<&Path>,
+    job_id: &str,
+    document_id: &str,
+    _source_language: &str,
+    target_language: &str,
+    result: Result<Vec<crate::translator::TranslationResult>, String>,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
@@ -3308,6 +3407,35 @@ async fn execute_translation_job(
                 .iter()
                 .filter(|item| item.success)
                 .count() as i32;
+            let failed_chunks = total_chunks - completed_chunks;
+
+            if failed_chunks > 0 {
+                // Partial success — mark as partial, don't merge yet
+                let progress = if total_chunks > 0 {
+                    (completed_chunks as f64 / total_chunks as f64) * 100.0
+                } else {
+                    0.0
+                };
+                let error_msg = format!("{} chunk(s) failed to translate", failed_chunks);
+
+                conn.execute(
+                    "UPDATE translation_jobs
+                     SET status = 'partial', error_message = ?1, progress = ?2,
+                         total_chunks = ?3, completed_chunks = ?4, failed_chunks = ?5,
+                         completed_at = ?6, updated_at = ?6
+                     WHERE id = ?7",
+                    (&error_msg, progress, total_chunks, completed_chunks, failed_chunks, &now, job_id),
+                ).map_err(|e| e.to_string())?;
+
+                conn.execute(
+                    "UPDATE documents
+                     SET translation_status = 'partial', updated_at = ?1
+                     WHERE id = ?2 AND deleted_at IS NULL",
+                    (&now, document_id),
+                ).map_err(|e| e.to_string())?;
+
+                return Ok(());
+            }
 
             let translated_text = match crate::translator::Translator::merge_translation_results(&chunk_results) {
                 Ok(text) => text,
@@ -3352,7 +3480,7 @@ async fn execute_translation_job(
             conn.execute(
                 "UPDATE translation_jobs
                  SET status = 'completed', progress = 100, total_chunks = ?1, completed_chunks = ?2,
-                     completed_at = ?3, updated_at = ?3
+                     failed_chunks = 0, completed_at = ?3, updated_at = ?3
                  WHERE id = ?4",
                 (total_chunks, completed_chunks, &now, job_id),
             ).map_err(|e| e.to_string())?;
@@ -3386,6 +3514,346 @@ async fn execute_translation_job(
             Err(e)
         }
     }
+}
+
+#[tauri::command]
+pub async fn resume_translation_job(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<TranslationJob, String> {
+    resume_translation_job_start(&app, state.inner(), &job_id, false).await
+}
+
+#[tauri::command]
+pub async fn retry_failed_translation_chunks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<TranslationJob, String> {
+    resume_translation_job_start(&app, state.inner(), &job_id, true).await
+}
+
+async fn resume_translation_job_start(
+    app: &AppHandle,
+    state: &AppState,
+    job_id: &str,
+    only_failed: bool,
+) -> Result<TranslationJob, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(app)?;
+
+    let (
+        job_document_id,
+        job_provider_id,
+        job_config_str,
+        job_content_hash,
+        job_total_chunks,
+    ) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        let (status, document_id, provider_id, config, content_hash, total_chunks): (String, String, String, String, Option<String>, i32) =
+            conn.query_row(
+                "SELECT status, document_id, provider_id, config, content_hash, total_chunks FROM translation_jobs WHERE id = ?1",
+                [job_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            ).map_err(|e| format!("Translation job not found: {}", e))?;
+
+        if status != "failed" && status != "partial" {
+            return Err(format!("Cannot resume job with status '{}'. Only 'failed' or 'partial' jobs can be resumed.", status));
+        }
+
+        // Check if job is already running
+        if let Ok(handles) = state.translation_job_handles.lock() {
+            if handles.contains_key(job_id) {
+                return Err("This job is already running".to_string());
+            }
+        }
+
+        (document_id, provider_id, config, content_hash, total_chunks)
+    };
+
+    // Validate content hasn't changed
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        let current_markdown: String = conn.query_row(
+            "SELECT pc.markdown_content
+             FROM parsed_contents pc
+             JOIN documents d ON d.id = pc.document_id
+             WHERE pc.document_id = ?1 AND d.deleted_at IS NULL
+             ORDER BY pc.version DESC
+             LIMIT 1",
+            [&job_document_id],
+            |row| row.get(0),
+        ).map_err(|e| format!("Failed to load document content: {}", e))?;
+
+        if let Some(ref saved_hash) = job_content_hash {
+            let current_hash = compute_content_hash(&current_markdown);
+            if &current_hash != saved_hash {
+                return Err("Source document has changed since the job started. Please start a new translation job.".to_string());
+            }
+        }
+    }
+
+    // Load the provider
+    let (provider_record, translate_model, sampling) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let provider_record = load_provider_record_by_id(conn, &job_provider_id)
+            .map_err(|_| "The translation provider used for this job has been deleted. Please start a new job with a different provider.".to_string())?;
+        let provider_models = load_provider_models_for_provider(conn, &job_provider_id)?;
+        let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+            .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let mut sampling = load_llm_sampling_config(conn, "translate")?;
+        if sampling.temperature.is_none() {
+            sampling.temperature = provider_record.legacy_temperature;
+        }
+        if sampling.max_tokens.is_none() {
+            sampling.max_tokens = provider_record.legacy_max_tokens;
+        }
+        (provider_record, translate_model, sampling)
+    };
+
+    // Parse the original config to get chunking settings
+    let job_config: serde_json::Value = serde_json::from_str(&job_config_str)
+        .map_err(|e| format!("Failed to parse job config: {}", e))?;
+    let runtime = &job_config["runtime"];
+    let chunk_size = runtime["chunk_size"].as_u64().unwrap_or(DEFAULT_TRANSLATION_CHUNK_SIZE as u64) as usize;
+    let chunk_overlap = runtime["chunk_overlap"].as_u64().unwrap_or(DEFAULT_TRANSLATION_CHUNK_OVERLAP as u64) as usize;
+    let max_concurrent = runtime["max_concurrent_requests"].as_u64().unwrap_or(DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS as u64) as usize;
+    let max_rpm = runtime["max_requests_per_minute"].as_u64().unwrap_or(DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE as u64) as u32;
+    let source_language = job_config["source_language"].as_str().unwrap_or("auto").to_string();
+    let target_language = job_config["target_language"].as_str().unwrap_or("en").to_string();
+
+    // Load pending/failed chunk indices
+    let chunk_filter = if only_failed {
+        "status = 'failed'"
+    } else {
+        "status IN ('pending', 'failed')"
+    };
+
+    let chunks_to_resume: Vec<(i32, String, i64, i64)> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let mut stmt = conn.prepare(
+            &format!(
+                "SELECT chunk_index, source_text, start_pos, end_pos FROM translation_chunks WHERE job_id = ?1 AND {}",
+                chunk_filter
+            )
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([job_id], |row| {
+            Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
+        }).map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+
+    if chunks_to_resume.is_empty() {
+        return Err("No chunks to resume/retry".to_string());
+    }
+
+    let already_completed: usize = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        conn.query_row(
+            "SELECT COUNT(*) FROM translation_chunks WHERE job_id = ?1 AND status = 'completed'",
+            [job_id],
+            |row| row.get::<_, i64>(0),
+        ).map_err(|e| e.to_string())? as usize
+    };
+
+    // Convert to Chunk structs
+    let resume_chunks: Vec<crate::chunking::Chunk> = chunks_to_resume
+        .iter()
+        .map(|(idx, text, start, end)| crate::chunking::Chunk {
+            index: *idx as usize,
+            text: text.clone(),
+            start_pos: *start as usize,
+            end_pos: *end as usize,
+        })
+        .collect();
+
+    // Update job status to translating
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE translation_jobs SET status = 'translating', error_message = NULL, started_at = ?1, updated_at = ?1 WHERE id = ?2",
+            (&now, job_id),
+        ).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE documents SET translation_status = 'translating', updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            (&now, &job_document_id),
+        ).map_err(|e| e.to_string())?;
+        // Reset failed chunks to pending
+        conn.execute(
+            &format!("UPDATE translation_chunks SET status = 'pending', error_message = NULL, updated_at = ?1 WHERE job_id = ?2 AND {}", chunk_filter),
+            (&now, job_id),
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // Return the updated job
+    let job = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        conn.query_row(
+            "SELECT * FROM translation_jobs WHERE id = ?1",
+            [job_id],
+            |row| {
+                Ok(TranslationJob {
+                    id: row.get(0)?,
+                    document_id: row.get(1)?,
+                    provider_id: row.get(2)?,
+                    status: row.get(3)?,
+                    progress: row.get(4)?,
+                    total_chunks: row.get(5)?,
+                    completed_chunks: row.get(6)?,
+                    error_message: row.get(7)?,
+                    config: row.get(8)?,
+                    started_at: row.get(9)?,
+                    completed_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                })
+            },
+        ).map_err(|e| e.to_string())?
+    };
+
+    // Build translator and spawn task
+    let chunking_config = crate::chunking::ChunkingConfig {
+        max_tokens_per_chunk: chunk_size,
+        overlap_tokens: chunk_overlap,
+        preserve_sentences: true,
+        tokens_per_char_estimate: 0.25,
+    };
+    let rate_limit_config = crate::rate_limiter::RateLimitConfig {
+        max_requests_per_minute: max_rpm,
+        max_concurrent_requests: max_concurrent,
+    };
+
+    let mut retry_config = crate::retry::RetryConfig::for_batch_processing();
+    retry_config.max_retries = provider_record.max_retries.max(0) as usize;
+
+    let translator = crate::translator::Translator::new(
+        provider_record.base_url,
+        provider_record.api_key,
+        translate_model.model_name,
+        sampling,
+    )
+    .with_retry_config(retry_config)
+    .with_chunking_config(chunking_config)
+    .with_rate_limit_config(rate_limit_config);
+
+    let job_id_str = job_id.to_string();
+    let doc_id_str = job_document_id.clone();
+    let source_lang = source_language.clone();
+    let target_lang = target_language.clone();
+    let state_clone = state.clone();
+    let app_dir_clone = app_dir.clone();
+    let total = job_total_chunks as usize;
+
+    let handle = tauri::async_runtime::spawn(async move {
+        let result = translator
+            .translate_specific_chunks(
+                resume_chunks,
+                &source_lang,
+                &target_lang,
+                total,
+                already_completed,
+                |completed, total_c, chunk_result| {
+                    let progress = if total_c > 0 {
+                        (completed as f64 / total_c as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let now = Utc::now().to_rfc3339();
+
+                    if let Ok(db) = state_clone.db.lock() {
+                        let conn = db.get_connection();
+                        let _ = conn.execute(
+                            "UPDATE translation_jobs
+                             SET progress = ?1, completed_chunks = ?2, updated_at = ?3
+                             WHERE id = ?4 AND status = 'translating'",
+                            (progress, completed as i32, &now, &job_id_str),
+                        );
+                        let status = if chunk_result.success { "completed" } else { "failed" };
+                        let error_msg = chunk_result.error.as_deref();
+                        let _ = conn.execute(
+                            "UPDATE translation_chunks
+                             SET translated_text = ?1, status = ?2, error_message = ?3, updated_at = ?4
+                             WHERE job_id = ?5 AND chunk_index = ?6",
+                            (
+                                &chunk_result.translated_text,
+                                status,
+                                &error_msg,
+                                &now,
+                                &job_id_str,
+                                chunk_result.chunk_index as i32,
+                            ),
+                        );
+                    }
+                },
+            )
+            .await;
+
+        // After resume completes, gather ALL chunk results and finalize
+        let all_results = gather_all_translation_chunks(&state_clone, &job_id_str);
+        let final_result = match (result, all_results) {
+            (Ok(_), Ok(results)) => Ok(results),
+            (Err(e), _) => Err(e),
+            (_, Err(e)) => Err(e),
+        };
+
+        let _ = finalize_translation_job(
+            &state_clone,
+            Some(app_dir_clone.as_path()),
+            &job_id_str,
+            &doc_id_str,
+            &source_lang,
+            &target_lang,
+            final_result,
+        );
+
+        if let Ok(mut handles) = state_clone.translation_job_handles.lock() {
+            handles.remove(&job_id_str);
+        }
+    });
+
+    let mut handles = state.translation_job_handles.lock().map_err(|e| e.to_string())?;
+    handles.insert(job_id.to_string(), handle);
+
+    Ok(job)
+}
+
+/// Gather all translation chunk results for a job (for merge after resume)
+fn gather_all_translation_chunks(
+    state: &AppState,
+    job_id: &str,
+) -> Result<Vec<crate::translator::TranslationResult>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    let mut stmt = conn.prepare(
+        "SELECT chunk_index, translated_text, start_pos, end_pos, status, error_message
+         FROM translation_chunks WHERE job_id = ?1 ORDER BY chunk_index"
+    ).map_err(|e| e.to_string())?;
+
+    let results = stmt.query_map([job_id], |row| {
+        let status: String = row.get(4)?;
+        let success = status == "completed";
+        Ok(crate::translator::TranslationResult {
+            chunk_index: row.get::<_, i32>(0)? as usize,
+            translated_text: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            start_pos: row.get::<_, i64>(2)? as usize,
+            end_pos: row.get::<_, i64>(3)? as usize,
+            success,
+            error: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    results.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3681,6 +4149,8 @@ pub async fn start_index_job(
 ) -> Result<String, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
 
+    let index_job_id = Uuid::new_v4().to_string();
+
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -3697,12 +4167,24 @@ pub async fn start_index_job(
         if updated == 0 {
             return Err("Document not found".to_string());
         }
+
+        // Create index_jobs row
+        let config = serde_json::json!({
+            "provider_id": provider_id,
+        }).to_string();
+
+        conn.execute(
+            "INSERT INTO index_jobs (id, document_id, provider_id, status, config, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?5)",
+            (&index_job_id, &document_id, &provider_id, &config, &now),
+        ).map_err(|e| e.to_string())?;
     }
 
     let document_id_clone = document_id.clone();
     let provider_id_clone = provider_id.clone();
     let state_clone = state.inner().clone();
     let app_dir_clone = app_dir.clone();
+    let index_job_id_clone = index_job_id.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
         let result = execute_index_job(
@@ -3710,20 +4192,21 @@ pub async fn start_index_job(
             &app_dir_clone,
             &document_id_clone,
             &provider_id_clone,
+            &index_job_id_clone,
         )
         .await;
         if let Ok(mut handles) = state_clone.index_job_handles.lock() {
             handles.remove(&document_id_clone);
         }
         if let Err(e) = result {
-            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &e);
+            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &index_job_id_clone, &e);
         }
     });
 
     let mut handles = state.index_job_handles.lock().map_err(|e| e.to_string())?;
     handles.insert(document_id.clone(), handle);
 
-    Ok("Indexing started".to_string())
+    Ok(index_job_id)
 }
 
 #[tauri::command]
@@ -3742,6 +4225,7 @@ async fn execute_index_job(
     app_dir: &Path,
     document_id: &str,
     provider_id: &str,
+    index_job_id: &str,
 ) -> Result<(), String> {
     let provider = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -3761,7 +4245,7 @@ async fn execute_index_job(
         }
     };
 
-    execute_index_job_with_embedding_provider(state, app_dir, document_id, &provider).await
+    execute_index_job_with_embedding_provider(state, app_dir, document_id, &provider, index_job_id).await
 }
 
 pub(crate) async fn execute_index_job_with_embedding_provider(
@@ -3769,6 +4253,7 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
     app_dir: &Path,
     document_id: &str,
     provider: &DirectEmbeddingProvider,
+    index_job_id: &str,
 ) -> Result<(), String> {
     let (markdown_content, rag_settings, zvec_settings) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -3815,7 +4300,7 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         provider.dimensions,
     )
     .with_retry_config(retry_config)
-    .with_chunking_config(chunking_config)
+    .with_chunking_config(chunking_config.clone())
     .with_rate_limit_config(rate_limit_config);
 
     let limiter_status = embedder.limiter_status();
@@ -3829,13 +4314,109 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         limiter_status.available_concurrency
     );
 
-    let mut embeddings = embedder.embed_with_chunks(&markdown_content).await?;
-    if embeddings.is_empty() {
+    // Pre-populate index_chunks and update index_jobs
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let content_hash = compute_content_hash(&markdown_content);
+        let chunker = crate::chunking::TextChunker::new(chunking_config);
+        let chunks = chunker.chunk(&markdown_content);
+        let now = Utc::now().to_rfc3339();
+
+        let config = serde_json::json!({
+            "embedding_model": embedding_model,
+            "chunk_size": rag_settings.chunk_size,
+            "chunk_overlap": rag_settings.chunk_overlap,
+            "provider_id": provider.base_url,
+        }).to_string();
+
+        conn.execute(
+            "UPDATE index_jobs SET status = 'indexing', config = ?1, content_hash = ?2, total_chunks = ?3, started_at = ?4, updated_at = ?4 WHERE id = ?5",
+            (&config, &content_hash, chunks.len() as i32, &now, index_job_id),
+        ).map_err(|e| e.to_string())?;
+
+        for chunk in &chunks {
+            conn.execute(
+                "INSERT OR IGNORE INTO index_chunks
+                 (id, job_id, document_id, chunk_index, content, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)",
+                (
+                    &Uuid::new_v4().to_string(),
+                    index_job_id,
+                    document_id,
+                    chunk.index as i32,
+                    &chunk.text,
+                    &now,
+                ),
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let embeddings = embedder.embed_with_chunks_incremental(
+        &markdown_content,
+        |completed, total, result, success| {
+            let progress = if total > 0 {
+                (completed as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+            let now = Utc::now().to_rfc3339();
+
+            if let Ok(db) = state.db.lock() {
+                let conn = db.get_connection();
+                // Update job progress
+                let _ = conn.execute(
+                    "UPDATE index_jobs SET progress = ?1, completed_chunks = ?2, updated_at = ?3 WHERE id = ?4 AND status = 'indexing'",
+                    (progress, completed as i32, &now, index_job_id),
+                );
+                // Persist chunk result
+                let status = if success { "completed" } else { "failed" };
+                let embedding_bytes: Option<Vec<u8>> = if success {
+                    Some(result.embedding.iter().flat_map(|f| f.to_le_bytes()).collect())
+                } else {
+                    None
+                };
+                let _ = conn.execute(
+                    "UPDATE index_chunks SET embedding = ?1, status = ?2, updated_at = ?3 WHERE job_id = ?4 AND chunk_index = ?5",
+                    (&embedding_bytes, status, &now, index_job_id, result.chunk_index as i32),
+                );
+            }
+        },
+    ).await?;
+
+    // Check for failures
+    let failed_count = embeddings.iter().filter(|r| r.embedding.is_empty()).count();
+    let successful_embeddings: Vec<_> = embeddings.into_iter().filter(|r| !r.embedding.is_empty()).collect();
+
+    if successful_embeddings.is_empty() {
         return Err("No text was available to index".to_string());
     }
 
-    embeddings.sort_by_key(|chunk| chunk.chunk_index);
-    if let (Some(first), Some(last)) = (embeddings.first(), embeddings.last()) {
+    if failed_count > 0 {
+        // Partial success
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+        let error_msg = format!("{} chunk(s) failed to embed", failed_count);
+
+        conn.execute(
+            "UPDATE index_jobs SET status = 'partial', error_message = ?1, completed_at = ?2, updated_at = ?2 WHERE id = ?3",
+            (&error_msg, &now, index_job_id),
+        ).map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "UPDATE documents SET index_status = 'failed', updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            (&now, document_id),
+        ).map_err(|e| e.to_string())?;
+
+        return Err(error_msg);
+    }
+
+    // All succeeded — write to final tables
+    let mut sorted_embeddings = successful_embeddings;
+    sorted_embeddings.sort_by_key(|chunk| chunk.chunk_index);
+
+    if let (Some(first), Some(last)) = (sorted_embeddings.first(), sorted_embeddings.last()) {
         log::debug!(
             "Embedding chunks cover byte range {}..{}",
             first.start_pos,
@@ -3843,7 +4424,7 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         );
     }
 
-    let vector_dimension = embeddings
+    let vector_dimension = sorted_embeddings
         .first()
         .map(|embedding| embedding.embedding.len())
         .ok_or_else(|| "Embedding provider returned no vectors".to_string())?;
@@ -3870,7 +4451,7 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         None
     };
 
-    let indexed_chunks = embeddings
+    let indexed_chunks = sorted_embeddings
         .into_iter()
         .map(|chunk| IndexedChunk {
             id: Uuid::new_v4().to_string(),
@@ -3980,7 +4561,191 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
     )
     .map_err(|e| e.to_string())?;
 
+    conn.execute(
+        "UPDATE index_jobs SET status = 'completed', progress = 100, completed_at = ?1, updated_at = ?1 WHERE id = ?2",
+        (&now, index_job_id),
+    ).map_err(|e| e.to_string())?;
+
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndexJobWithDoc {
+    pub id: String,
+    pub document_id: String,
+    pub document_title: String,
+    pub provider_id: String,
+    pub status: String,
+    pub progress: f64,
+    pub total_chunks: i32,
+    pub completed_chunks: i32,
+    pub error_message: Option<String>,
+    pub config: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[tauri::command]
+pub fn get_all_index_jobs(
+    state: State<AppState>,
+) -> Result<Vec<IndexJobWithDoc>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    let mut stmt = conn.prepare(
+        "SELECT ij.id, ij.document_id, d.title, ij.provider_id, ij.status, ij.progress,
+                ij.total_chunks, ij.completed_chunks, ij.error_message, ij.config,
+                ij.started_at, ij.completed_at, ij.created_at, ij.updated_at
+         FROM index_jobs ij
+         JOIN documents d ON d.id = ij.document_id
+         WHERE d.deleted_at IS NULL
+         ORDER BY ij.created_at DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let jobs = stmt.query_map([], |row| {
+        Ok(IndexJobWithDoc {
+            id: row.get(0)?,
+            document_id: row.get(1)?,
+            document_title: row.get(2)?,
+            provider_id: row.get(3)?,
+            status: row.get(4)?,
+            progress: row.get(5)?,
+            total_chunks: row.get(6)?,
+            completed_chunks: row.get(7)?,
+            error_message: row.get(8)?,
+            config: row.get(9)?,
+            started_at: row.get(10)?,
+            completed_at: row.get(11)?,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    jobs.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_index_job(state: State<AppState>, job_id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    conn.execute("DELETE FROM index_jobs WHERE id = ?1", [&job_id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn resume_index_job(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<String, String> {
+    resume_index_job_internal(&app, state.inner(), &job_id, false).await
+}
+
+#[tauri::command]
+pub async fn retry_failed_index_chunks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<String, String> {
+    resume_index_job_internal(&app, state.inner(), &job_id, true).await
+}
+
+async fn resume_index_job_internal(
+    app: &AppHandle,
+    state: &AppState,
+    job_id: &str,
+    _only_failed: bool,
+) -> Result<String, String> {
+    let app_dir = crate::app_dirs::runtime_app_dir(app)?;
+
+    let (document_id, provider_id) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+
+        let (status, doc_id, prov_id): (String, String, String) = conn.query_row(
+            "SELECT status, document_id, provider_id FROM index_jobs WHERE id = ?1",
+            [job_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).map_err(|e| format!("Index job not found: {}", e))?;
+
+        if status != "failed" && status != "partial" {
+            return Err(format!("Cannot resume index job with status '{}'. Only 'failed' or 'partial' jobs can be resumed.", status));
+        }
+
+        if let Ok(handles) = state.index_job_handles.lock() {
+            if handles.contains_key(&doc_id) {
+                return Err("An index job is already running for this document".to_string());
+            }
+        }
+
+        (doc_id, prov_id)
+    };
+
+    // Validate provider exists
+    let provider = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let provider_record = load_provider_record_by_id(conn, &provider_id)
+            .map_err(|_| "The provider used for this job has been deleted. Please start a new index job.".to_string())?;
+        let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
+        let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
+            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
+
+        DirectEmbeddingProvider {
+            base_url: provider_record.base_url,
+            api_key: provider_record.api_key,
+            embedding_model: embed_model.model_name,
+            dimensions: embed_model.config.and_then(|config| config.dimensions),
+            max_retries: provider_record.max_retries.max(0) as usize,
+            max_concurrent_requests: provider_record.concurrency.max(1) as usize,
+        }
+    };
+
+    // Update job status
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE index_jobs SET status = 'indexing', error_message = NULL, started_at = ?1, updated_at = ?1 WHERE id = ?2",
+            (&now, job_id),
+        ).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE documents SET index_status = 'indexing', updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            (&now, &document_id),
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // For index resume, we re-run the full index job since embeddings need to be written atomically
+    // to the final tables (chunks, embeddings, vec0). The index_chunks table tracks progress.
+    let doc_id_clone = document_id.clone();
+    let state_clone = state.clone();
+    let app_dir_clone = app_dir.clone();
+    let job_id_str = job_id.to_string();
+
+    let handle = tauri::async_runtime::spawn(async move {
+        let result = execute_index_job_with_embedding_provider(
+            &state_clone,
+            &app_dir_clone,
+            &doc_id_clone,
+            &provider,
+            &job_id_str,
+        ).await;
+        if let Ok(mut handles) = state_clone.index_job_handles.lock() {
+            handles.remove(&doc_id_clone);
+        }
+        if let Err(e) = result {
+            let _ = mark_index_job_failed(&state_clone, &doc_id_clone, &job_id_str, &e);
+        }
+    });
+
+    let mut handles = state.index_job_handles.lock().map_err(|e| e.to_string())?;
+    handles.insert(document_id.clone(), handle);
+
+    Ok(job_id.to_string())
 }
 
 #[tauri::command]
@@ -5334,6 +6099,8 @@ fn enqueue_index_job_internal(
     document_id: &str,
     provider_id: &str,
 ) -> Result<(), String> {
+    let index_job_id = Uuid::new_v4().to_string();
+
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -5350,12 +6117,19 @@ fn enqueue_index_job_internal(
         if updated == 0 {
             return Err("Document not found".to_string());
         }
+
+        conn.execute(
+            "INSERT INTO index_jobs (id, document_id, provider_id, status, config, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'pending', '{}', ?4, ?4)",
+            (&index_job_id, document_id, provider_id, &now),
+        ).map_err(|e| e.to_string())?;
     }
 
     let document_id_clone = document_id.to_string();
     let provider_id_clone = provider_id.to_string();
     let state_clone = state.clone();
     let app_dir_clone = app_dir.to_path_buf();
+    let index_job_id_clone = index_job_id.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
         let result = execute_index_job(
@@ -5363,13 +6137,14 @@ fn enqueue_index_job_internal(
             &app_dir_clone,
             &document_id_clone,
             &provider_id_clone,
+            &index_job_id_clone,
         )
         .await;
         if let Ok(mut handles) = state_clone.index_job_handles.lock() {
             handles.remove(&document_id_clone);
         }
         if let Err(e) = result {
-            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &e);
+            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &index_job_id_clone, &e);
         }
     });
 

@@ -29,6 +29,7 @@ impl Database {
             include_str!("../migrations/004_document_outputs.sql"),
             include_str!("../migrations/005_provider_models.sql"),
             include_str!("../migrations/006_mineru_processed_files.sql"),
+            include_str!("../migrations/007_chunk_persistence_and_index_jobs.sql"),
         ];
 
         for schema in schemas {
@@ -46,6 +47,18 @@ impl Database {
             "providers",
             "priority",
             "ALTER TABLE providers ADD COLUMN priority INTEGER DEFAULT 0",
+        )?;
+        ensure_table_column(
+            &self.conn,
+            "translation_jobs",
+            "content_hash",
+            "ALTER TABLE translation_jobs ADD COLUMN content_hash TEXT",
+        )?;
+        ensure_table_column(
+            &self.conn,
+            "translation_jobs",
+            "failed_chunks",
+            "ALTER TABLE translation_jobs ADD COLUMN failed_chunks INTEGER DEFAULT 0",
         )?;
 
         Ok(())
@@ -79,13 +92,27 @@ impl Database {
             [],
         )?;
 
+        // Mark interrupted translation jobs with completed chunks as 'partial' (resumable)
+        self.conn.execute(
+            "UPDATE translation_jobs
+             SET status = 'partial',
+                 error_message = COALESCE(error_message, 'Task interrupted - can be resumed'),
+                 completed_at = COALESCE(completed_at, datetime('now')),
+                 updated_at = datetime('now')
+             WHERE status IN ('pending', 'translating')
+               AND id IN (SELECT DISTINCT job_id FROM translation_chunks WHERE status = 'completed')",
+            [],
+        )?;
+
+        // Mark interrupted translation jobs with NO completed chunks as 'failed'
         self.conn.execute(
             "UPDATE translation_jobs
              SET status = 'failed',
                  error_message = COALESCE(error_message, 'Task interrupted because the application restarted'),
                  completed_at = COALESCE(completed_at, datetime('now')),
                  updated_at = datetime('now')
-             WHERE status IN ('pending', 'translating')",
+             WHERE status IN ('pending', 'translating')
+               AND id NOT IN (SELECT DISTINCT job_id FROM translation_chunks WHERE status = 'completed')",
             [],
         )?;
 
@@ -95,6 +122,9 @@ impl Database {
                  WHEN EXISTS (
                      SELECT 1 FROM translated_contents tc WHERE tc.document_id = documents.id
                  ) THEN 'completed'
+                 WHEN EXISTS (
+                     SELECT 1 FROM translation_jobs tj WHERE tj.document_id = documents.id AND tj.status = 'partial'
+                 ) THEN 'partial'
                  ELSE 'pending'
              END,
                  updated_at = datetime('now')
@@ -107,6 +137,30 @@ impl Database {
              SET index_status = 'pending',
                  updated_at = datetime('now')
              WHERE index_status = 'indexing'",
+            [],
+        )?;
+
+        // Mark interrupted index jobs with completed chunks as 'partial' (resumable)
+        self.conn.execute(
+            "UPDATE index_jobs
+             SET status = 'partial',
+                 error_message = COALESCE(error_message, 'Task interrupted - can be resumed'),
+                 completed_at = COALESCE(completed_at, datetime('now')),
+                 updated_at = datetime('now')
+             WHERE status IN ('pending', 'indexing')
+               AND id IN (SELECT DISTINCT job_id FROM index_chunks WHERE status = 'completed')",
+            [],
+        )?;
+
+        // Mark interrupted index jobs with NO completed chunks as 'failed'
+        self.conn.execute(
+            "UPDATE index_jobs
+             SET status = 'failed',
+                 error_message = COALESCE(error_message, 'Task interrupted because the application restarted'),
+                 completed_at = COALESCE(completed_at, datetime('now')),
+                 updated_at = datetime('now')
+             WHERE status IN ('pending', 'indexing')
+               AND id NOT IN (SELECT DISTINCT job_id FROM index_chunks WHERE status = 'completed')",
             [],
         )?;
 
