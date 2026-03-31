@@ -120,11 +120,6 @@ export default function GeneralTab() {
         const settingsMap = new Map(appSettings.map((item) => [item.key, item.value]))
         setDefaultTargetLanguage(settingsMap.get("general.default_target_language") ?? "")
 
-        const storedTheme = normalizeTheme(settingsMap.get("general.theme") ?? undefined)
-        setTheme(storedTheme)
-        localStorage.setItem(THEME_STORAGE_KEY, storedTheme)
-        applyTheme(storedTheme)
-
         setStartSilent(settingsMap.get("general.start_silent") === "true")
 
         try {

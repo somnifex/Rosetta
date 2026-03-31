@@ -7,6 +7,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
+import { api } from "@/lib/api"
 
 type Theme = "light" | "dark" | "system"
 
@@ -43,6 +44,7 @@ export function ThemeToggle() {
     const next = value as Theme
     setTheme(next)
     localStorage.setItem(THEME_STORAGE_KEY, next)
+    api.setAppSetting("general.theme", next).catch(() => {})
   }
 
   const isDark =

@@ -128,6 +128,12 @@ function applyLocalConfig(config: Record<string, string>) {
       localStorage.setItem(key, value)
     }
   }
+  // Apply theme to DOM immediately after restoring config
+  const theme = localStorage.getItem("pdf-translate:theme") || "system"
+  const dark =
+    theme === "dark" ||
+    (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+  document.documentElement.classList.toggle("dark", dark)
 }
 
 // ---- Local Backup Export ----

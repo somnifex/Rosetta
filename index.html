@@ -28,6 +28,13 @@
         window.history.scrollRestoration = "manual";
       }
     </script>
+    <script>
+      (function() {
+        var theme = localStorage.getItem("pdf-translate:theme") || "system";
+        var dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      })();
+    </script>
     <title>Rosetta</title>
   </head>
 
