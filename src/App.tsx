@@ -5,13 +5,13 @@ import { useTranslation } from "react-i18next"
 import { SUPPORTED_LOCALES } from "@/i18n"
 import { Toaster } from "@/components/ui/toaster"
 import Layout from "@/components/Layout"
-import Dashboard from "@/pages/Dashboard"
-import Library from "@/pages/Library"
-import DocumentDetail from "@/pages/DocumentDetail"
-import Search from "@/pages/Search"
-import Tasks from "@/pages/Tasks"
-import Chat from "@/pages/Chat"
 
+const Dashboard = lazy(() => import("@/pages/Dashboard"))
+const Library = lazy(() => import("@/pages/Library"))
+const DocumentDetail = lazy(() => import("@/pages/DocumentDetail"))
+const Search = lazy(() => import("@/pages/Search"))
+const Tasks = lazy(() => import("@/pages/Tasks"))
+const Chat = lazy(() => import("@/pages/Chat"))
 const Settings = lazy(() => import("@/pages/settings"))
 
 const queryClient = new QueryClient()

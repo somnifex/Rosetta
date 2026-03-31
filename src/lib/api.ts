@@ -16,20 +16,16 @@ import type {
   TranslatedContent,
   TranslationJob,
 } from "../../packages/types"
+import { invoke } from "@tauri-apps/api/core"
 
 // Check if running inside Tauri
 const isTauri = () => !!(window as any).__TAURI_INTERNALS__
-
-let invokeModule: any = null
 
 async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
     throw new Error("Tauri backend not available. Running in browser mode.")
   }
-  if (!invokeModule) {
-    invokeModule = await import("@tauri-apps/api/core")
-  }
-  return (invokeModule.invoke as Function)(cmd, args) as Promise<T>
+  return invoke(cmd, args) as Promise<T>
 }
 
 // --- LocalStorage-based provider management (works without Tauri) ---

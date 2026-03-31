@@ -1,4 +1,6 @@
 import type { LlmSamplingConfig } from "../../packages/types"
+import { invoke } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import { readFile } from "@tauri-apps/plugin-fs"
 import { api } from "./api"
 import {
@@ -660,7 +662,6 @@ export async function generateConversationTitle(
     throw new Error("NO_ACTIVE_CHAT_CHANNEL")
   }
 
-  const { invoke } = await import("@tauri-apps/api/core")
   const title = await invoke<string>("generate_chat_title", {
     request: {
       chatChannel: toOpenAiChannelConfig(chatProvider, chatModel),
@@ -713,8 +714,6 @@ export async function* streamRagChat(
   const rerankModel = rerankProvider ? getPrimaryModelForType(rerankProvider, "rerank") : null
 
   const requestId = genId()
-  const { invoke } = await import("@tauri-apps/api/core")
-  const { listen } = await import("@tauri-apps/api/event")
 
   const queue: ChatStreamEvent[] = []
   let notify: (() => void) | null = null
