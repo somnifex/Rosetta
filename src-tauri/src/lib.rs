@@ -17,6 +17,7 @@ mod settings;
 mod sync_backup;
 mod translator;
 mod webdav;
+mod window_appearance;
 mod zvec;
 
 use database::Database;
@@ -222,6 +223,8 @@ pub fn run() {
                 index_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 chat_request_handles: Arc::new(Mutex::new(HashMap::new())),
             });
+
+            window_appearance::sync_main_window_theme(app.handle(), settings_manager.as_ref());
 
             // First-launch optimal window sizing
             {
@@ -478,6 +481,7 @@ pub fn run() {
             commands::batch_remove_tags,
             commands::batch_set_language,
             commands::batch_export_documents,
+            window_appearance::sync_window_theme,
             zvec::get_zvec_status,
             zvec::probe_reranker_status,
             zvec::install_reranker_deps,

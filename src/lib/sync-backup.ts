@@ -5,6 +5,7 @@
  * so the UI never handles serialization or complex orchestration.
  */
 import { api } from "./api"
+import { getStoredTheme, setStoredTheme } from "./theme"
 
 // ---- Types ----
 
@@ -128,12 +129,7 @@ function applyLocalConfig(config: Record<string, string>) {
       localStorage.setItem(key, value)
     }
   }
-  // Apply theme to DOM immediately after restoring config
-  const theme = localStorage.getItem("pdf-translate:theme") || "system"
-  const dark =
-    theme === "dark" ||
-    (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
-  document.documentElement.classList.toggle("dark", dark)
+  setStoredTheme(getStoredTheme())
 }
 
 // ---- Local Backup Export ----

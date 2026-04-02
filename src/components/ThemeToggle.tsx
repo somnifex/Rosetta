@@ -8,47 +8,41 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { api } from "@/lib/api"
-
-type Theme = "light" | "dark" | "system"
-
-const THEME_STORAGE_KEY = "pdf-translate:theme"
-
-function getSystemTheme(): "light" | "dark" {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-}
-
-function applyTheme(theme: Theme) {
-  const resolved = theme === "system" ? getSystemTheme() : theme
-  document.documentElement.classList.toggle("dark", resolved === "dark")
-}
+import {
+  getStoredTheme,
+  resolveTheme,
+  setStoredTheme,
+  THEME_CHANGE_EVENT,
+  type AppTheme,
+} from "@/lib/theme"
 
 export function ThemeToggle() {
   const { t } = useTranslation("settings")
-  const [theme, setTheme] = useState<Theme>(() => {
-    return (localStorage.getItem(THEME_STORAGE_KEY) as Theme) || "system"
-  })
+  const [theme, setTheme] = useState<AppTheme>(getStoredTheme)
 
   useEffect(() => {
-    applyTheme(theme)
-  }, [theme])
+    const handleThemeChange = (event: Event) => {
+      if (event instanceof CustomEvent) {
+        setTheme(event.detail ?? getStoredTheme())
+        return
+      }
+      setTheme(getStoredTheme())
+    }
 
-  useEffect(() => {
-    if (theme !== "system") return
-    const mql = window.matchMedia("(prefers-color-scheme: dark)")
-    const handler = () => applyTheme("system")
-    mql.addEventListener("change", handler)
-    return () => mql.removeEventListener("change", handler)
-  }, [theme])
+    window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange as EventListener)
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange as EventListener)
+    }
+  }, [])
 
   const handleChange = (value: string) => {
-    const next = value as Theme
+    const next = value as AppTheme
     setTheme(next)
-    localStorage.setItem(THEME_STORAGE_KEY, next)
+    setStoredTheme(next)
     api.setAppSetting("general.theme", next).catch(() => {})
   }
 
-  const isDark =
-    theme === "dark" || (theme === "system" && getSystemTheme() === "dark")
+  const isDark = resolveTheme(theme) === "dark"
 
   const TriggerIcon = theme === "system" ? Monitor : isDark ? Moon : Sun
 

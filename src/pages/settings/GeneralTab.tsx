@@ -14,23 +14,13 @@ import { enable as enableAutostart, disable as disableAutostart, isEnabled as is
 import { check } from "@tauri-apps/plugin-updater"
 import { relaunch } from "@tauri-apps/plugin-process"
 import { getVersion } from "@tauri-apps/api/app"
-
-type AppTheme = "light" | "dark" | "system"
-const THEME_STORAGE_KEY = "pdf-translate:theme"
-
-function getSystemTheme(): "light" | "dark" {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-}
-
-function applyTheme(theme: AppTheme) {
-  const resolved = theme === "system" ? getSystemTheme() : theme
-  document.documentElement.classList.toggle("dark", resolved === "dark")
-}
-
-function normalizeTheme(value: string | undefined): AppTheme {
-  if (value === "light" || value === "dark" || value === "system") return value
-  return "system"
-}
+import {
+  getStoredTheme,
+  normalizeTheme,
+  setStoredTheme,
+  THEME_CHANGE_EVENT,
+  type AppTheme,
+} from "@/lib/theme"
 
 export default function GeneralTab() {
   const { t } = useTranslation("settings")
@@ -46,9 +36,7 @@ export default function GeneralTab() {
   const [defaultAlwaysIncludeFullDocument, setDefaultAlwaysIncludeFullDocument] =
     useState(false)
   const [defaultTargetLanguage, setDefaultTargetLanguage] = useState("")
-  const [theme, setTheme] = useState<AppTheme>(
-    normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY) ?? undefined)
-  )
+  const [theme, setTheme] = useState<AppTheme>(getStoredTheme)
   const [autostart, setAutostart] = useState(false)
   const [startSilent, setStartSilent] = useState(false)
   const [currentVersion, setCurrentVersion] = useState("")
@@ -60,6 +48,21 @@ export default function GeneralTab() {
 
   useEffect(() => {
     getVersion().then(setCurrentVersion).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const handleThemeChange = (event: Event) => {
+      if (event instanceof CustomEvent) {
+        setTheme(event.detail ?? getStoredTheme())
+        return
+      }
+      setTheme(getStoredTheme())
+    }
+
+    window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange as EventListener)
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange as EventListener)
+    }
   }, [])
 
   const handleCheckUpdate = useCallback(async () => {
@@ -169,8 +172,7 @@ export default function GeneralTab() {
       const normalizedTheme = normalizeTheme(theme)
       await api.setAppSetting("general.default_target_language", defaultTargetLanguage.trim())
       await api.setAppSetting("general.theme", normalizedTheme)
-      localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme)
-      applyTheme(normalizedTheme)
+      setStoredTheme(normalizedTheme)
 
       // Autostart
       try {

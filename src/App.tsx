@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { SUPPORTED_LOCALES } from "@/i18n"
 import { Toaster } from "@/components/ui/toaster"
 import Layout from "@/components/Layout"
+import { applyAppTheme, getStoredTheme, THEME_CHANGE_EVENT } from "@/lib/theme"
 
 const Dashboard = lazy(() => import("@/pages/Dashboard"))
 const Library = lazy(() => import("@/pages/Library"))
@@ -44,12 +45,41 @@ function BrowserBehaviorGuard() {
   return null
 }
 
+function ThemeController() {
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
+    const applyStoredTheme = () => applyAppTheme(getStoredTheme())
+    const handleThemeChange = (event: Event) => {
+      const nextTheme =
+        event instanceof CustomEvent ? event.detail ?? getStoredTheme() : getStoredTheme()
+      applyAppTheme(nextTheme)
+    }
+    const handleSystemThemeChange = () => {
+      if (getStoredTheme() === "system") {
+        applyStoredTheme()
+      }
+    }
+
+    applyStoredTheme()
+    window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange as EventListener)
+    mediaQuery.addEventListener("change", handleSystemThemeChange)
+
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange as EventListener)
+      mediaQuery.removeEventListener("change", handleSystemThemeChange)
+    }
+  }, [])
+
+  return null
+}
+
 function App() {
   return (
     <Suspense fallback={null}>
       <QueryClientProvider client={queryClient}>
         <DirectionSetter />
         <BrowserBehaviorGuard />
+        <ThemeController />
         <Router>
           <Layout>
             <Routes>

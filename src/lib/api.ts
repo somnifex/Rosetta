@@ -671,6 +671,8 @@ export const api = {
     safeInvoke<void>("set_app_setting", { key, value }),
   getAllAppSettings: () =>
     safeInvoke<Array<{ key: string; value: string }>>("get_all_app_settings"),
+  syncWindowTheme: (theme: string) =>
+    safeInvoke<void>("sync_window_theme", { theme }),
 
   // Runtime Logs
   getRuntimeLogs: (limit?: number, minLevel?: string, offset?: number) =>
