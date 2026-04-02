@@ -43,11 +43,11 @@ export function loadWebDAVConfig(): WebDAVConfig {
         baseUrl: parsed.baseUrl || parsed.base_url || "",
         username: parsed.username || "",
         password: parsed.password || "",
-        remotePath: parsed.remotePath || parsed.remote_path || "/pdf-translate",
+        remotePath: parsed.remotePath || parsed.remote_path || "/Rosseta",
       }
     }
   } catch {}
-  return { baseUrl: "", username: "", password: "", remotePath: "/pdf-translate" }
+  return { baseUrl: "", username: "", password: "", remotePath: "/Rosseta" }
 }
 
 export function saveWebDAVConfig(config: WebDAVConfig) {

@@ -170,7 +170,7 @@ export default function WebDAVTab() {
           <div className="space-y-2">
             <Label>{t("webdav.remote_path")}</Label>
             <Input
-              placeholder="/pdf-translate"
+              placeholder="/Rosseta"
               value={webdavConfig.remotePath}
               onChange={(e) => setWebdavConfig({ ...webdavConfig, remotePath: e.target.value })}
             />
