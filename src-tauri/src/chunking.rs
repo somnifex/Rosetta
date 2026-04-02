@@ -59,6 +59,7 @@ pub struct Chunk {
 
 impl Chunk {
     /// 估算该分片的tokens数
+    #[allow(dead_code)]
     pub fn estimate_tokens(&self, tokens_per_char: f32) -> usize {
         (self.text.len() as f32 * tokens_per_char).ceil() as usize
     }
@@ -122,8 +123,7 @@ impl TextChunker {
             let end = (start + chunk_chars).min(chars.len());
             let chunk_text: String = chars[start..end].iter().collect();
             let start_pos = chars[..start].iter().map(|c| c.len_utf8()).sum();
-            let end_pos =
-                chars[..end].iter().map(|c| c.len_utf8()).sum::<usize>();
+            let end_pos = chars[..end].iter().map(|c| c.len_utf8()).sum::<usize>();
 
             chunks.push(Chunk {
                 index,
@@ -267,7 +267,10 @@ impl TextChunker {
                 if trimmed == marker {
                     continue;
                 }
-                if trimmed.starts_with(marker) && trimmed.ends_with(marker) && trimmed.len() > marker.len() * 2 {
+                if trimmed.starts_with(marker)
+                    && trimmed.ends_with(marker)
+                    && trimmed.len() > marker.len() * 2
+                {
                     in_fence = false;
                     fence_marker = "";
                     units.push(TextUnit {
@@ -384,7 +387,8 @@ impl TextChunker {
             }
 
             let min_end = start + chunk_chars / 2;
-            let cut = self.find_soft_boundary(&chars, start, max_end, min_end, prefer_newline)
+            let cut = self
+                .find_soft_boundary(&chars, start, max_end, min_end, prefer_newline)
                 .unwrap_or(max_end)
                 .max(start + 1);
 
@@ -448,15 +452,11 @@ impl TextChunker {
     }
 
     fn is_math_block_start(&self, trimmed: &str) -> bool {
-        trimmed == "$$"
-            || trimmed.starts_with("\\[")
-            || trimmed.starts_with("\\begin{")
+        trimmed == "$$" || trimmed.starts_with("\\[") || trimmed.starts_with("\\begin{")
     }
 
     fn is_math_block_end(&self, trimmed: &str) -> bool {
-        trimmed == "$$"
-            || trimmed.ends_with("\\]")
-            || trimmed.starts_with("\\end{")
+        trimmed == "$$" || trimmed.ends_with("\\]") || trimmed.starts_with("\\end{")
     }
 
     fn is_table_line(&self, trimmed: &str) -> bool {
@@ -469,11 +469,8 @@ impl TextChunker {
     }
 
     fn is_image_line(&self, trimmed: &str) -> bool {
-        trimmed.starts_with("![")
-            || trimmed.contains("![")
-            || trimmed.contains("<img")
+        trimmed.starts_with("![") || trimmed.contains("![") || trimmed.contains("<img")
     }
-
 }
 
 #[cfg(test)]

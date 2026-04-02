@@ -1,28 +1,15 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-/// 速率限制配置
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
-    /// 每分钟最大请求数（0表示不限制）
     pub max_requests_per_minute: u32,
-    /// 并发学问数（同时发送的最大请求数）
     pub max_concurrent_requests: usize,
 }
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
-        Self {
-            max_requests_per_minute: 60,    // 默认60个请求/分钟
-            max_concurrent_requests: 3,      // 默认3个并发
-        }
-    }
-}
-
-impl RateLimitConfig {
-    /// 普通的限制（网络环境一般）
-    pub fn moderate() -> Self {
         Self {
             max_requests_per_minute: 60,
             max_concurrent_requests: 3,
@@ -30,13 +17,15 @@ impl RateLimitConfig {
     }
 }
 
-/// 速率限制器 - 控制请求频率
+impl RateLimitConfig {
+    pub fn moderate() -> Self {
+        Self::default()
+    }
+}
+
 pub struct RateLimiter {
-    /// 每分钟最大请求数
     max_requests_per_minute: u32,
-    /// 上一分钟的开始时间
     window_start: std::sync::Mutex<Instant>,
-    /// 当前窗口内的请求数
     request_count: std::sync::Mutex<u32>,
 }
 
@@ -49,10 +38,9 @@ impl RateLimiter {
         }
     }
 
-    /// 检查是否可以发送请求，如果需要等待则等待
     pub async fn acquire(&self) -> Duration {
         if self.max_requests_per_minute == 0 {
-            return Duration::from_secs(0); // 不限制
+            return Duration::from_secs(0);
         }
 
         let mut waited = Duration::from_secs(0);
@@ -65,17 +53,14 @@ impl RateLimiter {
                 let now = Instant::now();
                 let elapsed = now.duration_since(*window_start);
 
-                // 如果窗口已过期（1分钟），重置
                 if elapsed >= Duration::from_secs(60) {
                     *window_start = now;
                     *request_count = 0;
                 }
 
-                // 检查是否还有配额
                 if *request_count >= self.max_requests_per_minute {
                     Some(Duration::from_secs(60) - elapsed)
                 } else {
-                    // 增加请求计数
                     *request_count += 1;
                     None
                 }
@@ -92,19 +77,16 @@ impl RateLimiter {
         }
     }
 
-    /// 获取当前请求数
     pub fn current_count(&self) -> u32 {
         *self.request_count.lock().unwrap()
     }
 
-    /// 获取当前窗口已用时间
     pub fn window_elapsed(&self) -> Duration {
         let window_start = self.window_start.lock().unwrap();
         window_start.elapsed()
     }
 }
 
-/// 并发控制器 - 限制同时运行的任务数
 pub struct ConcurrencyLimiter {
     semaphore: Arc<Semaphore>,
 }
@@ -116,7 +98,6 @@ impl ConcurrencyLimiter {
         }
     }
 
-    /// 获取一个并发许可
     pub async fn acquire(&self) -> ConcurrencyGuard {
         let permit = self
             .semaphore
@@ -125,28 +106,18 @@ impl ConcurrencyLimiter {
             .await
             .expect("semaphore should not be closed");
 
-        ConcurrencyGuard {
-            _permit: permit,
-        }
+        ConcurrencyGuard { _permit: permit }
     }
 
-    /// 获取当前可用的并发数
     pub fn available_permits(&self) -> usize {
         self.semaphore.available_permits()
     }
 }
 
-/// 并发许可守卫 - 当DROP时释放许可
 pub struct ConcurrencyGuard {
-    _permit: tokio::sync::OwnedSemaphorePermit,
+    _permit: OwnedSemaphorePermit,
 }
 
-impl ConcurrencyGuard {
-    // 这个结构体只是用来保持permit的生命周期
-    // 当drop时，permit会自动释放
-}
-
-/// 联合限制器 - 同时进行速率限制和并发控制
 pub struct RequestLimiter {
     rate_limiter: RateLimiter,
     concurrency_limiter: ConcurrencyLimiter,
@@ -160,26 +131,20 @@ impl RequestLimiter {
         }
     }
 
-    /// 执行一个受限的操作
     pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T, String>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<T, String>>,
     {
-        // 首先等待速率限制
         let wait_time = self.rate_limiter.acquire().await;
         if wait_time.as_secs() > 0 {
             log::debug!("Waiting {:?} for rate limit", wait_time);
         }
 
-        // 然后获取并发许可
         let _permit = self.concurrency_limiter.acquire().await;
-
-        // 执行操作
         operation().await
     }
 
-    /// 获取状态信息
     pub fn status(&self) -> LimiterStatus {
         LimiterStatus {
             current_request_count: self.rate_limiter.current_count(),
@@ -189,7 +154,6 @@ impl RequestLimiter {
     }
 }
 
-/// 限制器状态信息
 #[derive(Debug, Clone)]
 pub struct LimiterStatus {
     pub current_request_count: u32,
@@ -222,18 +186,15 @@ mod tests {
 
         let start = Instant::now();
 
-        // 前3个请求应该没有延迟
-        for _i in 0..3 {
+        for _ in 0..3 {
             let wait = limiter.acquire().await;
             assert_eq!(wait.as_secs(), 0);
         }
 
-        // 第4个请求应该有延迟
         let wait = limiter.acquire().await;
         assert!(wait.as_secs() > 0);
 
         let _elapsed = start.elapsed();
-        // 应该大约等待了60秒的延迟（这里我们只检查返回值）
         assert!(wait.as_secs() > 50);
     }
 

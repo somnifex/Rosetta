@@ -49,7 +49,6 @@ export default function WebDAVTab() {
     },
   })
 
-  // Sync mutation
   const syncMutation = useMutation({
     mutationFn: async () => {
       const config = loadWebDAVConfig()
@@ -84,7 +83,6 @@ export default function WebDAVTab() {
     },
   })
 
-  // Export mutations
   const exportFullMutation = useMutation({
     mutationFn: () => exportBackup("full"),
     onSuccess: () => toast({ title: t("webdav.export_success") }),
@@ -97,7 +95,6 @@ export default function WebDAVTab() {
     onError: (error: any) => toast({ title: t("webdav.export_error"), description: error.message, variant: "destructive" }),
   })
 
-  // Import mutation
   const importMutation = useMutation({
     mutationFn: async () => {
       await importBackup(importJson)

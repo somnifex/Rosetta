@@ -34,7 +34,6 @@ export default function MineruTab() {
   const [mineruModelSource, setMineruModelSource] = useState("huggingface")
   const [mineruModelsDir, setMineruModelsDir] = useState("")
 
-  // Load MinerU settings from DB
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
     queryFn: api.getAllAppSettings,
@@ -58,21 +57,18 @@ export default function MineruTab() {
     }
   }, [appSettings, defaultMineruCloneUrl, defaultMineruPipIndexUrl, mineruSettingsLoaded])
 
-  // Poll MinerU status
   const { data: mineruStatus } = useQuery({
     queryKey: ["mineruStatus"],
     queryFn: api.getMinerUStatus,
     refetchInterval: mineruMode === "builtin" ? 3000 : false,
   })
 
-  // Check venv existence on mount
   const { data: venvExists } = useQuery({
     queryKey: ["venvExists"],
     queryFn: api.checkVenvExists,
     enabled: mineruMode === "builtin",
   })
 
-  // Poll venv status during setup
   const { data: venvStatusData } = useQuery({
     queryKey: ["venvStatus"],
     queryFn: api.getVenvStatus,
@@ -83,7 +79,6 @@ export default function MineruTab() {
     enabled: mineruMode === "builtin",
   })
 
-  // Poll model download status
   const { data: modelDownloadStatusData } = useQuery({
     queryKey: ["modelDownloadStatus"],
     queryFn: api.getModelDownloadStatus,
@@ -96,7 +91,6 @@ export default function MineruTab() {
 
   const venvStatus = venvStatusData?.status || (venvExists ? "ready" : "not_created")
 
-  // Save MinerU settings mutation
   const saveMineruSettingsMutation = useMutation({
     mutationFn: async () => {
       await api.setAppSetting("mineru.mode", mineruMode)
@@ -121,7 +115,6 @@ export default function MineruTab() {
     },
   })
 
-  // Start/Stop MinerU mutations
   const startMineruMutation = useMutation({
     mutationFn: api.startMinerU,
     onSuccess: (msg) => {
@@ -151,7 +144,6 @@ export default function MineruTab() {
     startMineruMutation.mutate()
   }
 
-  // Venv setup mutation
   const setupVenvMutation = useMutation({
     mutationFn: api.setupMineruVenv,
     onSuccess: () => {
@@ -168,7 +160,6 @@ export default function MineruTab() {
     setupVenvMutation.mutate()
   }
 
-  // Model download mutation
   const downloadModelsMutation = useMutation({
     mutationFn: api.downloadMineruModels,
     onSuccess: () => {

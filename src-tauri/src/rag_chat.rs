@@ -188,11 +188,7 @@ fn emit_chunk(app: &AppHandle, request_id: &str, delta: &str) -> Result<(), Stri
     .map_err(|e| e.to_string())
 }
 
-fn emit_done(
-    app: &AppHandle,
-    request_id: &str,
-    sources: Vec<RagChatSource>,
-) -> Result<(), String> {
+fn emit_done(app: &AppHandle, request_id: &str, sources: Vec<RagChatSource>) -> Result<(), String> {
     app.emit(
         EVENT_CHAT_DONE,
         RagChatDoneEvent {
@@ -226,7 +222,7 @@ fn latest_user_message(messages: &[RagChatMessageInput]) -> Result<&str, String>
             }
             RagChatMessageContent::Parts(parts) => {
                 if let Some(content) = extract_text_from_message_parts(parts) {
-                    return Ok(content)
+                    return Ok(content);
                 }
             }
             _ => {}
@@ -346,7 +342,8 @@ async fn ensure_documents_indexed(
                 Some(record)
                     if has_chunks
                         && record.backend.eq_ignore_ascii_case(&expected_backend)
-                        && record.embedding_model.as_deref() == Some(provider.embedding_model.as_str())
+                        && record.embedding_model.as_deref()
+                            == Some(provider.embedding_model.as_str())
                         && record.collection_key.as_deref() == expected_collection_key =>
                 {
                     false
@@ -368,7 +365,14 @@ async fn ensure_documents_indexed(
                     (&auto_job_id, document_id, &provider.embedding_model, &now),
                 );
             }
-            execute_index_job_with_embedding_provider(state, app_dir, document_id, provider, &auto_job_id).await?;
+            execute_index_job_with_embedding_provider(
+                state,
+                app_dir,
+                document_id,
+                provider,
+                &auto_job_id,
+            )
+            .await?;
         }
     }
 
@@ -540,7 +544,11 @@ fn search_sqlite_chunks(
         })
         .collect::<Vec<_>>();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit);
     Ok(results)
 }
@@ -554,7 +562,8 @@ fn search_zvec_chunks(
     document_filter: &Option<HashSet<String>>,
     limit: usize,
 ) -> Result<Vec<RagChatSource>, String> {
-    let collection_key = crate::zvec::collection_key_for_model(embedding_model, query_embedding.len());
+    let collection_key =
+        crate::zvec::collection_key_for_model(embedding_model, query_embedding.len());
     let hit_limit = if document_filter.is_some() {
         limit.saturating_mul(8)
     } else {
@@ -616,7 +625,11 @@ fn apply_rerank_scores(
             })
         })
         .collect();
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit);
     results
 }
@@ -684,7 +697,12 @@ async fn retrieve_context(
             None
         };
 
-        (rag_settings, zvec_settings, use_zvec, expected_collection_key)
+        (
+            rag_settings,
+            zvec_settings,
+            use_zvec,
+            expected_collection_key,
+        )
     };
 
     if crate::zvec::vector_backend_is_zvec(&rag_settings) && !use_zvec_retrieval {
@@ -780,10 +798,8 @@ async fn retrieve_context(
                 effective_top_n,
             )
             .await?;
-            let scored: Vec<(String, f32)> = reranked
-                .into_iter()
-                .map(|r| (r.id, r.score))
-                .collect();
+            let scored: Vec<(String, f32)> =
+                reranked.into_iter().map(|r| (r.id, r.score)).collect();
             sources = apply_rerank_scores(sources, &scored, top_k);
         }
     }
@@ -1011,11 +1027,7 @@ async fn stream_chat_completion(
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "Chat API returned {}: {}",
-            status,
-            text
-        ));
+        return Err(format!("Chat API returned {}: {}", status, text));
     }
 
     let mut response = response;
@@ -1091,8 +1103,8 @@ async fn request_chat_completion_once(
     }
 
     let body = response.text().await.map_err(|e| e.to_string())?;
-    let parsed: ChatCompletionResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("Failed to parse chat response: {e}"))?;
+    let parsed: ChatCompletionResponse =
+        serde_json::from_str(&body).map_err(|e| format!("Failed to parse chat response: {e}"))?;
 
     parsed
         .choices
@@ -1113,9 +1125,7 @@ async fn run_rag_chat(
     } else {
         Vec::new()
     };
-    let base_sampling = {
-        load_llm_sampling_config(&state.settings, "chat")?
-    };
+    let base_sampling = { load_llm_sampling_config(&state.settings, "chat")? };
     let sampling = merge_sampling_config(base_sampling, request.sampling_override.as_ref());
     stream_chat_completion(app, request, sources, sampling).await
 }

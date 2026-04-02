@@ -101,7 +101,7 @@ pub fn run() {
             })?;
 
             let settings_manager = Arc::new(settings::SettingsManager::new(&app_dir));
-            
+
             // Migrate legacy settings from DB
             {
                 let conn = db.get_connection();

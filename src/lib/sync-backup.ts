@@ -1,13 +1,5 @@
-/**
- * Sync & Backup service layer.
- *
- * Abstracts data collection, local export/import, and WebDAV sync
- * so the UI never handles serialization or complex orchestration.
- */
 import { api } from "./api"
 import { getStoredTheme, setStoredTheme } from "./theme"
-
-// ---- Types ----
 
 export type SyncScope = "full" | "config"
 export type SyncMode = "auto" | "upload" | "download"
@@ -38,13 +30,9 @@ export interface BackupSummary {
   document_count: number
 }
 
-// ---- localStorage keys ----
-
 const STORAGE_KEY_WEBDAV_CONFIG = "pdf-translate:webdav-config"
 const STORAGE_KEY_LAST_SYNC = "pdf-translate:last-sync"
 const STORAGE_KEY_SYNC_DEFAULTS = "pdf-translate:sync-defaults"
-
-// ---- Config persistence (WebDAV) ----
 
 export function loadWebDAVConfig(): WebDAVConfig {
   try {
@@ -71,8 +59,6 @@ export function isWebDAVConfigured(): boolean {
   return !!(cfg.baseUrl && cfg.username && cfg.password)
 }
 
-// ---- Last sync info ----
-
 export function loadLastSyncInfo(): LastSyncInfo | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LAST_SYNC)
@@ -86,8 +72,6 @@ export function saveLastSyncInfo(info: LastSyncInfo) {
   localStorage.setItem(STORAGE_KEY_LAST_SYNC, JSON.stringify(info))
 }
 
-// ---- Sync defaults ----
-
 export function loadSyncDefaults(): { mode: SyncMode; scope: SyncScope } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_SYNC_DEFAULTS)
@@ -99,8 +83,6 @@ export function loadSyncDefaults(): { mode: SyncMode; scope: SyncScope } {
 export function saveSyncDefaults(mode: SyncMode, scope: SyncScope) {
   localStorage.setItem(STORAGE_KEY_SYNC_DEFAULTS, JSON.stringify({ mode, scope }))
 }
-
-// ---- Collect all localStorage config for backup ----
 
 function collectLocalConfig(): Record<string, string> {
   const keys = [
@@ -132,27 +114,29 @@ function applyLocalConfig(config: Record<string, string>) {
   setStoredTheme(getStoredTheme())
 }
 
-// ---- Local Backup Export ----
+async function applyBackupJson(json: string): Promise<void> {
+  const result = await api.applyBackupData(json)
+  if (result.local_config) {
+    applyLocalConfig(result.local_config)
+  }
+}
 
 export async function exportBackup(scope: SyncScope): Promise<void> {
   const localConfig = collectLocalConfig()
   const json = await api.collectBackupData(scope, localConfig, "local-export")
 
-  // Trigger browser download
   const date = new Date().toISOString().slice(0, 10)
   const filename = `app-backup-${scope}-${date}.json`
   const blob = new Blob([json], { type: "application/json" })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
-
-// ---- Local Backup Import ----
 
 export async function readBackupFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -168,13 +152,8 @@ export async function validateBackupFile(json: string): Promise<BackupSummary> {
 }
 
 export async function importBackup(json: string): Promise<void> {
-  const result = await api.applyBackupData(json)
-  if (result.local_config) {
-    applyLocalConfig(result.local_config)
-  }
+  await applyBackupJson(json)
 }
-
-// ---- WebDAV Sync ----
 
 export async function testWebDAVConnection(config: WebDAVConfig): Promise<string> {
   return api.testWebdavConnection({
@@ -208,14 +187,10 @@ export async function syncWebDAV(
       remotePath: config.remotePath,
       scope,
     })
-    const result = await api.applyBackupData(json)
-    if (result.local_config) {
-      applyLocalConfig(result.local_config)
-    }
+    await applyBackupJson(json)
   } else {
-    // "auto" mode: upload local first (local-wins strategy with timestamp)
-    // Try download first to check remote timestamp
     let remoteNewer = false
+
     try {
       const remoteJson = await api.webdavDownloadBackup({
         baseUrl: config.baseUrl,
@@ -228,19 +203,13 @@ export async function syncWebDAV(
       const lastSync = loadLastSyncInfo()
 
       if (lastSync && remoteSummary.created_at > lastSync.time) {
-        // Remote is newer than our last sync - apply remote
         remoteNewer = true
-        const result = await api.applyBackupData(remoteJson)
-        if (result.local_config) {
-          applyLocalConfig(result.local_config)
-        }
+        await applyBackupJson(remoteJson)
       }
     } catch {
-      // No remote data yet or download failed - will upload
     }
 
     if (!remoteNewer) {
-      // Upload local data
       await api.webdavUploadBackup({
         baseUrl: config.baseUrl,
         username: config.username,

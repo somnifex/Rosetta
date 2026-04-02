@@ -245,14 +245,11 @@ impl Database {
             return Ok(false);
         }
 
-        let exists = self
-            .conn
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM migration_markers WHERE marker_key = ?1)",
-                [marker_key],
-                |row| row.get::<_, i64>(0),
-            )?
-            != 0;
+        let exists = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM migration_markers WHERE marker_key = ?1)",
+            [marker_key],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
         Ok(exists)
     }
 }
@@ -266,7 +263,12 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
     Ok(exists)
 }
 
-fn ensure_table_column(conn: &Connection, table: &str, column: &str, alter_sql: &str) -> Result<()> {
+fn ensure_table_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns = stmt
         .query_map([], |row| row.get::<_, String>(1))?

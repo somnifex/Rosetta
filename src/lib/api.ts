@@ -18,8 +18,7 @@ import type {
 } from "../../packages/types"
 import { invoke } from "@tauri-apps/api/core"
 
-// Check if running inside Tauri
-const isTauri = () => !!(window as any).__TAURI_INTERNALS__
+const isTauri = () => Boolean((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
 
 async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
@@ -27,8 +26,6 @@ async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
   }
   return invoke(cmd, args) as Promise<T>
 }
-
-// --- LocalStorage-based provider management (works without Tauri) ---
 
 const STORAGE_KEY_CHAT = "pdf-translate:chat-channels"
 const STORAGE_KEY_TRANSLATE = "pdf-translate:translate-channels"
@@ -326,10 +323,7 @@ export async function saveTranslationRuntimeSettings(settings: TranslationRuntim
   )
 }
 
-// --- Tauri API calls ---
-
 export const api = {
-  // Documents
   getDocuments: () => safeInvoke<Document[]>("get_documents"),
   getLibraryDocuments: () => safeInvoke<Document[]>("get_library_documents"),
   getDocumentById: (id: string) => safeInvoke<Document>("get_document_by_id", { id }),
@@ -378,7 +372,6 @@ export const api = {
     safeInvoke<PermanentDeleteReport>("permanently_delete_documents", { documentIds }),
   emptyTrash: () => safeInvoke<PermanentDeleteReport>("empty_trash"),
 
-  // Batch pipeline operations
   batchStartParseJobs: (documentIds: string[]) =>
     safeInvoke<BatchActionReport>("batch_start_parse_jobs", { documentIds }),
   batchStartTranslationJobs: (data: { documentIds: string[]; providerId: string }) =>
@@ -430,7 +423,6 @@ export const api = {
   duplicateDocument: (id: string) => safeInvoke<Document>("duplicate_document", { id }),
   revealInOs: (path: string) => safeInvoke<void>("reveal_in_os", { path }),
 
-  // Parse Jobs
   startParseJob: (documentId: string) => safeInvoke<ParseJob>("start_parse_job", { documentId }),
   cancelParseJob: (jobId: string) => safeInvoke<void>("cancel_parse_job", { jobId }),
   deleteParseJob: (jobId: string) => safeInvoke<void>("delete_parse_job", { jobId }),
@@ -443,7 +435,6 @@ export const api = {
   }>>("get_all_parse_jobs"),
   getParsedContent: (documentId: string) => safeInvoke<ParsedContent>("get_parsed_content", { documentId }),
 
-  // Translation Jobs
   startTranslationJob: (data: {
     documentId: string
     providerId: string
@@ -477,7 +468,6 @@ export const api = {
   replaceParsedMarkdown: (documentId: string, filePath: string) =>
     safeInvoke<ParsedContent>("replace_parsed_markdown", { documentId, filePath }),
 
-  // RAG & Search
   startIndexJob: (documentId: string, providerId: string) => safeInvoke<string>("start_index_job", { documentId, providerId }),
   cancelIndexJob: (documentId: string) => safeInvoke<void>("cancel_index_job", { documentId }),
   getAllIndexJobs: () => safeInvoke<Array<{
@@ -523,7 +513,6 @@ export const api = {
     safeInvoke<{ status: string; message: string }>("get_zvec_venv_status"),
   checkZvecVenvExists: () => safeInvoke<boolean>("check_zvec_venv_exists"),
 
-  // WebDAV Sync
   testWebdavConnection: (data: { baseUrl: string; username: string; password: string }) =>
     safeInvoke<string>("test_webdav_connection", {
       baseUrl: data.baseUrl,
@@ -545,7 +534,6 @@ export const api = {
       remotePath: data.remotePath,
     }),
 
-  // Export
   exportDocument: (data: {
     documentId: string
     format: string
@@ -569,7 +557,6 @@ export const api = {
       outputPath: data.outputPath,
     }),
 
-  // Categories
   getCategories: () => safeInvoke<Category[]>("get_categories"),
   createCategory: (data: {
     name: string
@@ -595,7 +582,6 @@ export const api = {
     }),
   deleteCategory: (id: string) => safeInvoke<void>("delete_category", { id }),
 
-  // Folders
   getFolders: () => safeInvoke<Folder[]>("get_folders"),
   createFolder: (data: { name: string; parentId?: string }) =>
     safeInvoke<Folder>("create_folder", {
@@ -610,7 +596,6 @@ export const api = {
     }),
   deleteFolder: (id: string) => safeInvoke<void>("delete_folder", { id }),
 
-  // Tags
   getTags: () => safeInvoke<Tag[]>("get_tags"),
   createTag: (data: { name: string; color?: string }) =>
     safeInvoke<Tag>("create_tag", {
@@ -625,7 +610,6 @@ export const api = {
     }),
   deleteTag: (id: string) => safeInvoke<void>("delete_tag", { id }),
 
-  // Document Tags
   addDocumentTags: (documentId: string, tagIds: string[]) =>
     safeInvoke<void>("add_document_tags", { documentId, tagIds }),
   removeDocumentTag: (documentId: string, tagId: string) =>
@@ -633,15 +617,12 @@ export const api = {
   getDocumentTags: (documentId: string) =>
     safeInvoke<Tag[]>("get_document_tags", { documentId }),
 
-  // Document File Path
   getDocumentFilePath: (id: string) =>
     safeInvoke<string>("get_document_file_path", { id }),
 
-  // Document Chunks
   getDocumentChunks: (documentId: string) =>
     safeInvoke<Chunk[]>("get_document_chunks", { documentId }),
 
-  // Providers
   getProviders: async () => {
     await ensureLegacyProviderMigration()
     return safeInvoke<Provider[]>("get_providers")
@@ -664,7 +645,6 @@ export const api = {
   testMinerUConnection: (baseUrl: string) =>
     safeInvoke<string>("test_mineru_connection", { baseUrl }),
 
-  // App Settings
   getAppSetting: (key: string) =>
     safeInvoke<string | null>("get_app_setting", { key }),
   setAppSetting: (key: string, value: string) =>
@@ -674,7 +654,6 @@ export const api = {
   syncWindowTheme: (theme: string) =>
     safeInvoke<void>("sync_window_theme", { theme }),
 
-  // Runtime Logs
   getRuntimeLogs: (limit?: number, minLevel?: string, offset?: number) =>
     safeInvoke<RuntimeLogEntry[]>("get_runtime_logs", { limit, minLevel, offset }),
   exportRuntimeLogs: (
@@ -685,24 +664,20 @@ export const api = {
   getMineruProcessedStorageDir: () =>
     safeInvoke<string>("get_mineru_processed_storage_dir"),
 
-  // MinerU Lifecycle
   startMinerU: () => safeInvoke<string>("start_mineru"),
   stopMinerU: () => safeInvoke<void>("stop_mineru"),
   getMinerUStatus: () =>
     safeInvoke<{ status: string; port: number | null; error: string | null }>("get_mineru_status"),
 
-  // MinerU Venv Management
   setupMineruVenv: () => safeInvoke<void>("setup_mineru_venv"),
   getVenvStatus: () =>
     safeInvoke<{ status: string; message: string }>("get_venv_status"),
   checkVenvExists: () => safeInvoke<boolean>("check_venv_exists"),
 
-  // MinerU Model Download
   downloadMineruModels: () => safeInvoke<void>("download_mineru_models"),
   getModelDownloadStatus: () =>
     safeInvoke<{ status: string; message: string; progress: number }>("get_model_download_status"),
 
-  // Sync & Backup
   collectBackupData: (scope: string, localConfig: Record<string, string>, source: string) =>
     safeInvoke<string>("collect_backup_data", { scope, localConfig, source }),
   applyBackupData: (backupJson: string) =>

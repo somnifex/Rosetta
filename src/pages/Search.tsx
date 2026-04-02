@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { Document as PdfDocument, Page, pdfjs } from "react-pdf"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
@@ -275,10 +275,10 @@ export default function SearchPage() {
   const { t: tc } = useTranslation("common")
   const { t: ts } = useTranslation("settings")
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialQuery = searchParams.get("q") || ""
-  const [query, setQuery] = useState(initialQuery)
+  const urlQuery = searchParams.get("q")?.trim() ?? ""
+  const [query, setQuery] = useState(urlQuery)
   const [semanticResults, setSemanticResults] = useState<SemanticSearchResult[]>([])
-  const [committedQuery, setCommittedQuery] = useState(initialQuery)
+  const [committedQuery, setCommittedQuery] = useState(urlQuery)
   const [hasSearched, setHasSearched] = useState(false)
   const [options, setOptions] = useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS)
   const { toast } = useToast()
@@ -334,7 +334,7 @@ export default function SearchPage() {
     },
   })
 
-  const handleSearch = (searchQuery?: string) => {
+  const handleSearch = useCallback((searchQuery?: string) => {
     const q = (searchQuery ?? query).trim()
     if (!q) {
       toast({
@@ -353,6 +353,11 @@ export default function SearchPage() {
       return
     }
 
+    if (!providers) {
+      setSemanticResults([])
+      return
+    }
+
     const activeProvider = getActiveProviderForType(providers, "embed")
     if (!activeProvider) {
       setSemanticResults([])
@@ -367,17 +372,14 @@ export default function SearchPage() {
       query: q,
       providerId: activeProvider.id,
     })
-  }
+  }, [options.includeSemantic, providers, query, searchMutation, t, tc, toast])
 
-  // Auto-search when navigated here with ?q= param
   useEffect(() => {
-    const q = searchParams.get("q")
-    if (q && q.trim()) {
-      setQuery(q)
-      handleSearch(q)
+    if (urlQuery) {
+      setQuery(urlQuery)
+      handleSearch(urlQuery)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.get("q")])
+  }, [handleSearch, urlQuery])
 
   const handleSubmit = () => {
     if (query.trim()) {
@@ -405,29 +407,28 @@ export default function SearchPage() {
 
     const collected = libraryDocuments.reduce<DisplaySearchResult[]>((acc, document) => {
       const globalScore = computeGlobalSimilarity(document, normalizedQuery, normalizedHighlightTerms)
-        if (globalScore <= 0) return acc
+      if (globalScore <= 0) return acc
 
-        const semanticHit = semanticBestByDocument.get(document.id)
-        const snippetSource = semanticHit?.content || `${document.title} ${document.filename}`
+      const semanticHit = semanticBestByDocument.get(document.id)
+      const snippetSource = semanticHit?.content || `${document.title} ${document.filename}`
 
-        acc.push({
-          key: `global-${document.id}`,
-          type: "global",
-          title: document.filename,
-          similarity: semanticHit ? Math.max(globalScore, semanticHit.score) : globalScore,
-          snippet: buildSnippet(snippetSource, highlightTerms),
-          documentId: document.id,
-        })
+      acc.push({
+        key: `global-${document.id}`,
+        type: "global",
+        title: document.filename,
+        similarity: semanticHit ? Math.max(globalScore, semanticHit.score) : globalScore,
+        snippet: buildSnippet(snippetSource, highlightTerms),
+        documentId: document.id,
+      })
 
-        return acc
-      }, [])
+      return acc
+    }, [])
 
     for (const item of collected) {
       if (!item.documentId) continue
       byDocument.set(item.documentId, item)
     }
 
-    // Promote literal content hits from semantic results into global-priority results.
     for (const hit of semanticResults) {
       const contentLower = hit.content.toLowerCase()
       const hasLiteral = normalizedHighlightTerms.some((term) => contentLower.includes(term))
@@ -467,23 +468,29 @@ export default function SearchPage() {
     if (!normalizedQuery || !options.includeSettings) return []
 
     const collected = appSettings.reduce<DisplaySearchResult[]>((acc, item) => {
-        const fieldLabel = localizeSettingFieldLabel(item.key, ts)
-        const groupLabel = localizeSettingGroupLabel(item.key, ts)
-        const settingTitle = `${groupLabel} / ${fieldLabel}`
-        const similarity = computeSettingSimilarity(item.key, item.value, settingTitle, normalizedQuery, normalizedHighlightTerms)
-        if (similarity <= 0) return acc
+      const fieldLabel = localizeSettingFieldLabel(item.key, ts)
+      const groupLabel = localizeSettingGroupLabel(item.key, ts)
+      const settingTitle = `${groupLabel} / ${fieldLabel}`
+      const similarity = computeSettingSimilarity(
+        item.key,
+        item.value,
+        settingTitle,
+        normalizedQuery,
+        normalizedHighlightTerms
+      )
+      if (similarity <= 0) return acc
 
-        acc.push({
-          key: `setting-${item.key}`,
-          type: "setting",
-          title: settingTitle,
-          snippet: buildSnippet(`${settingTitle}: ${item.value}`, highlightTerms),
-          similarity,
-          settingKey: item.key,
-        })
+      acc.push({
+        key: `setting-${item.key}`,
+        type: "setting",
+        title: settingTitle,
+        snippet: buildSnippet(`${settingTitle}: ${item.value}`, highlightTerms),
+        similarity,
+        settingKey: item.key,
+      })
 
-        return acc
-      }, [])
+      return acc
+    }, [])
 
     return collected.sort((a, b) => b.similarity - a.similarity).slice(0, options.maxGlobalResults)
   }, [appSettings, committedQuery, highlightTerms, normalizedHighlightTerms, options.includeSettings, options.maxGlobalResults, ts])

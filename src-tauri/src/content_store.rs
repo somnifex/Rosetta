@@ -155,7 +155,8 @@ pub fn migrate_legacy_contents(conn: &Connection, app_dir: &Path) -> Result<bool
                         "Parsed content row {id} references a missing JSON file"
                     ));
                 }
-                if let Some(structure_path) = structure_tree.as_deref().filter(|_| structure_is_path)
+                if let Some(structure_path) =
+                    structure_tree.as_deref().filter(|_| structure_is_path)
                 {
                     if !Path::new(structure_path).exists() {
                         return Err(format!(

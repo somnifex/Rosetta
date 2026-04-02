@@ -1,7 +1,6 @@
 use crate::chunking::{Chunk, ChunkingConfig, TextChunker};
 use crate::rate_limiter::{RateLimitConfig, RequestLimiter};
 use crate::retry::{should_retry_network_error, with_retry, RetryConfig};
-use futures;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use reqwest::Client;
@@ -205,9 +204,7 @@ impl Embedder {
 
             embed_tasks.push(async move {
                 let result = request_limiter
-                    .execute(|| async {
-                        embedder.embed_chunk(&chunk).await
-                    })
+                    .execute(|| async { embedder.embed_chunk(&chunk).await })
                     .await;
 
                 match result {
@@ -251,13 +248,18 @@ impl Embedder {
         }
 
         if failed_count > 0 {
-            log::warn!("Failed to embed {} out of {} chunks", failed_count, total_chunks);
+            log::warn!(
+                "Failed to embed {} out of {} chunks",
+                failed_count,
+                total_chunks
+            );
         }
 
         Ok(results)
     }
 
     /// 仅嵌入指定的分片列表（用于断点续传和重试失败分片）
+    #[allow(dead_code)]
     pub async fn embed_specific_chunks<F>(
         &self,
         chunks: Vec<Chunk>,
@@ -288,9 +290,7 @@ impl Embedder {
 
             embed_tasks.push(async move {
                 let result = request_limiter
-                    .execute(|| async {
-                        embedder.embed_chunk(&chunk).await
-                    })
+                    .execute(|| async { embedder.embed_chunk(&chunk).await })
                     .await;
 
                 match result {
@@ -334,10 +334,8 @@ impl Embedder {
 
     /// 智能embed：自动分片长文本，返回带位置的embed结果
     /// 支持并发处理和速率限制
-    pub async fn embed_with_chunks(
-        &self,
-        text: &str,
-    ) -> Result<Vec<EmbedResult>, String> {
+    #[allow(dead_code)]
+    pub async fn embed_with_chunks(&self, text: &str) -> Result<Vec<EmbedResult>, String> {
         if text.is_empty() {
             return Ok(Vec::new());
         }
@@ -377,9 +375,7 @@ impl Embedder {
             embed_tasks.push(async move {
                 // 使用请求限制器控制并发和速率
                 let result = request_limiter
-                    .execute(|| async {
-                        embedder.embed_chunk(&chunk).await
-                    })
+                    .execute(|| async { embedder.embed_chunk(&chunk).await })
                     .await;
 
                 match result {
@@ -395,7 +391,7 @@ impl Embedder {
                         EmbedResult {
                             chunk_index: chunk.index,
                             text: chunk.text.clone(),
-                            embedding: Vec::new(),  // 返回空向量表示失败
+                            embedding: Vec::new(), // 返回空向量表示失败
                             start_pos: chunk.start_pos,
                             end_pos: chunk.end_pos,
                         }
@@ -405,21 +401,18 @@ impl Embedder {
         }
 
         // 并发执行所有任务
-        let results: Vec<EmbedResult> = futures::future::join_all(embed_tasks)
-            .await;
+        let results: Vec<EmbedResult> = futures::future::join_all(embed_tasks).await;
 
         // 检查是否有失败的任务（空embedding）
-        let failed_embeds: Vec<_> = results
-            .iter()
-            .filter(|r| r.embedding.is_empty())
-            .collect();
+        let failed_embeds: Vec<_> = results.iter().filter(|r| r.embedding.is_empty()).collect();
 
         if !failed_embeds.is_empty() {
-            log::warn!(
-                "Failed to embed {} chunks",
-                failed_embeds.len()
-            );
-            return Err(format!("Failed to embed {} out of {} chunks", failed_embeds.len(), results.len()));
+            log::warn!("Failed to embed {} chunks", failed_embeds.len());
+            return Err(format!(
+                "Failed to embed {} out of {} chunks",
+                failed_embeds.len(),
+                results.len()
+            ));
         }
 
         Ok(results)

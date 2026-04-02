@@ -592,8 +592,8 @@ impl MinerUProcessManager {
         &self,
         settings: &crate::settings::SettingsManager,
     ) -> Result<String, String> {
-        let mode = get_setting_value(settings, "mineru.mode")
-            .unwrap_or_else(|| "builtin".to_string());
+        let mode =
+            get_setting_value(settings, "mineru.mode").unwrap_or_else(|| "builtin".to_string());
 
         match mode.as_str() {
             "builtin" => {
@@ -893,9 +893,7 @@ fn has_nvidia_gpu() -> bool {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     hide_console_window!(cmd);
-    cmd.status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 fn torch_is_cpu_only(python_cmd: &str) -> bool {
@@ -1079,7 +1077,10 @@ fn is_known_model_file(path: &Path) -> bool {
         return false;
     };
 
-    if KNOWN_MODEL_FILENAMES.iter().any(|known| *known == file_name) {
+    if KNOWN_MODEL_FILENAMES
+        .iter()
+        .any(|known| *known == file_name)
+    {
         return true;
     }
 
@@ -1155,7 +1156,10 @@ pub(crate) fn refresh_model_download_status(
 
 fn pip_packages_for_module(module_name: &str) -> Vec<String> {
     match module_name {
-        "albumentations" => vec!["albumentations".to_string(), "opencv-python-headless".to_string()],
+        "albumentations" => vec![
+            "albumentations".to_string(),
+            "opencv-python-headless".to_string(),
+        ],
         _ => vec![module_name.to_string()],
     }
 }
@@ -1167,9 +1171,7 @@ fn python_has_module(python_cmd: &str, module_name: &str) -> bool {
     cmd.args(["-c", &script])
         .stderr(std::process::Stdio::null());
     hide_console_window!(cmd);
-    cmd.status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    cmd.status().map(|status| status.success()).unwrap_or(false)
 }
 
 fn missing_python_modules(python_cmd: &str, module_names: &[&str]) -> Vec<String> {
@@ -1238,10 +1240,7 @@ async fn install_missing_mineru_modules_in_venv(
 /// If an NVIDIA GPU is present but the venv has CPU-only PyTorch, reinstall
 /// the CUDA build.  Returns `true` when an upgrade was attempted (regardless
 /// of success).  This is intentionally non-fatal — MinerU still works on CPU.
-async fn upgrade_to_cuda_torch_if_needed(
-    python_cmd: &str,
-    pip_index_url: &str,
-) -> bool {
+async fn upgrade_to_cuda_torch_if_needed(python_cmd: &str, pip_index_url: &str) -> bool {
     if !has_nvidia_gpu() || !torch_is_cpu_only(python_cmd) {
         return false;
     }
@@ -1388,7 +1387,8 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
             })
         };
 
-        let port_str = get_setting_value(settings, "mineru.port").unwrap_or_else(|| "8765".to_string());
+        let port_str =
+            get_setting_value(settings, "mineru.port").unwrap_or_else(|| "8765".to_string());
         let model_source = get_setting_value(settings, "mineru.model_source")
             .unwrap_or_else(|| "huggingface".to_string());
         let models_dir_raw = get_setting_value(settings, "mineru.models_dir").unwrap_or_default();
@@ -1544,8 +1544,8 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             get_setting_value(settings, "mineru.pip_index_url"),
             DEFAULT_PIP_INDEX_URL,
         );
-        let install_method =
-            get_setting_value(settings, "mineru.install_method").unwrap_or_else(|| "pip".to_string());
+        let install_method = get_setting_value(settings, "mineru.install_method")
+            .unwrap_or_else(|| "pip".to_string());
         (python, url, pip_index_url, install_method)
     };
 
@@ -1783,7 +1783,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
 
         let missing_modules = missing_python_modules(&venv_python_str, REQUIRED_MINERU_MODULES);
         if !missing_modules.is_empty() {
-            venv_manager.set_status("creating", "Installing missing MinerU runtime dependencies...");
+            venv_manager.set_status(
+                "creating",
+                "Installing missing MinerU runtime dependencies...",
+            );
             let mut repair_args = vec![
                 "-m".to_string(),
                 "pip".to_string(),
@@ -1804,7 +1807,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             match output {
                 Ok(o) if !o.status.success() => {
                     let msg = with_pip_index_hint(
-                        command_output_message(&o, "Failed to install missing MinerU runtime dependencies"),
+                        command_output_message(
+                            &o,
+                            "Failed to install missing MinerU runtime dependencies",
+                        ),
                         &pip_index_url,
                     );
                     venv_manager.set_status("failed", &msg);
@@ -1813,7 +1819,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
                 Err(e) => {
                     venv_manager.set_status(
                         "failed",
-                        &format!("Failed to run pip for MinerU runtime dependency repair: {}", e),
+                        &format!(
+                            "Failed to run pip for MinerU runtime dependency repair: {}",
+                            e
+                        ),
                     );
                     return;
                 }
@@ -2040,8 +2049,8 @@ pub async fn download_mineru_models(
     let venv_dir = app_dir.join("mineru_venv");
 
     let (use_venv, model_source) = {
-        let use_venv =
-            get_setting_value(&state.settings, "mineru.use_venv").unwrap_or_else(|| "false".to_string());
+        let use_venv = get_setting_value(&state.settings, "mineru.use_venv")
+            .unwrap_or_else(|| "false".to_string());
         let model_source = get_setting_value(&state.settings, "mineru.model_source")
             .unwrap_or_else(|| "huggingface".to_string());
         (use_venv == "true", model_source)

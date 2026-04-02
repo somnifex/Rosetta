@@ -61,17 +61,14 @@ export function DocumentChatSidebar({
     storageKey: "rosetta:document-chat-sidebar-width",
   })
 
-  // Persist messages
   useEffect(() => {
     saveMessages(documentId, messages)
   }, [documentId, messages])
 
-  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Handle prefill text from text selection
   useEffect(() => {
     if (prefillText && isOpen) {
       setInput(prefillText)
@@ -80,7 +77,6 @@ export function DocumentChatSidebar({
     }
   }, [prefillText, isOpen, onPrefillConsumed])
 
-  // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto"

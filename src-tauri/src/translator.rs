@@ -516,6 +516,7 @@ impl Translator {
     }
 
     /// 智能翻译：自动分片长文本，并在每个分片完成时回调进度
+    #[allow(dead_code)]
     pub async fn translate_with_chunks_progress<F>(
         &self,
         text: &str,
@@ -617,10 +618,7 @@ impl Translator {
         }
 
         // 检查是否有失败的分片
-        let failed_chunks: Vec<_> = results
-            .iter()
-            .filter(|r| !r.success)
-            .collect();
+        let failed_chunks: Vec<_> = results.iter().filter(|r| !r.success).collect();
 
         if !failed_chunks.is_empty() {
             log::warn!(
@@ -691,7 +689,8 @@ impl Translator {
             source_lang, target_lang
         );
         if let Some(context) = &self.consistency_context {
-            system_prompt.push_str("\n\nUse the following consistency guidance across all chunks:\n");
+            system_prompt
+                .push_str("\n\nUse the following consistency guidance across all chunks:\n");
             system_prompt.push_str(context);
         }
 
@@ -785,14 +784,9 @@ impl Translator {
 
         for failed in failed_results {
             if let Some(chunk) = chunks.get(&failed.chunk_index) {
-                log::info!(
-                    "Retrying translation for chunk {}",
-                    failed.chunk_index
-                );
+                log::info!("Retrying translation for chunk {}", failed.chunk_index);
 
-                let result = self
-                    .translate_chunk(chunk, source_lang, target_lang)
-                    .await;
+                let result = self.translate_chunk(chunk, source_lang, target_lang).await;
 
                 retried_results.push(TranslationResult {
                     chunk_index: chunk.index,
@@ -809,9 +803,7 @@ impl Translator {
     }
 
     /// 拼接翻译结果为完整文本
-    pub fn merge_translation_results(
-        results: &[TranslationResult],
-    ) -> Result<String, String> {
+    pub fn merge_translation_results(results: &[TranslationResult]) -> Result<String, String> {
         if results.is_empty() {
             return Ok(String::new());
         }
@@ -822,7 +814,10 @@ impl Translator {
                 return Err(format!(
                     "Cannot merge: chunk {} failed with error: {}",
                     result.chunk_index,
-                    result.error.as_ref().unwrap_or(&"Unknown error".to_string())
+                    result
+                        .error
+                        .as_ref()
+                        .unwrap_or(&"Unknown error".to_string())
                 ));
             }
         }

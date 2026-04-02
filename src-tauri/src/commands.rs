@@ -97,7 +97,8 @@ fn read_tail_string(path: &Path, bytes: usize) -> Result<String, String> {
     let len = file.metadata().map_err(|e| e.to_string())?.len();
     let want = bytes.min(len as usize) as u64;
     let start = len.saturating_sub(want);
-    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| e.to_string())?;
 
     let mut buf = Vec::with_capacity(want as usize);
     file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
@@ -190,7 +191,8 @@ fn normalize_log_level_input(raw: &str) -> Option<&'static str> {
 }
 
 fn load_log_retention_days(settings: &crate::settings::SettingsManager) -> i64 {
-    let parsed = settings.get("logs.retention_days")
+    let parsed = settings
+        .get("logs.retention_days")
         .and_then(|value| value.trim().parse::<i64>().ok())
         .unwrap_or(DEFAULT_LOG_RETENTION_DAYS);
     parsed.clamp(1, 3650)
@@ -321,7 +323,11 @@ fn cleanup_output_cache_files(
     Ok(removed)
 }
 
-pub(crate) fn run_periodic_cleanup(conn: &rusqlite::Connection, settings: &crate::settings::SettingsManager, app_dir: &Path) -> Result<(), String> {
+pub(crate) fn run_periodic_cleanup(
+    conn: &rusqlite::Connection,
+    settings: &crate::settings::SettingsManager,
+    app_dir: &Path,
+) -> Result<(), String> {
     let retention_days = load_log_retention_days(settings);
     let removed_logs = cleanup_expired_runtime_logs(app_dir, retention_days)?;
     let (removed_parse_jobs, removed_translation_jobs) =
@@ -434,7 +440,12 @@ fn parse_optional_i32(value: Option<String>) -> Option<i32> {
         .and_then(|raw| raw.parse::<i32>().ok())
 }
 
-fn parse_bounded_usize(value: Option<String>, default_value: usize, min: usize, max: usize) -> usize {
+fn parse_bounded_usize(
+    value: Option<String>,
+    default_value: usize,
+    min: usize,
+    max: usize,
+) -> usize {
     value
         .map(|raw| raw.trim().to_string())
         .filter(|raw| !raw.is_empty())
@@ -463,7 +474,10 @@ fn parse_bool(value: Option<String>, default_value: bool) -> bool {
         .unwrap_or(default_value)
 }
 
-fn get_setting_value(settings: &crate::settings::SettingsManager, key: &str) -> Result<Option<String>, String> {
+fn get_setting_value(
+    settings: &crate::settings::SettingsManager,
+    key: &str,
+) -> Result<Option<String>, String> {
     Ok(settings.get(key))
 }
 
@@ -517,14 +531,22 @@ pub(crate) fn load_llm_sampling_config(
     scope: &str,
 ) -> Result<LlmSamplingConfig, String> {
     Ok(LlmSamplingConfig {
-        temperature: parse_optional_f64(get_setting_value(settings, &format!("llm.{scope}.temperature"))?),
+        temperature: parse_optional_f64(get_setting_value(
+            settings,
+            &format!("llm.{scope}.temperature"),
+        )?),
         top_p: parse_optional_f64(get_setting_value(settings, &format!("llm.{scope}.top_p"))?),
         top_k: parse_optional_i32(get_setting_value(settings, &format!("llm.{scope}.top_k"))?),
-        max_tokens: parse_optional_i32(get_setting_value(settings, &format!("llm.{scope}.max_tokens"))?),
+        max_tokens: parse_optional_i32(get_setting_value(
+            settings,
+            &format!("llm.{scope}.max_tokens"),
+        )?),
     })
 }
 
-fn serialize_provider_model_config(config: Option<&ProviderModelConfig>) -> Result<Option<String>, String> {
+fn serialize_provider_model_config(
+    config: Option<&ProviderModelConfig>,
+) -> Result<Option<String>, String> {
     let Some(config) = config else {
         return Ok(None);
     };
@@ -589,12 +611,13 @@ fn load_provider_models_map(
     let rows = stmt
         .query_map(rusqlite::params_from_iter(provider_ids.iter()), |row| {
             let raw_config: Option<String> = row.get(8)?;
-            let config = parse_provider_model_config(raw_config)
-                .map_err(|error| rusqlite::Error::FromSqlConversionFailure(
+            let config = parse_provider_model_config(raw_config).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
                     8,
                     rusqlite::types::Type::Text,
                     Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
-                ))?;
+                )
+            })?;
 
             Ok(ProviderModel {
                 id: row.get(0)?,
@@ -656,29 +679,32 @@ fn build_provider(record: ProviderRecord, models: Vec<ProviderModel>) -> Provide
 }
 
 fn load_provider_records(conn: &rusqlite::Connection) -> Result<Vec<ProviderRecord>, String> {
-    let sql = format!("{} ORDER BY priority ASC, created_at ASC, name ASC", provider_select_sql());
+    let sql = format!(
+        "{} ORDER BY priority ASC, created_at ASC, name ASC",
+        provider_select_sql()
+    );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let rows = stmt
         .query_map([], |row| {
-        Ok(ProviderRecord {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            base_url: row.get(2)?,
-            api_key: row.get(3)?,
-            max_retries: row.get(4)?,
-            priority: row.get(5)?,
-            headers: row.get(6)?,
-            organization: row.get(7)?,
-            timeout: row.get(8)?,
-            concurrency: row.get(9)?,
-            is_active: row.get::<_, i32>(10)? != 0,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            legacy_temperature: row.get(13)?,
-            legacy_max_tokens: row.get(14)?,
+            Ok(ProviderRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                base_url: row.get(2)?,
+                api_key: row.get(3)?,
+                max_retries: row.get(4)?,
+                priority: row.get(5)?,
+                headers: row.get(6)?,
+                organization: row.get(7)?,
+                timeout: row.get(8)?,
+                concurrency: row.get(9)?,
+                is_active: row.get::<_, i32>(10)? != 0,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+                legacy_temperature: row.get(13)?,
+                legacy_max_tokens: row.get(14)?,
+            })
         })
-    })
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
@@ -804,8 +830,16 @@ fn sync_provider_models(
                 display_name,
                 model_type,
                 model_name,
-                if model.supports_vision.unwrap_or(false) { 1 } else { 0 },
-                if model.is_active.unwrap_or(true) { 1 } else { 0 },
+                if model.supports_vision.unwrap_or(false) {
+                    1
+                } else {
+                    0
+                },
+                if model.is_active.unwrap_or(true) {
+                    1
+                } else {
+                    0
+                },
                 priority,
                 config_json,
                 now,
@@ -922,10 +956,7 @@ fn load_document_tags_map(
     Ok(tag_map)
 }
 
-fn enrich_documents(
-    conn: &rusqlite::Connection,
-    documents: &mut [Document],
-) -> Result<(), String> {
+fn enrich_documents(conn: &rusqlite::Connection, documents: &mut [Document]) -> Result<(), String> {
     let ids = documents
         .iter()
         .map(|document| document.id.clone())
@@ -1155,9 +1186,8 @@ fn next_content_version(
     table_name: &str,
     document_id: &str,
 ) -> Result<i32, String> {
-    let sql = format!(
-        "SELECT COALESCE(MAX(version), 0) + 1 FROM {table_name} WHERE document_id = ?1"
-    );
+    let sql =
+        format!("SELECT COALESCE(MAX(version), 0) + 1 FROM {table_name} WHERE document_id = ?1");
     conn.query_row(&sql, [document_id], |row| row.get::<_, i32>(0))
         .map_err(|e| e.to_string())
 }
@@ -1297,8 +1327,11 @@ fn clear_document_derived_data(
         .map_err(|e| e.to_string())?;
 
     if remove_parsed_content {
-        conn.execute("DELETE FROM parsed_contents WHERE document_id = ?1", [document_id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM parsed_contents WHERE document_id = ?1",
+            [document_id],
+        )
+        .map_err(|e| e.to_string())?;
         if let Some(app_dir) = app_dir {
             let _ = crate::content_store::remove_parsed_dir(app_dir, document_id);
         }
@@ -1560,7 +1593,6 @@ pub(crate) fn remove_document_from_vector_store(
 
     let chunk_ids = crate::zvec::load_document_chunk_ids(conn, document_id)?;
 
-    // Clean vec0 table before index record is deleted
     if let Some(dim) = record.vector_dimension {
         if !chunk_ids.is_empty() {
             let _ = crate::zvec::vec0_delete_by_chunk_ids(conn, dim, &chunk_ids);
@@ -1733,7 +1765,12 @@ fn cancel_translation_job_internal(
     Ok(updated > 0)
 }
 
-fn mark_index_job_failed(state: &AppState, document_id: &str, index_job_id: &str, message: &str) -> Result<(), String> {
+fn mark_index_job_failed(
+    state: &AppState,
+    document_id: &str,
+    index_job_id: &str,
+    message: &str,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
@@ -1751,9 +1788,15 @@ fn mark_index_job_failed(state: &AppState, document_id: &str, index_job_id: &str
          SET status = 'failed', error_message = ?1, completed_at = ?2, updated_at = ?2
          WHERE id = ?3",
         (message, &now, index_job_id),
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
-    log::error!("Index job {} for document {} failed: {}", index_job_id, document_id, message);
+    log::error!(
+        "Index job {} for document {} failed: {}",
+        index_job_id,
+        document_id,
+        message
+    );
     Ok(())
 }
 
@@ -2342,7 +2385,9 @@ fn permanently_delete_documents_internal(
                         path: None,
                         reason: error,
                     });
-                } else if let Err(error) = crate::content_store::remove_document_dir(&app_dir, document_id) {
+                } else if let Err(error) =
+                    crate::content_store::remove_document_dir(&app_dir, document_id)
+                {
                     issues.push(DocumentCleanupIssue {
                         resource_type: "document_contents".to_string(),
                         path: None,
@@ -2417,9 +2462,12 @@ pub fn empty_trash(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let mut stmt = conn
-            .prepare("SELECT id FROM documents WHERE deleted_at IS NOT NULL ORDER BY updated_at DESC")
+            .prepare(
+                "SELECT id FROM documents WHERE deleted_at IS NOT NULL ORDER BY updated_at DESC",
+            )
             .map_err(|e| e.to_string())?;
-        let document_ids = stmt.query_map([], |row| row.get::<_, String>(0))
+        let document_ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
@@ -2438,18 +2486,19 @@ pub fn get_folders(state: State<AppState>) -> Result<Vec<Folder>, String> {
         .prepare("SELECT id, name, parent_id, created_at, updated_at FROM folders ORDER BY name")
         .map_err(|e| e.to_string())?;
 
-    let folders = stmt.query_map([], |row| {
-        Ok(Folder {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            parent_id: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
+    let folders = stmt
+        .query_map([], |row| {
+            Ok(Folder {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                parent_id: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
         })
-    })
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(folders)
 }
@@ -2704,7 +2753,8 @@ pub fn create_provider(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
 
-    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| e.to_string())?;
     let result = (|| {
         conn.execute(
             "INSERT INTO providers (
@@ -2731,7 +2781,11 @@ pub fn create_provider(
                 input.organization.as_deref(),
                 input.timeout,
                 input.concurrency.unwrap_or(3),
-                if input.is_active.unwrap_or(true) { 1 } else { 0 },
+                if input.is_active.unwrap_or(true) {
+                    1
+                } else {
+                    0
+                },
                 &now,
                 input.max_retries.unwrap_or(3),
                 input.priority.unwrap_or(0),
@@ -2775,7 +2829,8 @@ pub fn update_provider(
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
 
-    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| e.to_string())?;
     let result = (|| {
         let updated = conn
             .execute(
@@ -2800,7 +2855,11 @@ pub fn update_provider(
                     input.organization.as_deref(),
                     input.timeout,
                     input.concurrency.unwrap_or(3),
-                    if input.is_active.unwrap_or(true) { 1 } else { 0 },
+                    if input.is_active.unwrap_or(true) {
+                        1
+                    } else {
+                        0
+                    },
                     &now,
                     input.max_retries.unwrap_or(3),
                     input.priority.unwrap_or(0),
@@ -3047,14 +3106,15 @@ async fn execute_parse_job(
             let version = next_content_version(conn, "parsed_contents", document_id)?;
             clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
 
-            let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
-                app_dir.ok_or("App dir is required for parsed content storage")?,
-                document_id,
-                version,
-                &parse_result.markdown,
-                &parse_result.json,
-                Some(&parse_result.structure.to_string()),
-            )?;
+            let (markdown_path, json_path, structure_path) =
+                crate::content_store::write_parsed_version(
+                    app_dir.ok_or("App dir is required for parsed content storage")?,
+                    document_id,
+                    version,
+                    &parse_result.markdown,
+                    &parse_result.json,
+                    Some(&parse_result.structure.to_string()),
+                )?;
 
             persist_mineru_processed_files(
                 conn,
@@ -3299,8 +3359,15 @@ pub async fn start_translation_job(
 
     let provider_record = load_provider_record_by_id(conn, &provider_id)?;
     let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
-    let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
-        .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+    let translate_model =
+        find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE).ok_or_else(
+            || {
+                format!(
+                    "Channel \"{}\" has no active translate model",
+                    provider_record.name
+                )
+            },
+        )?;
     let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
     if sampling.temperature.is_none() {
         sampling.temperature = provider_record.legacy_temperature;
@@ -3453,8 +3520,14 @@ async fn execute_translation_job(
 
         let provider_record = load_provider_record_by_id(conn, provider_id)?;
         let provider_models = load_provider_models_for_provider(conn, provider_id)?;
-        let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
-            .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let translate_model =
+            find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+                .ok_or_else(|| {
+                    format!(
+                        "Channel \"{}\" has no active translate model",
+                        provider_record.name
+                    )
+                })?;
         let chat_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_CHAT);
         let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
         if sampling.temperature.is_none() {
@@ -3552,7 +3625,6 @@ async fn execute_translation_job(
         }
     }
 
-    // Pre-populate translation_chunks and compute content_hash
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -3610,7 +3682,6 @@ async fn execute_translation_job(
                 match state.db.lock() {
                     Ok(db) => {
                         let conn = db.get_connection();
-                        // Update job progress
                         if let Err(error) = conn.execute(
                             "UPDATE translation_jobs
                              SET progress = ?1, total_chunks = ?2, completed_chunks = ?3, updated_at = ?4
@@ -3623,7 +3694,6 @@ async fn execute_translation_job(
                                 error
                             );
                         }
-                        // Persist chunk result incrementally
                         let status = if chunk_result.success { "completed" } else { "failed" };
                         let error_msg = chunk_result.error.as_deref();
                         if let Err(error) = conn.execute(
@@ -3659,7 +3729,15 @@ async fn execute_translation_job(
         )
         .await;
 
-    finalize_translation_job(state, app_dir, job_id, document_id, source_language, target_language, result)
+    finalize_translation_job(
+        state,
+        app_dir,
+        job_id,
+        document_id,
+        source_language,
+        target_language,
+        result,
+    )
 }
 
 /// Finalize a translation job after all chunks have been processed
@@ -3679,10 +3757,7 @@ fn finalize_translation_job(
     match result {
         Ok(chunk_results) => {
             let total_chunks = chunk_results.len() as i32;
-            let completed_chunks = chunk_results
-                .iter()
-                .filter(|item| item.success)
-                .count() as i32;
+            let completed_chunks = chunk_results.iter().filter(|item| item.success).count() as i32;
             let failed_chunks = total_chunks - completed_chunks;
 
             if failed_chunks > 0 {
@@ -3700,49 +3775,60 @@ fn finalize_translation_job(
                          total_chunks = ?3, completed_chunks = ?4, failed_chunks = ?5,
                          completed_at = ?6, updated_at = ?6
                      WHERE id = ?7",
-                    (&error_msg, progress, total_chunks, completed_chunks, failed_chunks, &now, job_id),
-                ).map_err(|e| e.to_string())?;
+                    (
+                        &error_msg,
+                        progress,
+                        total_chunks,
+                        completed_chunks,
+                        failed_chunks,
+                        &now,
+                        job_id,
+                    ),
+                )
+                .map_err(|e| e.to_string())?;
 
                 conn.execute(
                     "UPDATE documents
                      SET translation_status = 'partial', updated_at = ?1
                      WHERE id = ?2 AND deleted_at IS NULL",
                     (&now, document_id),
-                ).map_err(|e| e.to_string())?;
+                )
+                .map_err(|e| e.to_string())?;
 
                 return Ok(());
             }
 
-            let translated_text = match crate::translator::Translator::merge_translation_results(&chunk_results) {
-                Ok(text) => text,
-                Err(e) => {
-                    let progress = if total_chunks > 0 {
-                        (completed_chunks as f64 / total_chunks as f64) * 100.0
-                    } else {
-                        0.0
-                    };
+            let translated_text =
+                match crate::translator::Translator::merge_translation_results(&chunk_results) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        let progress = if total_chunks > 0 {
+                            (completed_chunks as f64 / total_chunks as f64) * 100.0
+                        } else {
+                            0.0
+                        };
 
-                    conn.execute(
-                        "UPDATE translation_jobs
+                        conn.execute(
+                            "UPDATE translation_jobs
                          SET status = 'failed', error_message = ?1, progress = ?2,
                              total_chunks = ?3, completed_chunks = ?4,
                              completed_at = ?5, updated_at = ?5
                          WHERE id = ?6",
-                        (&e, progress, total_chunks, completed_chunks, &now, job_id),
-                    )
-                    .map_err(|error| error.to_string())?;
+                            (&e, progress, total_chunks, completed_chunks, &now, job_id),
+                        )
+                        .map_err(|error| error.to_string())?;
 
-                    conn.execute(
-                        "UPDATE documents
+                        conn.execute(
+                            "UPDATE documents
                          SET translation_status = 'failed', updated_at = ?1
                          WHERE id = ?2 AND deleted_at IS NULL",
-                        (&now, document_id),
-                    )
-                    .map_err(|error| error.to_string())?;
+                            (&now, document_id),
+                        )
+                        .map_err(|error| error.to_string())?;
 
-                    return Err(e);
-                }
-            };
+                        return Err(e);
+                    }
+                };
 
             let content_id = Uuid::new_v4().to_string();
             let version = next_content_version(conn, "translated_contents", document_id)?;
@@ -3766,14 +3852,16 @@ fn finalize_translation_job(
                      failed_chunks = 0, completed_at = ?3, updated_at = ?3
                  WHERE id = ?4",
                 (total_chunks, completed_chunks, &now, job_id),
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
 
             conn.execute(
                 "UPDATE documents
                  SET translation_status = 'completed', target_language = ?1, updated_at = ?2
                  WHERE id = ?3 AND deleted_at IS NULL",
                 (target_language, &now, document_id),
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
 
             Ok(())
         }
@@ -3825,13 +3913,7 @@ async fn resume_translation_job_start(
 ) -> Result<TranslationJob, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(app)?;
 
-    let (
-        job_document_id,
-        job_provider_id,
-        job_config_str,
-        job_content_hash,
-        job_total_chunks,
-    ) = {
+    let (job_document_id, job_provider_id, job_config_str, job_content_hash, job_total_chunks) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
@@ -3846,7 +3928,6 @@ async fn resume_translation_job_start(
             return Err(format!("Cannot resume job with status '{}'. Only 'failed' or 'partial' jobs can be resumed.", status));
         }
 
-        // Check if job is already running
         if let Ok(handles) = state.translation_job_handles.lock() {
             if handles.contains_key(job_id) {
                 return Err("This job is already running".to_string());
@@ -3856,7 +3937,6 @@ async fn resume_translation_job_start(
         (document_id, provider_id, config, content_hash, total_chunks)
     };
 
-    // Validate content hasn't changed
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -3872,15 +3952,20 @@ async fn resume_translation_job_start(
         }
     }
 
-    // Load the provider
     let (provider_record, translate_model, sampling) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let provider_record = load_provider_record_by_id(conn, &job_provider_id)
             .map_err(|_| "The translation provider used for this job has been deleted. Please start a new job with a different provider.".to_string())?;
         let provider_models = load_provider_models_for_provider(conn, &job_provider_id)?;
-        let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
-            .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let translate_model =
+            find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+                .ok_or_else(|| {
+                    format!(
+                        "Channel \"{}\" has no active translate model",
+                        provider_record.name
+                    )
+                })?;
         let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
         if sampling.temperature.is_none() {
             sampling.temperature = provider_record.legacy_temperature;
@@ -3891,18 +3976,31 @@ async fn resume_translation_job_start(
         (provider_record, translate_model, sampling)
     };
 
-    // Parse the original config to get chunking settings
     let job_config: serde_json::Value = serde_json::from_str(&job_config_str)
         .map_err(|e| format!("Failed to parse job config: {}", e))?;
     let runtime = &job_config["runtime"];
-    let chunk_size = runtime["chunk_size"].as_u64().unwrap_or(DEFAULT_TRANSLATION_CHUNK_SIZE as u64) as usize;
-    let chunk_overlap = runtime["chunk_overlap"].as_u64().unwrap_or(DEFAULT_TRANSLATION_CHUNK_OVERLAP as u64) as usize;
-    let max_concurrent = runtime["max_concurrent_requests"].as_u64().unwrap_or(DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS as u64) as usize;
-    let max_rpm = runtime["max_requests_per_minute"].as_u64().unwrap_or(DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE as u64) as u32;
-    let source_language = job_config["source_language"].as_str().unwrap_or("auto").to_string();
-    let target_language = job_config["target_language"].as_str().unwrap_or("en").to_string();
+    let chunk_size = runtime["chunk_size"]
+        .as_u64()
+        .unwrap_or(DEFAULT_TRANSLATION_CHUNK_SIZE as u64) as usize;
+    let chunk_overlap = runtime["chunk_overlap"]
+        .as_u64()
+        .unwrap_or(DEFAULT_TRANSLATION_CHUNK_OVERLAP as u64) as usize;
+    let max_concurrent = runtime["max_concurrent_requests"]
+        .as_u64()
+        .unwrap_or(DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS as u64)
+        as usize;
+    let max_rpm = runtime["max_requests_per_minute"]
+        .as_u64()
+        .unwrap_or(DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE as u64) as u32;
+    let source_language = job_config["source_language"]
+        .as_str()
+        .unwrap_or("auto")
+        .to_string();
+    let target_language = job_config["target_language"]
+        .as_str()
+        .unwrap_or("en")
+        .to_string();
 
-    // Load pending/failed chunk indices
     let chunk_filter = if only_failed {
         "status = 'failed'"
     } else {
@@ -3918,10 +4016,18 @@ async fn resume_translation_job_start(
                 chunk_filter
             )
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([job_id], |row| {
-            Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        let rows = stmt
+            .query_map([job_id], |row| {
+                Ok((
+                    row.get::<_, i32>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
 
     if chunks_to_resume.is_empty() {
@@ -3935,10 +4041,10 @@ async fn resume_translation_job_start(
             "SELECT COUNT(*) FROM translation_chunks WHERE job_id = ?1 AND status = 'completed'",
             [job_id],
             |row| row.get::<_, i64>(0),
-        ).map_err(|e| e.to_string())? as usize
+        )
+        .map_err(|e| e.to_string())? as usize
     };
 
-    // Convert to Chunk structs
     let resume_chunks: Vec<crate::chunking::Chunk> = chunks_to_resume
         .iter()
         .map(|(idx, text, start, end)| crate::chunking::Chunk {
@@ -3949,7 +4055,6 @@ async fn resume_translation_job_start(
         })
         .collect();
 
-    // Update job status to translating
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -3962,14 +4067,12 @@ async fn resume_translation_job_start(
             "UPDATE documents SET translation_status = 'translating', updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
             (&now, &job_document_id),
         ).map_err(|e| e.to_string())?;
-        // Reset failed chunks to pending
         conn.execute(
             &format!("UPDATE translation_chunks SET status = 'pending', error_message = NULL, updated_at = ?1 WHERE job_id = ?2 AND {}", chunk_filter),
             (&now, job_id),
         ).map_err(|e| e.to_string())?;
     }
 
-    // Return the updated job
     let job = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -3993,10 +4096,10 @@ async fn resume_translation_job_start(
                     updated_at: row.get(12)?,
                 })
             },
-        ).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?
     };
 
-    // Build translator and spawn task
     let chunking_config = crate::chunking::ChunkingConfig {
         max_tokens_per_chunk: chunk_size,
         overlap_tokens: chunk_overlap,
@@ -4073,7 +4176,6 @@ async fn resume_translation_job_start(
             )
             .await;
 
-        // After resume completes, gather ALL chunk results and finalize
         let all_results = gather_all_translation_chunks(&state_clone, &job_id_str);
         let final_result = match (result, all_results) {
             (Ok(_), Ok(results)) => Ok(results),
@@ -4096,7 +4198,10 @@ async fn resume_translation_job_start(
         }
     });
 
-    let mut handles = state.translation_job_handles.lock().map_err(|e| e.to_string())?;
+    let mut handles = state
+        .translation_job_handles
+        .lock()
+        .map_err(|e| e.to_string())?;
     handles.insert(job_id.to_string(), handle);
 
     Ok(job)
@@ -4110,25 +4215,31 @@ fn gather_all_translation_chunks(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    let mut stmt = conn.prepare(
-        "SELECT chunk_index, translated_text, start_pos, end_pos, status, error_message
-         FROM translation_chunks WHERE job_id = ?1 ORDER BY chunk_index"
-    ).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT chunk_index, translated_text, start_pos, end_pos, status, error_message
+         FROM translation_chunks WHERE job_id = ?1 ORDER BY chunk_index",
+        )
+        .map_err(|e| e.to_string())?;
 
-    let results = stmt.query_map([job_id], |row| {
-        let status: String = row.get(4)?;
-        let success = status == "completed";
-        Ok(crate::translator::TranslationResult {
-            chunk_index: row.get::<_, i32>(0)? as usize,
-            translated_text: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-            start_pos: row.get::<_, i64>(2)? as usize,
-            end_pos: row.get::<_, i64>(3)? as usize,
-            success,
-            error: row.get(5)?,
+    let results = stmt
+        .query_map([job_id], |row| {
+            let status: String = row.get(4)?;
+            let success = status == "completed";
+            Ok(crate::translator::TranslationResult {
+                chunk_index: row.get::<_, i32>(0)? as usize,
+                translated_text: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                start_pos: row.get::<_, i64>(2)? as usize,
+                end_pos: row.get::<_, i64>(3)? as usize,
+                success,
+                error: row.get(5)?,
+            })
         })
-    }).map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
-    results.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    results
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4423,10 +4534,10 @@ pub async fn start_index_job(
             return Err("Document not found".to_string());
         }
 
-        // Create index_jobs row
         let config = serde_json::json!({
             "provider_id": provider_id,
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute(
             "INSERT INTO index_jobs (id, document_id, provider_id, status, config, created_at, updated_at)
@@ -4454,7 +4565,8 @@ pub async fn start_index_job(
             handles.remove(&document_id_clone);
         }
         if let Err(e) = result {
-            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &index_job_id_clone, &e);
+            let _ =
+                mark_index_job_failed(&state_clone, &document_id_clone, &index_job_id_clone, &e);
         }
     });
 
@@ -4488,7 +4600,12 @@ async fn execute_index_job(
         let provider_record = load_provider_record_by_id(conn, provider_id)?;
         let provider_models = load_provider_models_for_provider(conn, provider_id)?;
         let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
-            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
+            .ok_or_else(|| {
+                format!(
+                    "Channel \"{}\" has no active embedding model",
+                    provider_record.name
+                )
+            })?;
 
         DirectEmbeddingProvider {
             base_url: provider_record.base_url,
@@ -4500,7 +4617,8 @@ async fn execute_index_job(
         }
     };
 
-    execute_index_job_with_embedding_provider(state, app_dir, document_id, &provider, index_job_id).await
+    execute_index_job_with_embedding_provider(state, app_dir, document_id, &provider, index_job_id)
+        .await
 }
 
 pub(crate) async fn execute_index_job_with_embedding_provider(
@@ -4560,7 +4678,6 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         limiter_status.available_concurrency
     );
 
-    // Pre-populate index_chunks and update index_jobs
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -4574,7 +4691,8 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
             "chunk_size": rag_settings.chunk_size,
             "chunk_overlap": rag_settings.chunk_overlap,
             "provider_id": provider.base_url,
-        }).to_string();
+        })
+        .to_string();
 
         conn.execute(
             "UPDATE index_jobs SET status = 'indexing', config = ?1, content_hash = ?2, total_chunks = ?3, started_at = ?4, updated_at = ?4 WHERE id = ?5",
@@ -4594,7 +4712,8 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
                     &chunk.text,
                     &now,
                 ),
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
 
@@ -4610,12 +4729,10 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
 
             if let Ok(db) = state.db.lock() {
                 let conn = db.get_connection();
-                // Update job progress
                 let _ = conn.execute(
                     "UPDATE index_jobs SET progress = ?1, completed_chunks = ?2, updated_at = ?3 WHERE id = ?4 AND status = 'indexing'",
                     (progress, completed as i32, &now, index_job_id),
                 );
-                // Persist chunk result
                 let status = if success { "completed" } else { "failed" };
                 let embedding_bytes: Option<Vec<u8>> = if success {
                     Some(result.embedding.iter().flat_map(|f| f.to_le_bytes()).collect())
@@ -4630,9 +4747,11 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         },
     ).await?;
 
-    // Check for failures
     let failed_count = embeddings.iter().filter(|r| r.embedding.is_empty()).count();
-    let successful_embeddings: Vec<_> = embeddings.into_iter().filter(|r| !r.embedding.is_empty()).collect();
+    let successful_embeddings: Vec<_> = embeddings
+        .into_iter()
+        .filter(|r| !r.embedding.is_empty())
+        .collect();
 
     if successful_embeddings.is_empty() {
         return Err("No text was available to index".to_string());
@@ -4724,18 +4843,13 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
     crate::zvec::upsert_document_index_record(
         conn,
         document_id,
-        if use_zvec {
-            "zvec"
-        } else {
-            "sqlite"
-        },
+        if use_zvec { "zvec" } else { "sqlite" },
         collection_key.as_deref(),
         &embedding_model,
         vector_dimension,
         &now,
     )?;
 
-    // Ensure vec0 table exists for this dimension
     crate::zvec::ensure_vec0_table(conn, vector_dimension)?;
 
     for indexed_chunk in &indexed_chunks {
@@ -4750,7 +4864,6 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
             ),
         ).map_err(|e| e.to_string())?;
 
-        // Always write to SQLite embeddings BLOB table for fallback
         let embedding_id = Uuid::new_v4().to_string();
         let embedding_bytes: Vec<u8> = indexed_chunk
             .embedding
@@ -4769,8 +4882,13 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
             ),
         ).map_err(|e| e.to_string())?;
 
-        // Always write to vec0 table for sqlite-vec KNN search
-        crate::zvec::vec0_insert(conn, vector_dimension, &indexed_chunk.id, &embedding_bytes, &embedding_model)?;
+        crate::zvec::vec0_insert(
+            conn,
+            vector_dimension,
+            &indexed_chunk.id,
+            &embedding_bytes,
+            &embedding_model,
+        )?;
     }
 
     if use_zvec {
@@ -4834,42 +4952,45 @@ pub struct IndexJobWithDoc {
 }
 
 #[tauri::command]
-pub fn get_all_index_jobs(
-    state: State<AppState>,
-) -> Result<Vec<IndexJobWithDoc>, String> {
+pub fn get_all_index_jobs(state: State<AppState>) -> Result<Vec<IndexJobWithDoc>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    let mut stmt = conn.prepare(
-        "SELECT ij.id, ij.document_id, d.title, ij.provider_id, ij.status, ij.progress,
+    let mut stmt = conn
+        .prepare(
+            "SELECT ij.id, ij.document_id, d.title, ij.provider_id, ij.status, ij.progress,
                 ij.total_chunks, ij.completed_chunks, ij.error_message, ij.config,
                 ij.started_at, ij.completed_at, ij.created_at, ij.updated_at
          FROM index_jobs ij
          JOIN documents d ON d.id = ij.document_id
          WHERE d.deleted_at IS NULL
-         ORDER BY ij.created_at DESC"
-    ).map_err(|e| e.to_string())?;
+         ORDER BY ij.created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
 
-    let jobs = stmt.query_map([], |row| {
-        Ok(IndexJobWithDoc {
-            id: row.get(0)?,
-            document_id: row.get(1)?,
-            document_title: row.get(2)?,
-            provider_id: row.get(3)?,
-            status: row.get(4)?,
-            progress: row.get(5)?,
-            total_chunks: row.get(6)?,
-            completed_chunks: row.get(7)?,
-            error_message: row.get(8)?,
-            config: row.get(9)?,
-            started_at: row.get(10)?,
-            completed_at: row.get(11)?,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
+    let jobs = stmt
+        .query_map([], |row| {
+            Ok(IndexJobWithDoc {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                document_title: row.get(2)?,
+                provider_id: row.get(3)?,
+                status: row.get(4)?,
+                progress: row.get(5)?,
+                total_chunks: row.get(6)?,
+                completed_chunks: row.get(7)?,
+                error_message: row.get(8)?,
+                config: row.get(9)?,
+                started_at: row.get(10)?,
+                completed_at: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
+            })
         })
-    }).map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
-    jobs.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    jobs.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4911,11 +5032,13 @@ async fn resume_index_job_internal(
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
 
-        let (status, doc_id, prov_id): (String, String, String) = conn.query_row(
-            "SELECT status, document_id, provider_id FROM index_jobs WHERE id = ?1",
-            [job_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        ).map_err(|e| format!("Index job not found: {}", e))?;
+        let (status, doc_id, prov_id): (String, String, String) = conn
+            .query_row(
+                "SELECT status, document_id, provider_id FROM index_jobs WHERE id = ?1",
+                [job_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|e| format!("Index job not found: {}", e))?;
 
         if status != "failed" && status != "partial" {
             return Err(format!("Cannot resume index job with status '{}'. Only 'failed' or 'partial' jobs can be resumed.", status));
@@ -4930,15 +5053,21 @@ async fn resume_index_job_internal(
         (doc_id, prov_id)
     };
 
-    // Validate provider exists
     let provider = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
-        let provider_record = load_provider_record_by_id(conn, &provider_id)
-            .map_err(|_| "The provider used for this job has been deleted. Please start a new index job.".to_string())?;
+        let provider_record = load_provider_record_by_id(conn, &provider_id).map_err(|_| {
+            "The provider used for this job has been deleted. Please start a new index job."
+                .to_string()
+        })?;
         let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
         let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
-            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
+            .ok_or_else(|| {
+                format!(
+                    "Channel \"{}\" has no active embedding model",
+                    provider_record.name
+                )
+            })?;
 
         DirectEmbeddingProvider {
             base_url: provider_record.base_url,
@@ -4950,7 +5079,6 @@ async fn resume_index_job_internal(
         }
     };
 
-    // Update job status
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -4979,7 +5107,8 @@ async fn resume_index_job_internal(
             &doc_id_clone,
             &provider,
             &job_id_str,
-        ).await;
+        )
+        .await;
         if let Ok(mut handles) = state_clone.index_job_handles.lock() {
             handles.remove(&doc_id_clone);
         }
@@ -5010,7 +5139,12 @@ pub async fn search_documents(
         let provider_record = load_provider_record_by_id(conn, &provider_id)?;
         let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
         let embed_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
-            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
+            .ok_or_else(|| {
+                format!(
+                    "Channel \"{}\" has no active embedding model",
+                    provider_record.name
+                )
+            })?;
         let rag_settings = crate::zvec::load_rag_settings(conn, &app_dir)?;
         let zvec_settings = crate::zvec::load_zvec_settings(conn, &app_dir)?;
 
@@ -5104,12 +5238,14 @@ pub async fn search_documents(
         let results = hits
             .into_iter()
             .filter_map(|hit| {
-                chunk_map.get(&hit.id).map(|(document_id, content)| SearchResult {
-                    chunk_id: hit.id.clone(),
-                    document_id: document_id.clone(),
-                    content: content.clone(),
-                    score: hit.score.unwrap_or(0.0),
-                })
+                chunk_map
+                    .get(&hit.id)
+                    .map(|(document_id, content)| SearchResult {
+                        chunk_id: hit.id.clone(),
+                        document_id: document_id.clone(),
+                        content: content.clone(),
+                        score: hit.score.unwrap_or(0.0),
+                    })
             })
             .take(requested_limit)
             .collect::<Vec<_>>();
@@ -5117,7 +5253,6 @@ pub async fn search_documents(
         return Ok(results);
     }
 
-    // sqlite-vec KNN search (fallback from zvec or explicit sqlite backend)
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
@@ -5127,7 +5262,6 @@ pub async fn search_documents(
         .flat_map(|f| f.to_le_bytes())
         .collect();
 
-    // Try vec0 KNN search first
     if crate::zvec::ensure_vec0_table(conn, dimension).is_ok() {
         if let Ok(hits) = crate::zvec::vec0_search(
             conn,
@@ -5169,12 +5303,14 @@ pub async fn search_documents(
                 let results: Vec<SearchResult> = hits
                     .into_iter()
                     .filter_map(|(chunk_id, distance)| {
-                        chunk_map.get(&chunk_id).map(|(document_id, content)| SearchResult {
-                            chunk_id: chunk_id.clone(),
-                            document_id: document_id.clone(),
-                            content: content.clone(),
-                            score: 1.0 - distance, // cosine distance to similarity
-                        })
+                        chunk_map
+                            .get(&chunk_id)
+                            .map(|(document_id, content)| SearchResult {
+                                chunk_id: chunk_id.clone(),
+                                document_id: document_id.clone(),
+                                content: content.clone(),
+                                score: 1.0 - distance,
+                            })
                     })
                     .take(requested_limit)
                     .collect();
@@ -5184,7 +5320,6 @@ pub async fn search_documents(
         }
     }
 
-    // Final fallback: brute-force cosine similarity on embeddings BLOBs
     let mut stmt = conn
         .prepare(
             "SELECT c.id, c.document_id, c.content, e.vector
@@ -5223,7 +5358,11 @@ pub async fn search_documents(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(requested_limit);
 
     Ok(results)
@@ -5328,7 +5467,10 @@ pub async fn export_document(
                 let original = load_latest_parsed_markdown_internal(conn, &document_id)?;
                 let translated = load_latest_translated_text_internal(conn, &document_id)?;
 
-                format!("# Original\n\n{}\n\n# Translation\n\n{}", original, translated)
+                format!(
+                    "# Original\n\n{}\n\n# Translation\n\n{}",
+                    original, translated
+                )
             }
             _ => return Err("Invalid content type".to_string()),
         }
@@ -5394,8 +5536,6 @@ pub async fn export_document_asset(
 
     Ok(output_path)
 }
-
-// --- Tag-Document Operations ---
 
 #[tauri::command]
 pub fn add_document_tags(
@@ -5464,8 +5604,6 @@ pub fn get_document_tags(state: State<AppState>, document_id: String) -> Result<
 
     Ok(tags)
 }
-
-// --- Category CRUD ---
 
 #[tauri::command]
 pub fn update_category(
@@ -5547,8 +5685,6 @@ pub fn delete_category(state: State<AppState>, id: String) -> Result<(), String>
 
     Ok(())
 }
-
-// --- Tag CRUD ---
 
 #[tauri::command]
 pub fn update_tag(
@@ -5710,8 +5846,6 @@ pub fn get_mineru_processed_storage_dir() -> Result<String, String> {
         .ok_or_else(|| "Storage path contains invalid characters".to_string())
 }
 
-// --- Multi-format Import ---
-
 #[tauri::command]
 pub async fn import_document(
     app: AppHandle,
@@ -5736,11 +5870,6 @@ pub async fn import_document(
         .and_then(|n| n.to_str())
         .ok_or("Invalid filename")?;
 
-    let _extension = source_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-
     let title = filename
         .rsplit_once('.')
         .map(|(name, _)| name)
@@ -5753,7 +5882,6 @@ pub async fn import_document(
         let conn = db.get_connection();
         let now = Utc::now().to_rfc3339();
 
-        // For text-based formats, set parse_status to completed immediately
         let parse_status = match normalized_file_type.as_str() {
             "md" | "txt" => "completed",
             _ => "pending",
@@ -5765,18 +5893,11 @@ pub async fn import_document(
         )
         .map_err(|e| e.to_string())?;
 
-        // For text-based formats, read content and insert parsed_contents directly
         if normalized_file_type == "md" || normalized_file_type == "txt" {
             let content = FileHandler::read_text_file(source_path)?;
             let content_id = Uuid::new_v4().to_string();
-            let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
-                &app_dir,
-                &id,
-                1,
-                &content,
-                "{}",
-                None,
-            )?;
+            let (markdown_path, json_path, structure_path) =
+                crate::content_store::write_parsed_version(&app_dir, &id, 1, &content, "{}", None)?;
 
             conn.execute(
                 "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)",
@@ -5796,8 +5917,6 @@ pub async fn import_document(
     let conn = db.get_connection();
     load_document_by_id_internal(conn, &id, true)
 }
-
-// --- Get Document File Path ---
 
 #[tauri::command]
 pub fn get_document_file_path(state: State<AppState>, id: String) -> Result<String, String> {
@@ -5823,12 +5942,15 @@ pub fn duplicate_document(
     let conn = db.get_connection();
 
     let doc = load_document_by_id_internal(conn, &id, false)?;
-    
+
     let new_id = Uuid::new_v4().to_string();
     let source_path = Path::new(&doc.file_path);
-    let extension = source_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let extension = source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     let mut new_filename = doc.filename.clone();
-    
+
     if extension.is_empty() {
         new_filename = format!("{} 副本", new_filename);
     } else {
@@ -5839,20 +5961,20 @@ pub fn duplicate_document(
 
     let target_dir = app_dir.join("library");
     std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
-    
+
     let dest_path = if extension.is_empty() {
         target_dir.join(&new_id)
     } else {
         target_dir.join(format!("{}.{}", new_id, extension))
     };
-    
+
     std::fs::copy(&source_path, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
 
     let now = Utc::now().to_rfc3339();
     let new_title = format!("{} (副本)", doc.title);
-    
+
     let dest_path_str = dest_path.to_str().ok_or("Invalid path")?;
-    
+
     conn.execute(
         "INSERT INTO documents (id, title, filename, file_path, file_size, source_language, target_language, category_id, parse_status, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -5875,7 +5997,8 @@ pub fn duplicate_document(
         conn.execute(
             "INSERT INTO document_folders (document_id, folder_id, created_at) VALUES (?1, ?2, ?3)",
             (&new_id, &folder_id, &now),
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     if let Some(tags) = doc.tags {
@@ -5883,22 +6006,21 @@ pub fn duplicate_document(
             conn.execute(
                 "INSERT INTO document_tags (document_id, tag_id, created_at) VALUES (?1, ?2, ?3)",
                 (&new_id, &tag.id, &now),
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
 
-    let is_text = doc.filename.ends_with(".md") || doc.filename.ends_with(".txt") || doc.filename.ends_with(".csv");
+    let is_text = doc.filename.ends_with(".md")
+        || doc.filename.ends_with(".txt")
+        || doc.filename.ends_with(".csv");
     if is_text {
         if let Ok(content) = FileHandler::read_text_file(&dest_path) {
             let content_id = Uuid::new_v4().to_string();
-            let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
-                &app_dir,
-                &new_id,
-                1,
-                &content,
-                "{}",
-                None,
-            )?;
+            let (markdown_path, json_path, structure_path) =
+                crate::content_store::write_parsed_version(
+                    &app_dir, &new_id, 1, &content, "{}", None,
+                )?;
             let _ = conn.execute(
                 "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)",
                 (&content_id, &new_id, &markdown_path, &json_path, &structure_path, &now),
@@ -5945,8 +6067,6 @@ pub fn reveal_in_os(path: String) -> Result<(), String> {
     }
 }
 
-// --- Get Document Chunks ---
-
 #[tauri::command]
 pub fn get_document_chunks(
     state: State<AppState>,
@@ -5989,8 +6109,6 @@ pub fn get_document_chunks(
 
     Ok(chunks)
 }
-
-// --- Batch Operations ---
 
 #[tauri::command]
 pub async fn batch_start_parse_jobs(
@@ -6146,7 +6264,10 @@ fn enqueue_translation_job_internal(
         }
     });
 
-    let mut handles = state.translation_job_handles.lock().map_err(|e| e.to_string())?;
+    let mut handles = state
+        .translation_job_handles
+        .lock()
+        .map_err(|e| e.to_string())?;
     handles.insert(job_id.clone(), handle);
 
     Ok(job)
@@ -6166,8 +6287,14 @@ pub async fn batch_start_translation_jobs(
         let conn = db.get_connection();
         let provider_record = load_provider_record_by_id(conn, &provider_id)?;
         let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
-        let translate_model = find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
-            .ok_or_else(|| format!("Channel \"{}\" has no active translate model", provider_record.name))?;
+        let translate_model =
+            find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_TRANSLATE)
+                .ok_or_else(|| {
+                    format!(
+                        "Channel \"{}\" has no active translate model",
+                        provider_record.name
+                    )
+                })?;
         let mut sampling = load_llm_sampling_config(&state.settings, "translate")?;
         if sampling.temperature.is_none() {
             sampling.temperature = provider_record.legacy_temperature;
@@ -6308,7 +6435,8 @@ fn enqueue_index_job_internal(
             handles.remove(&document_id_clone);
         }
         if let Err(e) = result {
-            let _ = mark_index_job_failed(&state_clone, &document_id_clone, &index_job_id_clone, &e);
+            let _ =
+                mark_index_job_failed(&state_clone, &document_id_clone, &index_job_id_clone, &e);
         }
     });
 
@@ -6332,8 +6460,14 @@ pub async fn batch_start_index_jobs(
         let conn = db.get_connection();
         let provider_record = load_provider_record_by_id(conn, &provider_id)?;
         let provider_models = load_provider_models_for_provider(conn, &provider_id)?;
-        find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED)
-            .ok_or_else(|| format!("Channel \"{}\" has no active embedding model", provider_record.name))?;
+        find_primary_model_for_type(&provider_models, PROVIDER_MODEL_TYPE_EMBED).ok_or_else(
+            || {
+                format!(
+                    "Channel \"{}\" has no active embedding model",
+                    provider_record.name
+                )
+            },
+        )?;
     }
 
     let unique_ids = unique_document_ids(&document_ids);
@@ -6579,7 +6713,10 @@ fn get_export_content(
             let translated = load_latest_translated_text_internal(conn, document_id)
                 .map_err(|e| format!("No translated content: {}", e))?;
 
-            Ok(format!("# Original\n\n{}\n\n# Translation\n\n{}", original, translated))
+            Ok(format!(
+                "# Original\n\n{}\n\n# Translation\n\n{}",
+                original, translated
+            ))
         }
         _ => Err("Invalid content type".to_string()),
     }
@@ -6636,13 +6773,29 @@ pub async fn batch_export_documents(
 
         let safe_title: String = title
             .chars()
-            .map(|c| if c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' { '_' } else { c })
+            .map(|c| {
+                if c == '/'
+                    || c == '\\'
+                    || c == ':'
+                    || c == '*'
+                    || c == '?'
+                    || c == '"'
+                    || c == '<'
+                    || c == '>'
+                    || c == '|'
+                {
+                    '_'
+                } else {
+                    c
+                }
+            })
             .collect();
 
         let mut output_path = PathBuf::from(&output_dir).join(format!("{}.{}", safe_title, ext));
         let mut counter = 1;
         while output_path.exists() {
-            output_path = PathBuf::from(&output_dir).join(format!("{}_{}.{}", safe_title, counter, ext));
+            output_path =
+                PathBuf::from(&output_dir).join(format!("{}_{}.{}", safe_title, counter, ext));
             counter += 1;
         }
 

@@ -31,7 +31,6 @@ export default function RagTab() {
   const [ragRerankerMode, setRagRerankerMode] = useState("disabled")
   const [ragRerankerTopN, setRagRerankerTopN] = useState("5")
 
-  // Load RAG settings from DB
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
     queryFn: api.getAllAppSettings,
@@ -65,7 +64,6 @@ export default function RagTab() {
     queryFn: api.getProviders,
   })
 
-  // Zvec venv management
   const { data: zvecVenvExists } = useQuery({
     queryKey: ["zvecVenvExists"],
     queryFn: api.checkZvecVenvExists,
@@ -144,7 +142,6 @@ export default function RagTab() {
     },
   })
 
-  // Poll reranker model download status
   const { data: rerankerModelStatus } = useQuery({
     queryKey: ["rerankerModelStatus"],
     queryFn: api.getRerankerModelStatus,

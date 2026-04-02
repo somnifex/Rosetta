@@ -425,7 +425,6 @@ export function LibrarySidebar({
           </button>
         </div>
 
-        {/* Categories section with CRUD */}
         <div className="space-y-2">
           <div className="flex items-center justify-between px-2 pt-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
@@ -443,7 +442,6 @@ export function LibrarySidebar({
           <div className="space-y-1">
             {rootCategories.map((category) => renderCategory(category))}
           </div>
-          {/* Inline create category */}
           {isCreatingCategory && (
             <div className="flex items-center gap-1 px-2 py-1">
               <Input

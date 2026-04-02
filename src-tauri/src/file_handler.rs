@@ -15,7 +15,10 @@ impl FileHandler {
             .map_err(|e| format!("Failed to create storage directory: {}", e))?;
         fs::create_dir_all(&output_dir)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
-        Ok(Self { storage_dir, output_dir })
+        Ok(Self {
+            storage_dir,
+            output_dir,
+        })
     }
 
     pub fn import_pdf(&self, source_path: &Path) -> Result<PathBuf, String> {
@@ -62,11 +65,7 @@ impl FileHandler {
         Ok(dest_path)
     }
 
-    pub fn import_output_file(
-        &self,
-        source_path: &Path,
-        prefix: &str,
-    ) -> Result<PathBuf, String> {
+    pub fn import_output_file(&self, source_path: &Path, prefix: &str) -> Result<PathBuf, String> {
         if !source_path.exists() {
             return Err("Source file does not exist".to_string());
         }

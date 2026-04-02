@@ -207,7 +207,10 @@ fn rotate_if_needed(log_file: &Path) -> Result<(), String> {
 }
 
 fn sanitize_log_field(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\t', "\\t").replace('\n', "\\n")
+    value
+        .replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
 }
 
 fn format_log_line(created_at: &str, level: &str, message: &str, context: Option<&str>) -> String {

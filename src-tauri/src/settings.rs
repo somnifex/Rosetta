@@ -58,7 +58,7 @@ impl SettingsManager {
     pub fn get(&self, key: &str) -> Option<String> {
         self.settings.read().ok()?.get(key).cloned()
     }
-    
+
     pub fn get_with_default(&self, key: &str, default: &str) -> String {
         self.get(key).unwrap_or_else(|| default.to_string())
     }
@@ -74,9 +74,13 @@ impl SettingsManager {
     }
 
     pub fn get_all(&self) -> HashMap<String, String> {
-        self.settings.read().ok().map(|lock| lock.clone()).unwrap_or_default()
+        self.settings
+            .read()
+            .ok()
+            .map(|lock| lock.clone())
+            .unwrap_or_default()
     }
-    
+
     pub fn replace_all(&self, new_settings: HashMap<String, String>) -> Result<(), String> {
         let mut lock = self
             .settings

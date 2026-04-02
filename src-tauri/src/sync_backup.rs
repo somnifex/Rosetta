@@ -95,7 +95,8 @@ pub fn collect_backup_data(
         payload.folders = Some(query_table_as_json(conn, "SELECT * FROM folders")?);
         payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
         payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
-        payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
+        payload.document_folders =
+            Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
         payload.parsed_contents = Some(query_parsed_contents_for_backup(conn)?);
         payload.translated_contents = Some(query_translated_contents_for_backup(conn)?);
         payload.chunks = Some(query_table_as_json(conn, "SELECT id, document_id, content, translated_content, chunk_index, page_number, section_title, metadata, created_at FROM chunks")?);
@@ -305,7 +306,8 @@ pub async fn webdav_upload_backup(
             payload.folders = Some(query_table_as_json(conn, "SELECT * FROM folders")?);
             payload.tags = Some(query_table_as_json(conn, "SELECT * FROM tags")?);
             payload.document_tags = Some(query_table_as_json(conn, "SELECT * FROM document_tags")?);
-            payload.document_folders = Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
+            payload.document_folders =
+                Some(query_table_as_json(conn, "SELECT * FROM document_folders")?);
             payload.parsed_contents = Some(query_parsed_contents_for_backup(conn)?);
             payload.translated_contents = Some(query_translated_contents_for_backup(conn)?);
             payload.chunks = Some(query_table_as_json(conn, "SELECT id, document_id, content, translated_content, chunk_index, page_number, section_title, metadata, created_at FROM chunks")?);
@@ -562,18 +564,18 @@ fn restore_parsed_contents_from_backup(
         let markdown_content =
             json_required_string_field(row, "parsed_contents", "markdown_content")?;
         let json_content = json_required_string_field(row, "parsed_contents", "json_content")?;
-        let structure_tree =
-            json_optional_string_field(row, "parsed_contents", "structure_tree")?;
+        let structure_tree = json_optional_string_field(row, "parsed_contents", "structure_tree")?;
         let created_at = json_required_string_field(row, "parsed_contents", "created_at")?;
 
-        let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
-            app_dir,
-            &document_id,
-            version,
-            &markdown_content,
-            &json_content,
-            structure_tree.as_deref(),
-        )?;
+        let (markdown_path, json_path, structure_path) =
+            crate::content_store::write_parsed_version(
+                app_dir,
+                &document_id,
+                version,
+                &markdown_content,
+                &json_content,
+                structure_tree.as_deref(),
+            )?;
 
         conn.execute(
             "INSERT OR REPLACE INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
@@ -606,8 +608,12 @@ fn restore_translated_contents_from_backup(
         let content = json_required_string_field(row, "translated_contents", "content")?;
         let created_at = json_required_string_field(row, "translated_contents", "created_at")?;
 
-        let content_path =
-            crate::content_store::write_translated_version(app_dir, &document_id, version, &content)?;
+        let content_path = crate::content_store::write_translated_version(
+            app_dir,
+            &document_id,
+            version,
+            &content,
+        )?;
 
         conn.execute(
             "INSERT OR REPLACE INTO translated_contents (id, document_id, version, content, created_at)

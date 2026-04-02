@@ -158,18 +158,17 @@ impl ZvecAvailabilityCache {
             }
         }
 
-        let probe: ProbeResponse =
-            match run_bridge(app_dir, python_path, "probe", None) {
-                Ok(p) => p,
-                Err(e) => {
-                    log::warn!("zvec availability probe failed: {e}");
-                    ProbeResponse {
-                        available: false,
-                        version: None,
-                        message: e,
-                    }
+        let probe: ProbeResponse = match run_bridge(app_dir, python_path, "probe", None) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("zvec availability probe failed: {e}");
+                ProbeResponse {
+                    available: false,
+                    version: None,
+                    message: e,
                 }
-            };
+            }
+        };
 
         let result = probe.available;
         if let Ok(mut c) = self.cached.lock() {
@@ -245,7 +244,9 @@ pub fn load_zvec_settings(_conn: &Connection, app_dir: &Path) -> Result<ZvecSett
         if venv_python.exists() {
             venv_python.to_str().unwrap_or("python").to_string()
         } else {
-            log::warn!("zvec use_venv is true but venv python not found, falling back to configured path");
+            log::warn!(
+                "zvec use_venv is true but venv python not found, falling back to configured path"
+            );
             get_setting(app_dir, "rag.zvec_python_path").unwrap_or_else(default_python_path)
         }
     } else {
@@ -264,7 +265,9 @@ pub fn load_zvec_settings(_conn: &Connection, app_dir: &Path) -> Result<ZvecSett
 }
 
 pub fn vector_backend_is_zvec(rag_settings: &RagSettings) -> bool {
-    rag_settings.vector_backend.eq_ignore_ascii_case(VECTOR_INDEX_BACKEND_ZVEC)
+    rag_settings
+        .vector_backend
+        .eq_ignore_ascii_case(VECTOR_INDEX_BACKEND_ZVEC)
 }
 
 pub fn collection_key_for_model(model: &str, dimension: usize) -> String {
@@ -341,10 +344,9 @@ pub fn vec0_search(
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(
-            rusqlite::params![query_bytes, limit as i32, model],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?)),
-        )
+        .query_map(rusqlite::params![query_bytes, limit as i32, model], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -366,8 +368,7 @@ pub fn vec0_delete_by_chunk_ids(
                 SELECT rowid FROM [{table}] WHERE chunk_id = ?1
             )"
         );
-        conn.execute(&sql, [chunk_id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(&sql, [chunk_id]).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -437,8 +438,7 @@ pub fn load_document_index_record(
                 backend: row.get(0)?,
                 collection_key: row.get(1)?,
                 embedding_model: row.get(2)?,
-                vector_dimension: row.get::<_, Option<i64>>(3)?
-                    .map(|v| v as usize),
+                vector_dimension: row.get::<_, Option<i64>>(3)?.map(|v| v as usize),
             })
         },
     )
@@ -446,7 +446,10 @@ pub fn load_document_index_record(
     .map_err(|e| e.to_string())
 }
 
-pub fn load_document_chunk_ids(conn: &Connection, document_id: &str) -> Result<Vec<String>, String> {
+pub fn load_document_chunk_ids(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare("SELECT id FROM chunks WHERE document_id = ?1 ORDER BY chunk_index")
         .map_err(|e| e.to_string())?;
@@ -570,10 +573,7 @@ pub fn rerank_via_bridge(
     Ok(response.hits)
 }
 
-pub fn probe_status(
-    conn: &Connection,
-    app_dir: &Path,
-) -> Result<ZvecStatusResponse, String> {
+pub fn probe_status(conn: &Connection, app_dir: &Path) -> Result<ZvecStatusResponse, String> {
     let rag_settings = load_rag_settings(conn, app_dir)?;
     let zvec_settings = load_zvec_settings(conn, app_dir)?;
 
@@ -586,7 +586,8 @@ pub fn probe_status(
             python_path: zvec_settings.python_path,
             collections_dir: zvec_settings.collections_dir.display().to_string(),
             version: None,
-            message: "ZVEC currently has no official runtime support on Windows in this app.".to_string(),
+            message: "ZVEC currently has no official runtime support on Windows in this app."
+                .to_string(),
         });
     }
 
@@ -626,10 +627,7 @@ pub fn upsert_embeddings(
     let dimension = embeddings[0].1.len();
     let docs = embeddings
         .iter()
-        .map(|(id, vector)| BridgeUpsertDoc {
-            id,
-            vector,
-        })
+        .map(|(id, vector)| BridgeUpsertDoc { id, vector })
         .collect::<Vec<_>>();
 
     let payload = json!({
@@ -714,12 +712,7 @@ pub fn probe_reranker_status(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let python_path = resolve_python_for_deps(&app_dir, db.get_connection())?;
 
-    match run_bridge::<ProbeRerankerResponse>(
-        &app_dir,
-        &python_path,
-        "probe_reranker",
-        None,
-    ) {
+    match run_bridge::<ProbeRerankerResponse>(&app_dir, &python_path, "probe_reranker", None) {
         Ok(resp) => Ok(resp),
         Err(error) => Ok(ProbeRerankerResponse {
             available: false,
@@ -970,11 +963,7 @@ fn zvec_venv_dir(app_dir: &Path) -> PathBuf {
 }
 
 /// Run a pip command in the zvec venv. Returns Ok on success, Err with message on failure.
-async fn run_venv_pip(
-    python: &str,
-    args: &[&str],
-    pip_index_url: &str,
-) -> Result<(), String> {
+async fn run_venv_pip(python: &str, args: &[&str], pip_index_url: &str) -> Result<(), String> {
     let mut cmd_args = vec!["-m", "pip", "install"];
     cmd_args.extend_from_slice(args);
     if !pip_index_url.is_empty() {
@@ -985,7 +974,10 @@ async fn run_venv_pip(
     let mut command = tokio::process::Command::new(python);
     command.args(&cmd_args);
     // Isolate from user pip config
-    command.env("PIP_CONFIG_FILE", if cfg!(windows) { "NUL" } else { "/dev/null" });
+    command.env(
+        "PIP_CONFIG_FILE",
+        if cfg!(windows) { "NUL" } else { "/dev/null" },
+    );
     command.env_remove("PIP_INDEX_URL");
     command.env_remove("PIP_EXTRA_INDEX_URL");
     hide_console_window!(command);
@@ -1006,7 +998,11 @@ async fn run_venv_pip(
             "pip install failed with no output".to_string()
         };
         // Truncate long messages
-        let truncated = if msg.len() > 1500 { &msg[msg.len() - 1500..] } else { &msg };
+        let truncated = if msg.len() > 1500 {
+            &msg[msg.len() - 1500..]
+        } else {
+            &msg
+        };
         return Err(truncated.to_string());
     }
 
@@ -1014,10 +1010,7 @@ async fn run_venv_pip(
 }
 
 #[tauri::command]
-pub async fn setup_zvec_venv(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     {
         let status = state
             .zvec_venv_manager
@@ -1035,8 +1028,8 @@ pub async fn setup_zvec_venv(
     let (system_python, pip_index_url) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let _conn = db.get_connection();
-        let python = get_setting(&app_dir, "rag.zvec_system_python")
-            .unwrap_or_else(default_python_path);
+        let python =
+            get_setting(&app_dir, "rag.zvec_system_python").unwrap_or_else(default_python_path);
         let pip_url = get_setting(&app_dir, "rag.zvec_pip_index_url")
             .unwrap_or_else(|| "https://pypi.org/simple".to_string());
         (python, pip_url)
@@ -1075,10 +1068,7 @@ pub async fn setup_zvec_venv(
         if venv_dir.exists() {
             manager.set_status("creating", "Removing previous virtual environment...");
             if let Err(e) = std::fs::remove_dir_all(&venv_dir) {
-                manager.set_status(
-                    "failed",
-                    &format!("Failed to remove previous venv: {e}"),
-                );
+                manager.set_status("failed", &format!("Failed to remove previous venv: {e}"));
                 return;
             }
         }
@@ -1131,7 +1121,10 @@ pub async fn setup_zvec_venv(
         if let Err(e) =
             run_venv_pip(&venv_python_str, &["sentence-transformers"], &pip_index_url).await
         {
-            manager.set_status("failed", &format!("Failed to install sentence-transformers: {e}"));
+            manager.set_status(
+                "failed",
+                &format!("Failed to install sentence-transformers: {e}"),
+            );
             return;
         }
 
@@ -1144,10 +1137,7 @@ pub async fn setup_zvec_venv(
         match verify {
             Ok(o) if o.status.success() => {
                 let ver = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                manager.set_status(
-                    "ready",
-                    &format!("Environment ready. zvec {ver}"),
-                );
+                manager.set_status("ready", &format!("Environment ready. zvec {ver}"));
             }
             _ => {
                 manager.set_status(
@@ -1162,17 +1152,12 @@ pub async fn setup_zvec_venv(
 }
 
 #[tauri::command]
-pub fn get_zvec_venv_status(
-    state: State<'_, AppState>,
-) -> Result<ZvecVenvStatusResponse, String> {
+pub fn get_zvec_venv_status(state: State<'_, AppState>) -> Result<ZvecVenvStatusResponse, String> {
     state.zvec_venv_manager.get_status()
 }
 
 #[tauri::command]
-pub fn check_zvec_venv_exists(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub fn check_zvec_venv_exists(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
     let venv_dir = zvec_venv_dir(&app_dir);
     let python_exe = zvec_venv_python_path(&venv_dir);
@@ -1186,10 +1171,7 @@ pub fn check_zvec_venv_exists(
         cmd.args(["-c", "import zvec"])
             .stderr(std::process::Stdio::null());
         hide_console_window!(cmd);
-        let ok = cmd
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
 
         if ok {
             state

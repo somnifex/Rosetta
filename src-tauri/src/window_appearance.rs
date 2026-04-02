@@ -2,10 +2,7 @@ use tauri::{Manager, Theme, WebviewWindow};
 
 const THEME_SETTING_KEY: &str = "general.theme";
 
-pub fn sync_main_window_theme(
-    app: &tauri::AppHandle,
-    settings: &crate::settings::SettingsManager,
-) {
+pub fn sync_main_window_theme(app: &tauri::AppHandle, settings: &crate::settings::SettingsManager) {
     let theme = settings.get_with_default(THEME_SETTING_KEY, "system");
 
     if let Some(window) = app.get_webview_window("main") {

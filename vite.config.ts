@@ -19,7 +19,6 @@ export default defineConfig(async () => ({
     rollupOptions: {
       output: {
         manualChunks: {
-          "vendor-react": ["react", "react-dom"],
           "vendor-pdf": ["react-pdf", "pdfjs-dist"],
           "vendor-markdown": ["react-markdown", "rehype-raw", "remark-gfm"],
           "vendor-router": ["react-router-dom"],
