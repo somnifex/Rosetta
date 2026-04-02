@@ -145,6 +145,7 @@ export default {
     mode_label: "Mode",
     mode_builtin: "Built-in (managed by app)",
     mode_external: "External (self-hosted)",
+    mode_official: "Official API (mineru.net)",
     builtin: {
       title: "Built-in MinerU",
       description: "The app will manage the MinerU Python process automatically",
@@ -164,6 +165,47 @@ export default {
     external: {
       title: "External MinerU",
       description: "Connect to a MinerU instance running elsewhere",
+    },
+    official: {
+      title: "MinerU Official API",
+      description:
+        "Use MinerU's hosted cloud API. Rosetta uploads the local file, polls the task, and downloads the result archive automatically.",
+      base_url_label: "Official API Base URL",
+      token_label: "API Token",
+      token_placeholder: "Paste your MinerU token",
+      token_hint:
+        "Create the token from mineru.net. Rosetta sends it as Authorization: Bearer {token}.",
+      model_version_label: "Model Version",
+      model_version_pipeline: "pipeline",
+      model_version_vlm: "vlm (recommended)",
+      model_version_html: "MinerU-HTML",
+      model_version_hint:
+        "Use pipeline or vlm for PDF, Office, and image files. HTML files are submitted as MinerU-HTML automatically.",
+      language_label: "Document Language",
+      language_placeholder: "Optional: ch, en, ja, ko...",
+      language_hint:
+        "Leave empty to use MinerU's default language setting from the official API.",
+      page_ranges_label: "Page Ranges",
+      page_ranges_placeholder: "Optional: 1-10 or 2,4-6",
+      page_ranges_hint:
+        "Only used for PDF files. Follows the official page_ranges syntax.",
+      extra_formats_label: "Extra Export Formats",
+      extra_formats_placeholder: "Optional: docx, html, latex",
+      extra_formats_hint:
+        "Separate multiple formats with commas. Returned extra files are kept inside the downloaded MinerU result archive.",
+      callback_url_label: "Callback URL",
+      callback_url_placeholder: "Optional: https://your-service.example/callback",
+      callback_url_hint:
+        "Optional. If set, MinerU will also push the result to your own server while Rosetta keeps polling locally.",
+      callback_seed_label: "Callback Seed",
+      callback_seed_placeholder: "Required when callback URL is set",
+      callback_seed_hint:
+        "Used by MinerU to sign callback payloads. Rosetta still polls results normally even when callback is configured.",
+      enable_formula_label: "Enable Formula Recognition",
+      enable_table_label: "Enable Table Recognition",
+      is_ocr_label: "Enable OCR",
+      connection_hint:
+        "This mode does not require a local Python environment or model downloads.",
     },
     venv: {
       title: "Python Environment Setup",

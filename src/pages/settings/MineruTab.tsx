@@ -20,12 +20,24 @@ export default function MineruTab() {
   const defaultMineruCloneUrl = "https://github.com/opendatalab/MinerU.git"
   const defaultMineruPipIndexUrl = "https://pypi.org/simple"
   const defaultPythonPath = navigator.platform.startsWith("Win") ? "python" : "python3"
+  const defaultOfficialBaseUrl = "https://mineru.net"
 
   const [mineruMode, setMineruMode] = useState("builtin")
   const [mineruPythonPath, setMineruPythonPath] = useState(defaultPythonPath)
   const [mineruPort, setMineruPort] = useState("8765")
   const [mineruAutoStart, setMineruAutoStart] = useState(false)
   const [mineruExternalUrl, setMineruExternalUrl] = useState("http://localhost:8000")
+  const [mineruOfficialBaseUrl, setMineruOfficialBaseUrl] = useState(defaultOfficialBaseUrl)
+  const [mineruOfficialApiToken, setMineruOfficialApiToken] = useState("")
+  const [mineruOfficialModelVersion, setMineruOfficialModelVersion] = useState("vlm")
+  const [mineruOfficialLanguage, setMineruOfficialLanguage] = useState("")
+  const [mineruOfficialPageRanges, setMineruOfficialPageRanges] = useState("")
+  const [mineruOfficialExtraFormats, setMineruOfficialExtraFormats] = useState("")
+  const [mineruOfficialCallbackUrl, setMineruOfficialCallbackUrl] = useState("")
+  const [mineruOfficialCallbackSeed, setMineruOfficialCallbackSeed] = useState("")
+  const [mineruOfficialEnableFormula, setMineruOfficialEnableFormula] = useState(true)
+  const [mineruOfficialEnableTable, setMineruOfficialEnableTable] = useState(true)
+  const [mineruOfficialIsOcr, setMineruOfficialIsOcr] = useState(false)
   const [mineruSettingsLoaded, setMineruSettingsLoaded] = useState(false)
   const [mineruUseVenv, setMineruUseVenv] = useState(false)
   const [mineruCloneUrl, setMineruCloneUrl] = useState(defaultMineruCloneUrl)
@@ -47,6 +59,17 @@ export default function MineruTab() {
       setMineruPort(settingsMap.get("mineru.port") || "8765")
       setMineruAutoStart(settingsMap.get("mineru.auto_start") === "true")
       setMineruExternalUrl(settingsMap.get("mineru.external_url") || "http://localhost:8000")
+      setMineruOfficialBaseUrl(settingsMap.get("mineru.official_base_url") || defaultOfficialBaseUrl)
+      setMineruOfficialApiToken(settingsMap.get("mineru.official_api_token") || "")
+      setMineruOfficialModelVersion(settingsMap.get("mineru.official_model_version") || "vlm")
+      setMineruOfficialLanguage(settingsMap.get("mineru.official_language") || "")
+      setMineruOfficialPageRanges(settingsMap.get("mineru.official_page_ranges") || "")
+      setMineruOfficialExtraFormats(settingsMap.get("mineru.official_extra_formats") || "")
+      setMineruOfficialCallbackUrl(settingsMap.get("mineru.official_callback_url") || "")
+      setMineruOfficialCallbackSeed(settingsMap.get("mineru.official_callback_seed") || "")
+      setMineruOfficialEnableFormula(settingsMap.get("mineru.official_enable_formula") !== "false")
+      setMineruOfficialEnableTable(settingsMap.get("mineru.official_enable_table") !== "false")
+      setMineruOfficialIsOcr(settingsMap.get("mineru.official_is_ocr") === "true")
       setMineruUseVenv(settingsMap.get("mineru.use_venv") === "true")
       setMineruCloneUrl(settingsMap.get("mineru.clone_url") || defaultMineruCloneUrl)
       setMineruPipIndexUrl(settingsMap.get("mineru.pip_index_url") || defaultMineruPipIndexUrl)
@@ -55,7 +78,13 @@ export default function MineruTab() {
       setMineruModelsDir(settingsMap.get("mineru.models_dir") || "")
       setMineruSettingsLoaded(true)
     }
-  }, [appSettings, defaultMineruCloneUrl, defaultMineruPipIndexUrl, mineruSettingsLoaded])
+  }, [
+    appSettings,
+    defaultMineruCloneUrl,
+    defaultMineruPipIndexUrl,
+    defaultOfficialBaseUrl,
+    mineruSettingsLoaded,
+  ])
 
   const { data: mineruStatus } = useQuery({
     queryKey: ["mineruStatus"],
@@ -98,6 +127,17 @@ export default function MineruTab() {
       await api.setAppSetting("mineru.port", mineruPort)
       await api.setAppSetting("mineru.auto_start", mineruAutoStart ? "true" : "false")
       await api.setAppSetting("mineru.external_url", mineruExternalUrl)
+      await api.setAppSetting("mineru.official_base_url", mineruOfficialBaseUrl.trim() || defaultOfficialBaseUrl)
+      await api.setAppSetting("mineru.official_api_token", mineruOfficialApiToken.trim())
+      await api.setAppSetting("mineru.official_model_version", mineruOfficialModelVersion)
+      await api.setAppSetting("mineru.official_language", mineruOfficialLanguage.trim())
+      await api.setAppSetting("mineru.official_page_ranges", mineruOfficialPageRanges.trim())
+      await api.setAppSetting("mineru.official_extra_formats", mineruOfficialExtraFormats.trim())
+      await api.setAppSetting("mineru.official_callback_url", mineruOfficialCallbackUrl.trim())
+      await api.setAppSetting("mineru.official_callback_seed", mineruOfficialCallbackSeed.trim())
+      await api.setAppSetting("mineru.official_enable_formula", mineruOfficialEnableFormula ? "true" : "false")
+      await api.setAppSetting("mineru.official_enable_table", mineruOfficialEnableTable ? "true" : "false")
+      await api.setAppSetting("mineru.official_is_ocr", mineruOfficialIsOcr ? "true" : "false")
       await api.setAppSetting("mineru.use_venv", mineruUseVenv ? "true" : "false")
       await api.setAppSetting("mineru.clone_url", mineruCloneUrl.trim() || defaultMineruCloneUrl)
       await api.setAppSetting("mineru.pip_index_url", mineruPipIndexUrl.trim() || defaultMineruPipIndexUrl)
@@ -200,7 +240,7 @@ export default function MineruTab() {
         {/* Mode selector */}
         <div className="space-y-3">
           <Label>{t("mineru.mode_label")}</Label>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 data-setting-key="mineru.mode"
@@ -224,6 +264,18 @@ export default function MineruTab() {
                 className="accent-primary"
               />
               <span className="text-sm">{t("mineru.mode_external")}</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                data-setting-key="mineru.mode"
+                type="radio"
+                name="mineruMode"
+                value="official"
+                checked={mineruMode === "official"}
+                onChange={() => setMineruMode("official")}
+                className="accent-primary"
+              />
+              <span className="text-sm">{t("mineru.mode_official")}</span>
             </label>
           </div>
         </div>
@@ -559,8 +611,156 @@ export default function MineruTab() {
             </div>
             <Button
               variant="outline"
-              onClick={() => testMineruMutation.mutate(mineruExternalUrl)}
+              onClick={() => testMineruMutation.mutate({ mode: "external", baseUrl: mineruExternalUrl })}
               disabled={testMineruMutation.isPending}
+            >
+              {testMineruMutation.isPending ? tc("btn.testing") : tc("btn.test_connection")}
+            </Button>
+          </div>
+        )}
+
+        {mineruMode === "official" && (
+          <div className="space-y-4 border rounded-lg p-4 bg-muted/30">
+            <div>
+              <p className="font-medium text-sm">{t("mineru.official.title")}</p>
+              <p className="text-xs text-muted-foreground">{t("mineru.official.description")}</p>
+            </div>
+
+            <p className="text-xs text-muted-foreground">{t("mineru.official.connection_hint")}</p>
+
+            <div className="space-y-2">
+              <Label>{t("mineru.official.base_url_label")}</Label>
+              <Input
+                data-setting-key="mineru.official_base_url"
+                placeholder="https://mineru.net"
+                value={mineruOfficialBaseUrl}
+                onChange={(e) => setMineruOfficialBaseUrl(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t("mineru.official.token_label")}</Label>
+              <Input
+                data-setting-key="mineru.official_api_token"
+                type="password"
+                placeholder={t("mineru.official.token_placeholder")}
+                value={mineruOfficialApiToken}
+                onChange={(e) => setMineruOfficialApiToken(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("mineru.official.token_hint")}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t("mineru.official.model_version_label")}</Label>
+              <select
+                data-setting-key="mineru.official_model_version"
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                value={mineruOfficialModelVersion}
+                onChange={(e) => setMineruOfficialModelVersion(e.target.value)}
+              >
+                <option value="pipeline">{t("mineru.official.model_version_pipeline")}</option>
+                <option value="vlm">{t("mineru.official.model_version_vlm")}</option>
+                <option value="MinerU-HTML">{t("mineru.official.model_version_html")}</option>
+              </select>
+              <p className="text-xs text-muted-foreground">{t("mineru.official.model_version_hint")}</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>{t("mineru.official.language_label")}</Label>
+                <Input
+                  data-setting-key="mineru.official_language"
+                  placeholder={t("mineru.official.language_placeholder")}
+                  value={mineruOfficialLanguage}
+                  onChange={(e) => setMineruOfficialLanguage(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t("mineru.official.language_hint")}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("mineru.official.page_ranges_label")}</Label>
+                <Input
+                  data-setting-key="mineru.official_page_ranges"
+                  placeholder={t("mineru.official.page_ranges_placeholder")}
+                  value={mineruOfficialPageRanges}
+                  onChange={(e) => setMineruOfficialPageRanges(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t("mineru.official.page_ranges_hint")}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t("mineru.official.extra_formats_label")}</Label>
+              <Input
+                data-setting-key="mineru.official_extra_formats"
+                placeholder={t("mineru.official.extra_formats_placeholder")}
+                value={mineruOfficialExtraFormats}
+                onChange={(e) => setMineruOfficialExtraFormats(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("mineru.official.extra_formats_hint")}</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>{t("mineru.official.callback_url_label")}</Label>
+                <Input
+                  data-setting-key="mineru.official_callback_url"
+                  placeholder={t("mineru.official.callback_url_placeholder")}
+                  value={mineruOfficialCallbackUrl}
+                  onChange={(e) => setMineruOfficialCallbackUrl(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t("mineru.official.callback_url_hint")}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("mineru.official.callback_seed_label")}</Label>
+                <Input
+                  data-setting-key="mineru.official_callback_seed"
+                  placeholder={t("mineru.official.callback_seed_placeholder")}
+                  value={mineruOfficialCallbackSeed}
+                  onChange={(e) => setMineruOfficialCallbackSeed(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t("mineru.official.callback_seed_hint")}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 border rounded-lg p-4 bg-background/50">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{t("mineru.official.enable_formula_label")}</p>
+                <Switch
+                  data-setting-key="mineru.official_enable_formula"
+                  checked={mineruOfficialEnableFormula}
+                  onCheckedChange={setMineruOfficialEnableFormula}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{t("mineru.official.enable_table_label")}</p>
+                <Switch
+                  data-setting-key="mineru.official_enable_table"
+                  checked={mineruOfficialEnableTable}
+                  onCheckedChange={setMineruOfficialEnableTable}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{t("mineru.official.is_ocr_label")}</p>
+                <Switch
+                  data-setting-key="mineru.official_is_ocr"
+                  checked={mineruOfficialIsOcr}
+                  onCheckedChange={setMineruOfficialIsOcr}
+                />
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={() =>
+                testMineruMutation.mutate({
+                  mode: "official",
+                  baseUrl: mineruOfficialBaseUrl,
+                  apiToken: mineruOfficialApiToken,
+                })
+              }
+              disabled={testMineruMutation.isPending || !mineruOfficialApiToken.trim()}
             >
               {testMineruMutation.isPending ? tc("btn.testing") : tc("btn.test_connection")}
             </Button>

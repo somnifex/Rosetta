@@ -474,6 +474,22 @@ fn parse_bool(value: Option<String>, default_value: bool) -> bool {
         .unwrap_or(default_value)
 }
 
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+}
+
+fn parse_string_list(value: Option<String>) -> Vec<String> {
+    value
+        .unwrap_or_default()
+        .split(|ch| matches!(ch, ',' | ';' | '\n' | '\r' | '，'))
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| item.to_string())
+        .collect()
+}
+
 fn get_setting_value(
     settings: &crate::settings::SettingsManager,
     key: &str,
@@ -1267,6 +1283,42 @@ fn persist_mineru_processed_files(
         )
         .map_err(|e| e.to_string())?;
     }
+
+    Ok(())
+}
+
+fn persist_mineru_processed_archive(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    archive_bytes: &[u8],
+    now: &str,
+) -> Result<(), String> {
+    let base_dir = crate::app_dirs::mineru_processed_dir()?;
+    let document_dir = base_dir.join(document_id);
+    fs::create_dir_all(&document_dir).map_err(|e| e.to_string())?;
+
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let archive_path = document_dir.join(format!("parsed-{timestamp}.zip"));
+    fs::write(&archive_path, archive_bytes).map_err(|e| e.to_string())?;
+
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO mineru_processed_files (id, document_id, artifact_type, file_path, created_at, updated_at)
+         VALUES (?1, ?2, 'archive', ?3, ?4, ?4)
+         ON CONFLICT(document_id, artifact_type)
+         DO UPDATE SET
+           file_path = excluded.file_path,
+           updated_at = excluded.updated_at",
+        (
+            &id,
+            document_id,
+            archive_path
+                .to_str()
+                .ok_or("Archive path contains invalid characters")?,
+            now,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -3050,6 +3102,213 @@ pub fn delete_parse_job(state: State<AppState>, job_id: String) -> Result<(), St
     Ok(())
 }
 
+struct MinerUParseExecution {
+    parse_result: crate::mineru::ParseResult,
+    archive_bytes: Option<Vec<u8>>,
+}
+
+fn update_parse_job_runtime_progress(
+    state: &AppState,
+    job_id: &str,
+    progress: f64,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE parse_jobs
+         SET progress = ?1, updated_at = ?2
+         WHERE id = ?3 AND status = 'parsing'",
+        (progress.clamp(0.0, 99.0), &now, job_id),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn load_mineru_official_request(
+    settings: &crate::settings::SettingsManager,
+    document_id: &str,
+    file_path: &Path,
+) -> Result<
+    (
+        crate::mineru_official::OfficialMinerUClient,
+        crate::mineru_official::OfficialParseRequest,
+    ),
+    String,
+> {
+    let base_url =
+        normalize_optional_string(get_setting_value(settings, "mineru.official_base_url")?)
+            .unwrap_or_else(|| {
+                crate::mineru_official::DEFAULT_MINERU_OFFICIAL_BASE_URL.to_string()
+            });
+    let api_token =
+        normalize_optional_string(get_setting_value(settings, "mineru.official_api_token")?)
+            .ok_or_else(|| {
+                "Official MinerU API token is missing. Configure it in Settings before parsing."
+                    .to_string()
+            })?;
+
+    let request = crate::mineru_official::OfficialParseRequest {
+        model_version: normalize_optional_string(get_setting_value(
+            settings,
+            "mineru.official_model_version",
+        )?)
+        .unwrap_or_else(|| "vlm".to_string()),
+        language: normalize_optional_string(get_setting_value(
+            settings,
+            "mineru.official_language",
+        )?),
+        enable_formula: parse_bool(
+            get_setting_value(settings, "mineru.official_enable_formula")?,
+            true,
+        ),
+        enable_table: parse_bool(
+            get_setting_value(settings, "mineru.official_enable_table")?,
+            true,
+        ),
+        is_ocr: parse_bool(
+            get_setting_value(settings, "mineru.official_is_ocr")?,
+            false,
+        ),
+        data_id: Some(document_id.to_string()),
+        page_ranges: normalize_optional_string(get_setting_value(
+            settings,
+            "mineru.official_page_ranges",
+        )?),
+        extra_formats: parse_string_list(get_setting_value(
+            settings,
+            "mineru.official_extra_formats",
+        )?),
+        callback: normalize_optional_string(get_setting_value(
+            settings,
+            "mineru.official_callback_url",
+        )?),
+        seed: normalize_optional_string(get_setting_value(
+            settings,
+            "mineru.official_callback_seed",
+        )?),
+    }
+    .sanitized_for_file(file_path)?;
+
+    if request.callback.is_some() && request.seed.is_none() {
+        return Err(
+            "Official MinerU callback URL requires a callback seed. Add the seed in Settings or clear the callback URL."
+                .to_string(),
+        );
+    }
+
+    Ok((
+        crate::mineru_official::OfficialMinerUClient::new(base_url, api_token),
+        request,
+    ))
+}
+
+async fn execute_parse_job_with_official_api(
+    state: &AppState,
+    job_id: &str,
+    document_id: &str,
+    file_path: &Path,
+) -> Result<MinerUParseExecution, String> {
+    let (client, request) =
+        load_mineru_official_request(state.settings.as_ref(), document_id, file_path)?;
+    let submission = client.submit_local_file(file_path, &request).await?;
+    let _ = update_parse_job_runtime_progress(state, job_id, 6.0);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+    let file_name = file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_string());
+
+    loop {
+        if std::time::Instant::now() >= deadline {
+            return Err(format!(
+                "Timed out while waiting for MinerU official API to finish parsing (batch_id: {}).",
+                submission.batch_id
+            ));
+        }
+
+        let batch_result = client.get_batch_result(&submission.batch_id).await?;
+        if let Some(item) = batch_result.find_item(request.data_id.as_deref(), file_name.as_deref())
+        {
+            let _ = update_parse_job_runtime_progress(
+                state,
+                job_id,
+                crate::mineru_official::estimate_progress_percent(
+                    &item.state,
+                    item.extract_progress.as_ref(),
+                ),
+            );
+
+            match item.state.as_str() {
+                "done" => {
+                    let archive_url = item
+                        .full_zip_url
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|url| !url.is_empty())
+                        .ok_or_else(|| {
+                            "MinerU official API completed the task but did not return full_zip_url."
+                                .to_string()
+                        })?;
+                    let archive = client.download_archive(archive_url).await?;
+                    return Ok(MinerUParseExecution {
+                        parse_result: archive.parse_result,
+                        archive_bytes: Some(archive.archive_bytes),
+                    });
+                }
+                "failed" => {
+                    let error_message = item
+                        .err_msg
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|message| !message.is_empty())
+                        .unwrap_or("MinerU official API parse failed.");
+                    return Err(error_message.to_string());
+                }
+                "waiting-file" | "pending" | "running" | "converting" => {}
+                _ => {}
+            }
+        } else if batch_result.extract_result.is_empty() {
+            let _ = update_parse_job_runtime_progress(state, job_id, 4.0);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+}
+
+async fn execute_parse_job_with_selected_backend(
+    state: &AppState,
+    job_id: &str,
+    document_id: &str,
+    file_path: &Path,
+) -> Result<MinerUParseExecution, String> {
+    let mineru_mode =
+        normalize_optional_string(get_setting_value(state.settings.as_ref(), "mineru.mode")?)
+            .unwrap_or_else(|| "builtin".to_string());
+
+    if mineru_mode == "official" {
+        return execute_parse_job_with_official_api(state, job_id, document_id, file_path).await;
+    }
+
+    let mineru_url = state
+        .mineru_manager
+        .get_effective_url(state.settings.as_ref())?;
+    let client = if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
+        crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
+    } else {
+        crate::mineru::MinerUClient::new(mineru_url)
+    };
+
+    let parse_result = client.parse_pdf(file_path).await?;
+    Ok(MinerUParseExecution {
+        parse_result,
+        archive_bytes: None,
+    })
+}
+
 async fn execute_parse_job(
     state: &AppState,
     app_dir: Option<&Path>,
@@ -3082,26 +3341,20 @@ async fn execute_parse_job(
         )
         .map_err(|e| e.to_string())?
     };
-
-    let mineru_url = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let _conn = db.get_connection();
-        state.mineru_manager.get_effective_url(&state.settings)?
-    };
-    let client = if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
-        crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
-    } else {
-        crate::mineru::MinerUClient::new(mineru_url)
-    };
-
-    let result = client.parse_pdf(Path::new(&file_path)).await;
+    let file_path = PathBuf::from(file_path);
+    let result =
+        execute_parse_job_with_selected_backend(state, job_id, document_id, &file_path).await;
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
 
     match result {
-        Ok(parse_result) => {
+        Ok(execution) => {
+            let MinerUParseExecution {
+                parse_result,
+                archive_bytes,
+            } = execution;
             let content_id = Uuid::new_v4().to_string();
             let version = next_content_version(conn, "parsed_contents", document_id)?;
             clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
@@ -3124,6 +3377,9 @@ async fn execute_parse_job(
                 &parse_result.structure.to_string(),
                 &now,
             )?;
+            if let Some(ref archive_bytes) = archive_bytes {
+                persist_mineru_processed_archive(conn, document_id, archive_bytes, &now)?;
+            }
 
             conn.execute(
                 "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -3321,8 +3577,26 @@ pub fn get_parsed_content(
 }
 
 #[tauri::command]
-pub async fn test_mineru_connection(base_url: String) -> Result<String, String> {
-    let client = crate::mineru::MinerUClient::new(base_url);
+pub async fn test_mineru_connection(
+    base_url: Option<String>,
+    mode: Option<String>,
+    api_token: Option<String>,
+) -> Result<String, String> {
+    let mode = mode.unwrap_or_else(|| "external".to_string());
+
+    if mode == "official" {
+        let client = crate::mineru_official::OfficialMinerUClient::new(
+            base_url.unwrap_or_else(|| {
+                crate::mineru_official::DEFAULT_MINERU_OFFICIAL_BASE_URL.to_string()
+            }),
+            api_token.unwrap_or_default(),
+        );
+        return client.test_connection().await;
+    }
+
+    let client = crate::mineru::MinerUClient::new(
+        base_url.unwrap_or_else(|| "http://localhost:8000".to_string()),
+    );
     match client.health_check().await {
         Ok(true) => Ok("MinerU service is healthy".to_string()),
         Ok(false) => Err("MinerU service is not responding".to_string()),

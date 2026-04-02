@@ -642,8 +642,16 @@ export const api = {
       apiKey: data.apiKey,
       model: data.model,
     }),
-  testMinerUConnection: (baseUrl: string) =>
-    safeInvoke<string>("test_mineru_connection", { baseUrl }),
+  testMinerUConnection: (data: {
+    baseUrl?: string
+    mode?: "external" | "official"
+    apiToken?: string
+  }) =>
+    safeInvoke<string>("test_mineru_connection", {
+      baseUrl: data.baseUrl,
+      mode: data.mode,
+      apiToken: data.apiToken,
+    }),
 
   getAppSetting: (key: string) =>
     safeInvoke<string | null>("get_app_setting", { key }),

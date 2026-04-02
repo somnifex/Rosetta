@@ -6,6 +6,7 @@ mod database;
 mod embedder;
 mod file_handler;
 mod mineru;
+mod mineru_official;
 mod mineru_process;
 mod models;
 mod rag_chat;
