@@ -44,6 +44,7 @@ export default function GeneralTab() {
     "idle" | "checking" | "available" | "downloading" | "installing" | "up_to_date" | "error"
   >("idle")
   const [updateVersion, setUpdateVersion] = useState("")
+  const [updateBody, setUpdateBody] = useState("")
   const [downloadProgress, setDownloadProgress] = useState(0)
 
   useEffect(() => {
@@ -71,6 +72,7 @@ export default function GeneralTab() {
       const update = await check()
       if (update) {
         setUpdateVersion(update.version)
+        setUpdateBody(update.body ?? "")
         setUpdateStatus("available")
       } else {
         setUpdateStatus("up_to_date")
@@ -270,6 +272,12 @@ export default function GeneralTab() {
                 <p className="text-xs text-green-500 mt-1">
                   {t("general.update_available", { version: updateVersion })}
                 </p>
+              )}
+              {updateStatus === "available" && updateBody && (
+                <div className="mt-2 max-h-40 overflow-y-auto rounded border bg-muted/30 p-2">
+                  <p className="text-xs font-medium mb-1">{t("general.update_notes")}</p>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-words font-sans">{updateBody}</pre>
+                </div>
               )}
               {updateStatus === "downloading" && (
                 <p className="text-xs text-blue-500 mt-1">

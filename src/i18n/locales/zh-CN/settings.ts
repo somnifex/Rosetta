@@ -74,6 +74,7 @@ export default {
     update_error: "检查更新失败",
     update_btn_check: "立即检查",
     update_btn_download: "下载并安装",
+    update_notes: "更新日志",
     current_version: "当前版本",
   },
   providers: {

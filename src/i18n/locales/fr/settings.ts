@@ -35,6 +35,7 @@ export default {
     update_error: "Échec de la vérification des mises à jour",
     update_btn_check: "Vérifier maintenant",
     update_btn_download: "Télécharger et installer",
+    update_notes: "Notes de version",
     current_version: "Version actuelle",
   },
   providers: {

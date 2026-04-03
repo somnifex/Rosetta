@@ -35,6 +35,7 @@ export default {
     update_error: "فشل التحقق من التحديثات",
     update_btn_check: "تحقق الآن",
     update_btn_download: "تنزيل وتثبيت",
+    update_notes: "ملاحظات الإصدار",
     current_version: "الإصدار الحالي",
   },
   providers: {

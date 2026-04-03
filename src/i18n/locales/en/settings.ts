@@ -74,6 +74,7 @@ export default {
     update_error: "Failed to check for updates",
     update_btn_check: "Check Now",
     update_btn_download: "Download & Install",
+    update_notes: "Release Notes",
     current_version: "Current Version",
   },
   providers: {

@@ -208,6 +208,7 @@ export default function RagTab() {
             <p className="text-xs text-muted-foreground">{t("rag.backend_hint")}</p>
           </div>
 
+          {ragVectorBackend === "zvec" && (
           <div className="rounded-lg border p-4 bg-muted/20 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -237,8 +238,10 @@ export default function RagTab() {
               </p>
             )}
           </div>
+          )}
 
           {/* Zvec Venv Setup */}
+          {ragVectorBackend === "zvec" && (
           <div className="space-y-3 border rounded-lg p-4 bg-background/50">
             <div>
               <p className="font-medium text-sm">{t("rag.zvec_venv.title")}</p>
@@ -320,7 +323,9 @@ export default function RagTab() {
               {zvecVenvStatus === "ready" ? t("rag.zvec_venv.btn_reinstall") : t("rag.zvec_venv.btn_setup")}
             </Button>
           </div>
+          )}
 
+          {ragVectorBackend === "zvec" && (
           <div className="space-y-2">
             <Label>{t("rag.zvec_python_path")}</Label>
             <Input
@@ -336,7 +341,9 @@ export default function RagTab() {
               <p className="text-xs text-muted-foreground">{t("rag.zvec_python_path_hint")}</p>
             )}
           </div>
+          )}
 
+          {ragVectorBackend === "zvec" && (
           <div className="space-y-2">
             <Label>{t("rag.zvec_collections_dir")}</Label>
             <Input
@@ -345,6 +352,7 @@ export default function RagTab() {
             />
             <p className="text-xs text-muted-foreground">{t("rag.zvec_collections_dir_hint")}</p>
           </div>
+          )}
 
           {ragVectorBackend === "zvec" && zvecStatus != null && (!zvecStatus.platform_supported || !zvecStatus.available) && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">

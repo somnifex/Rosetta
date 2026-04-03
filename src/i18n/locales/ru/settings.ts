@@ -35,6 +35,7 @@ export default {
     update_error: "Не удалось проверить обновления",
     update_btn_check: "Проверить сейчас",
     update_btn_download: "Скачать и установить",
+    update_notes: "Примечания к выпуску",
     current_version: "Текущая версия",
   },
   providers: {

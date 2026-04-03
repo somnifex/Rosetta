@@ -35,6 +35,7 @@ export default {
     update_error: "Error al buscar actualizaciones",
     update_btn_check: "Comprobar ahora",
     update_btn_download: "Descargar e instalar",
+    update_notes: "Notas de la versión",
     current_version: "Versión actual",
   },
   providers: {
