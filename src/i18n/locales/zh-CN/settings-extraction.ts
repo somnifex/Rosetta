@@ -1,0 +1,52 @@
+export default {
+  tabs: {
+    extraction: "字段提取",
+  },
+  extraction: {
+    provider: {
+      title: "提取模型",
+      description: "字段提取使用 Chat 模型，并优先尝试 OpenAI 兼容的 JSON 输出；如果不支持，会自动回退到纯文本解析。",
+      label: "默认提取 Provider",
+      auto: "自动选择首个可用 Chat Provider",
+      hint: "手动提取时会默认使用这里选择的 Provider。",
+      empty: "当前还没有可用的 Chat Provider，请先到 Providers 页面配置。",
+    },
+    builtin: {
+      title: "内置模板",
+      description: "每个模板只负责提取一个字段。启用后的模板会默认出现在提取对话框中。",
+      no_description: "暂无描述。",
+    },
+    custom: {
+      title: "自定义模板",
+      description: "创建可复用的单字段提取提示词，把结果保存到 meta.json 和文档库元数据中。",
+      add: "新建模板",
+      empty: "还没有自定义模板。",
+    },
+    dialog: {
+      create_title: "新建自定义模板",
+      edit_title: "编辑自定义模板",
+      description: "每个模板只聚焦一个字段。提取器会自动补充 JSON 输出约束。",
+      name: "模板名称",
+      name_placeholder: "例如：通讯作者",
+      field_key: "字段 Key",
+      field_key_placeholder: "例如：corresponding_author",
+      field_key_hint: "建议使用 snake_case。这个 key 会直接写入 meta.json。",
+      field_key_locked: "字段 key 创建后会锁定，避免历史元数据失去对应关系。",
+      description_label: "描述",
+      description_placeholder: "说明这个字段要提取什么",
+      system_prompt: "System Prompt",
+      user_prompt: "User Prompt",
+      user_prompt_hint: "可使用 {{document_text}} 占位符，自定义文档正文插入位置。",
+      enabled_title: "启用这个模板",
+      enabled_description: "关闭后模板仍会保留，但默认不会出现在提取对话框中。",
+    },
+    toast: {
+      provider_saved: "提取 Provider 已保存",
+      provider_save_error: "保存提取 Provider 失败",
+      template_saved: "提取模板已保存",
+      template_save_error: "保存提取模板失败",
+      template_deleted: "提取模板已删除",
+      template_delete_error: "删除提取模板失败",
+    },
+  },
+}

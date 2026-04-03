@@ -267,6 +267,49 @@ export interface Provider {
   updated_at: string
 }
 
+export interface ExtractionTemplate {
+  id: string
+  name: string
+  field_key: string
+  description?: string | null
+  system_prompt: string
+  user_prompt: string
+  is_enabled: boolean
+  is_builtin: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ExtractionTemplateInput {
+  name: string
+  fieldKey: string
+  description?: string
+  systemPrompt: string
+  userPrompt: string
+  isEnabled?: boolean
+}
+
+export interface DocumentMetadataField {
+  id: string
+  document_id: string
+  field_key: string
+  field_value?: string | null
+  provider_id?: string | null
+  model_name?: string | null
+  extracted_at: string
+  error?: string | null
+}
+
+export interface ExtractionResult {
+  document_id: string
+  field_key: string
+  field_value?: string | null
+  provider_id: string
+  model_name: string
+  extracted_at: string
+  error?: string | null
+}
+
 export interface SyncRecord {
   id: string
   resource_type: string

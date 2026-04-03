@@ -52,6 +52,14 @@ interface DocumentListProps {
   selectionMode: boolean
   selectedIds: Set<string>
   statusLabel: (document: Document) => string
+  metadataSummaryById?: Record<
+    string,
+    {
+      authors?: string
+      publicationDate?: string
+      journal?: string
+    }
+  >
   onOpen: (documentId: string) => void
   onToggleSelect: (documentId: string, shiftKey: boolean) => void
   onDelete: (documentId: string) => void
@@ -67,6 +75,7 @@ export function DocumentList({
   selectionMode,
   selectedIds,
   statusLabel,
+  metadataSummaryById = {},
   onOpen,
   onToggleSelect,
   onDelete,
@@ -96,6 +105,9 @@ export function DocumentList({
         {documents.map((document) => {
           const Icon = getFileIcon(document.filename)
           const isSelected = selectedIds.has(document.id)
+          const metadataSummary = metadataSummaryById[document.id]
+          const metadataText = metadataSummary?.authors || metadataSummary?.journal || ""
+          const publicationYear = metadataSummary?.publicationDate?.slice(0, 4) || ""
           return (
             <ContextMenu key={document.id}>
               <ContextMenuTrigger asChild>
@@ -135,6 +147,11 @@ export function DocumentList({
                     {document.is_file_missing && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
                   </div>
                   <p className="truncate text-xs text-muted-foreground">{document.filename}</p>
+                  {(metadataText || publicationYear) && (
+                    <p className="truncate text-[11px] text-muted-foreground/90">
+                      {[metadataText, publicationYear].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
                 </div>
               </div>
 

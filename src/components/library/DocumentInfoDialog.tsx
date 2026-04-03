@@ -22,6 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ConfirmActionDialog } from "@/components/shared/ConfirmActionDialog"
+import { DocumentMetadataPanel } from "./DocumentMetadataPanel"
+import { ExtractFieldsDialog } from "./ExtractFieldsDialog"
 import { TagPicker } from "@/components/document/TagPicker"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -189,6 +191,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const queryClient = useQueryClient()
   const [thumbnailPages, setThumbnailPages] = useState<number | null>(null)
   const [confirmTrashOpen, setConfirmTrashOpen] = useState(false)
+  const [extractDialogOpen, setExtractDialogOpen] = useState(false)
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["document", documentId] })
@@ -199,6 +202,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
     queryClient.invalidateQueries({ queryKey: ["parsedContent", documentId] })
     queryClient.invalidateQueries({ queryKey: ["translatedContent", documentId] })
     queryClient.invalidateQueries({ queryKey: ["documentChunks", documentId] })
+    queryClient.invalidateQueries({ queryKey: ["documentMetadata", documentId] })
+    queryClient.invalidateQueries({ queryKey: ["documentMetadataBatch"] })
     queryClient.invalidateQueries({ queryKey: ["parseJobs"] })
     queryClient.invalidateQueries({ queryKey: ["translationJobs"] })
   }
@@ -658,6 +663,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                 <Tabs defaultValue="outputs" className="w-full">
                   <TabsList className="w-full justify-start rounded-lg">
                     <TabsTrigger value="outputs" className="rounded-md text-xs">{t("document_info.sections.outputs")}</TabsTrigger>
+                    <TabsTrigger value="metadata" className="rounded-md text-xs">{t("document_info.sections.metadata")}</TabsTrigger>
                     <TabsTrigger value="archive" className="rounded-md text-xs">{t("document_info.sections.archive")}</TabsTrigger>
                     <TabsTrigger value="advanced" className="rounded-md text-xs">{t("document_info.sections.advanced")}</TabsTrigger>
                   </TabsList>
@@ -821,6 +827,13 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                   </TabsContent>
 
                   {/* ── Tab: Archive ── */}
+                  <TabsContent value="metadata" className="mt-4">
+                    <DocumentMetadataPanel
+                      documentId={document.id}
+                      onRequestExtract={() => setExtractDialogOpen(true)}
+                    />
+                  </TabsContent>
+
                   <TabsContent value="archive" className="mt-4 space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
@@ -932,6 +945,12 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
         cancelLabel={t("document_info.confirm_trash.cancel")}
         loading={moveToTrashMutation.isPending}
         onConfirm={() => moveToTrashMutation.mutate()}
+      />
+      <ExtractFieldsDialog
+        open={extractDialogOpen}
+        documentIds={document ? [document.id] : []}
+        onOpenChange={setExtractDialogOpen}
+        onCompleted={invalidateAll}
       />
     </>
   )

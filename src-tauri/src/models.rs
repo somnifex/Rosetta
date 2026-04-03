@@ -137,6 +137,54 @@ pub struct ProviderModelInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionTemplate {
+    pub id: String,
+    pub name: String,
+    pub field_key: String,
+    pub description: Option<String>,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    pub is_enabled: bool,
+    pub is_builtin: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentMetadataField {
+    pub id: String,
+    pub document_id: String,
+    pub field_key: String,
+    pub field_value: Option<String>,
+    pub provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub extracted_at: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionResult {
+    pub document_id: String,
+    pub field_key: String,
+    pub field_value: Option<String>,
+    pub provider_id: String,
+    pub model_name: String,
+    pub extracted_at: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractionTemplateInput {
+    pub name: String,
+    pub field_key: String,
+    pub description: Option<String>,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    pub is_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Category {
     pub id: String,
     pub name: String,

@@ -58,10 +58,10 @@ It is designed for scenarios like:
 
 Get the latest release from [GitHub Releases](https://github.com/somnifex/Rosetta/releases).
 
-| Platform | Package formats     |
-| -------- | ------------------- |
+| Platform | Package formats         |
+| -------- | ----------------------- |
 | Windows  | `.msi`, `.exe`      |
-| macOS    | `.dmg`              |
+| macOS    | `.dmg`                |
 | Linux    | `.deb`, `.AppImage` |
 
 ### 2. First 3 Minutes
@@ -129,12 +129,12 @@ npm run tauri:dev
 
 ## Roadmap
 
-- [x] Document library management
-- [x] MinerU integration
-- [x] Multi-channel LLM translation workflow
-- [x] Search and RAG chat
-- [x] WebDAV sync and local backup
-- [x] Multilingual interface
+- [X] Document library management
+- [X] MinerU integration
+- [X] Multi-channel LLM translation workflow
+- [X] Search and RAG chat
+- [X] WebDAV sync and local backup
+- [X] Multilingual interface
 - [ ] Batch translation workflows
 - [ ] Richer annotation and review tools
 - [ ] More export and collaboration options
@@ -149,4 +149,4 @@ Rosetta is licensed under the [GNU General Public License v3.0](LICENSE).
 - [MinerU](https://github.com/opendatalab/MinerU)
 - [Radix UI](https://www.radix-ui.com/)
 - [shadcn/ui](https://ui.shadcn.com/)
-- Open source and discussion communities such as Reddit, GitHub, and Linux.do. Reading project threads, issue reports, shared experiments, and generous troubleshooting posts there taught me a lot while building Rosetta.
+- Open source and discussion communities such as [GitHub](https://ww.github.com), [Reddit](https://www.reddit.com/) and [Linux.do](https://linux.do/). Reading project threads, issue reports, shared experiments, and generous troubleshooting posts there taught me a lot while building Rosetta.

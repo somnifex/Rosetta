@@ -4,6 +4,7 @@ mod commands;
 mod content_store;
 mod database;
 mod embedder;
+mod extractor;
 mod file_handler;
 mod mineru;
 mod mineru_official;
@@ -518,6 +519,16 @@ pub fn run() {
             commands::duplicate_document,
             commands::reveal_in_os,
             commands::get_document_chunks,
+            commands::get_extraction_templates,
+            commands::create_extraction_template,
+            commands::update_extraction_template,
+            commands::delete_extraction_template,
+            commands::toggle_builtin_template,
+            commands::get_document_metadata,
+            commands::get_all_documents_metadata,
+            commands::delete_document_metadata_field,
+            commands::extract_document_fields,
+            commands::batch_extract_document_fields,
             commands::batch_start_parse_jobs,
             commands::batch_start_translation_jobs,
             commands::batch_start_index_jobs,

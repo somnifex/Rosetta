@@ -40,6 +40,7 @@ impl Database {
             include_str!("../migrations/006_mineru_processed_files.sql"),
             include_str!("../migrations/007_chunk_persistence_and_index_jobs.sql"),
             include_str!("../migrations/008_storage_compaction_markers.sql"),
+            include_str!("../migrations/009_field_extraction.sql"),
         ];
 
         for schema in schemas {

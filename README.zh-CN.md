@@ -58,10 +58,10 @@ Rosetta 更关注持续性的知识工作流。
 
 在 [GitHub Releases](https://github.com/somnifex/Rosetta/releases) 获取最新版本。
 
-| 平台      | 安装包格式              |
-| ------- | ------------------ |
+| 平台    | 安装包格式              |
+| ------- | ----------------------- |
 | Windows | `.msi`、`.exe`      |
-| macOS   | `.dmg`             |
+| macOS   | `.dmg`                |
 | Linux   | `.deb`、`.AppImage` |
 
 ### 2. 3 分钟上手
@@ -129,12 +129,12 @@ npm run tauri:dev
 
 ## 路线图
 
-- [x] 文档库管理
-- [x] MinerU 集成
-- [x] 多通道 LLM 翻译工作流
-- [x] 搜索与 RAG 问答
-- [x] WebDAV 同步与本地备份
-- [x] 多语言界面
+- [X] 文档库管理
+- [X] MinerU 集成
+- [X] 多通道 LLM 翻译工作流
+- [X] 搜索与 RAG 问答
+- [X] WebDAV 同步与本地备份
+- [X] 多语言界面
 - [ ] 批量翻译工作流
 - [ ] 更丰富的批注与审阅能力
 - [ ] 更多导出与协作能力
@@ -149,4 +149,4 @@ Rosetta 采用 [GNU General Public License v3.0](LICENSE) 许可证。
 - [MinerU](https://github.com/opendatalab/MinerU)
 - [Radix UI](https://www.radix-ui.com/)
 - [shadcn/ui](https://ui.shadcn.com/)
-- 也感谢 Reddit、GitHub、Linux.do 等开源与交流社区。一路上读过很多项目源码、issue、经验贴和讨论串，从中学到了非常多东西，这些分享也在潜移默化中影响了 Rosetta 的形成。
+- 也感谢 [GitHub](https://ww.github.com)、[Reddit](https://www.reddit.com/)、[Linux.do](https://linux.do/) 等开源与交流社区。一路上读过很多项目源码、issue、经验贴和讨论串，从中学到了非常多东西，这些分享也在潜移默化中影响了 Rosetta 的形成。

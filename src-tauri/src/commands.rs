@@ -27,6 +27,8 @@ const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 3;
 const DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE: u32 = 60;
 const DEFAULT_TRANSLATION_CHUNK_STRATEGY: &str = "token";
 const DEFAULT_LOG_RETENTION_DAYS: i64 = 30;
+const EXTRACTION_PROVIDER_SETTING_KEY: &str = "extraction.provider_id";
+const EXTRACTION_BUILTIN_STATE_SETTING_KEY: &str = "extraction.builtin_template_states";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeLogEntry {
@@ -570,6 +572,95 @@ pub(crate) fn load_llm_sampling_config(
     })
 }
 
+fn load_builtin_extraction_state_map(
+    settings: &crate::settings::SettingsManager,
+) -> HashMap<String, bool> {
+    match settings.get(EXTRACTION_BUILTIN_STATE_SETTING_KEY) {
+        Some(raw) => serde_json::from_str::<HashMap<String, bool>>(&raw).unwrap_or_else(|error| {
+            log::warn!(
+                "Failed to parse extraction builtin state map from settings: {}",
+                error
+            );
+            HashMap::new()
+        }),
+        None => HashMap::new(),
+    }
+}
+
+fn save_builtin_extraction_state_map(
+    settings: &crate::settings::SettingsManager,
+    states: &HashMap<String, bool>,
+) -> Result<(), String> {
+    let serialized = serde_json::to_string(states).map_err(|e| e.to_string())?;
+    settings.set(
+        EXTRACTION_BUILTIN_STATE_SETTING_KEY.to_string(),
+        serialized,
+    )
+}
+
+fn normalize_field_key(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Field key is required".to_string());
+    }
+
+    let mut normalized = String::with_capacity(trimmed.len());
+    let mut previous_was_separator = false;
+
+    for ch in trimmed.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            normalized.push(lower);
+            previous_was_separator = false;
+            continue;
+        }
+
+        if matches!(lower, '_' | '-' | ' ') && !normalized.is_empty() && !previous_was_separator {
+            normalized.push('_');
+            previous_was_separator = true;
+        }
+    }
+
+    while normalized.ends_with('_') {
+        let _ = normalized.pop();
+    }
+
+    if normalized.is_empty() {
+        return Err("Field key must contain letters or numbers".to_string());
+    }
+    if normalized.len() > 64 {
+        return Err("Field key must be 64 characters or fewer".to_string());
+    }
+    if !normalized
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_alphabetic())
+        .unwrap_or(false)
+    {
+        return Err("Field key must start with a letter".to_string());
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_requested_field_keys(
+    field_keys: Option<Vec<String>>,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(field_keys) = field_keys else {
+        return Ok(None);
+    };
+
+    let mut normalized = Vec::new();
+    for field_key in field_keys {
+        let normalized_key = normalize_field_key(&field_key)?;
+        if !normalized.iter().any(|existing| existing == &normalized_key) {
+            normalized.push(normalized_key);
+        }
+    }
+
+    Ok(Some(normalized))
+}
+
 fn serialize_provider_model_config(
     config: Option<&ProviderModelConfig>,
 ) -> Result<Option<String>, String> {
@@ -781,6 +872,115 @@ fn find_primary_model_for_type(
         .filter(|model| model.is_active && model.model_type == model_type)
         .min_by_key(|model| (model.priority, model.created_at.clone()))
         .cloned()
+}
+
+fn resolve_extraction_provider_internal(
+    conn: &rusqlite::Connection,
+    settings: &crate::settings::SettingsManager,
+    requested_provider_id: Option<&str>,
+) -> Result<(ProviderRecord, ProviderModel, LlmSamplingConfig), String> {
+    let resolve_sampling = |record: &ProviderRecord| -> Result<LlmSamplingConfig, String> {
+        let mut sampling = load_llm_sampling_config(settings, "chat")?;
+        if sampling.temperature.is_none() {
+            sampling.temperature = record.legacy_temperature;
+        }
+        if sampling.max_tokens.is_none() {
+            sampling.max_tokens = record.legacy_max_tokens;
+        }
+        Ok(sampling)
+    };
+
+    if let Some(provider_id) = requested_provider_id.map(str::trim).filter(|value| !value.is_empty())
+    {
+        let record = load_provider_record_by_id(conn, provider_id)?;
+        if !record.is_active {
+            return Err(format!(
+                "Provider \"{}\" is disabled and cannot be used for extraction",
+                record.name
+            ));
+        }
+
+        let models = load_provider_models_for_provider(conn, provider_id)?;
+        let chat_model =
+            find_primary_model_for_type(&models, PROVIDER_MODEL_TYPE_CHAT).ok_or_else(|| {
+                format!(
+                    "Provider \"{}\" has no active chat model for extraction",
+                    record.name
+                )
+            })?;
+        return Ok((record.clone(), chat_model, resolve_sampling(&record)?));
+    }
+
+    if let Some(setting_provider_id) = settings
+        .get(EXTRACTION_PROVIDER_SETTING_KEY)
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+    {
+        match load_provider_record_by_id(conn, &setting_provider_id) {
+            Ok(record) if record.is_active => {
+                let models = load_provider_models_for_provider(conn, &setting_provider_id)?;
+                if let Some(chat_model) =
+                    find_primary_model_for_type(&models, PROVIDER_MODEL_TYPE_CHAT)
+                {
+                    return Ok((record.clone(), chat_model, resolve_sampling(&record)?));
+                }
+
+                log::warn!(
+                    "Configured extraction provider {} has no active chat model. Falling back to automatic selection.",
+                    setting_provider_id
+                );
+            }
+            Ok(record) => {
+                log::warn!(
+                    "Configured extraction provider {} ({}) is disabled. Falling back to automatic selection.",
+                    setting_provider_id,
+                    record.name
+                );
+            }
+            Err(error) => {
+                log::warn!(
+                    "Configured extraction provider {} is unavailable: {}. Falling back to automatic selection.",
+                    setting_provider_id,
+                    error
+                );
+            }
+        }
+    }
+
+    for record in load_provider_records(conn)? {
+        if !record.is_active {
+            continue;
+        }
+
+        let models = load_provider_models_for_provider(conn, &record.id)?;
+        if let Some(chat_model) = find_primary_model_for_type(&models, PROVIDER_MODEL_TYPE_CHAT) {
+            return Ok((record.clone(), chat_model, resolve_sampling(&record)?));
+        }
+    }
+
+    Err("No active chat provider is available for field extraction".to_string())
+}
+
+fn summarize_extraction_failures(results: &[ExtractionResult]) -> String {
+    let failures = results
+        .iter()
+        .filter_map(|result| {
+            result
+                .error
+                .as_ref()
+                .map(|error| format!("{}: {}", result.field_key, error))
+        })
+        .collect::<Vec<_>>();
+
+    if failures.is_empty() {
+        return "No fields were extracted".to_string();
+    }
+
+    if failures.len() == 1 {
+        return failures[0].clone();
+    }
+
+    format!("{} (and {} more)", failures[0], failures.len() - 1)
 }
 
 fn sync_provider_models(
@@ -1275,6 +1475,311 @@ fn load_latest_translated_text_internal(
     document_id: &str,
 ) -> Result<String, String> {
     load_latest_translated_content_internal(conn, document_id).map(|row| row.content)
+}
+
+fn load_custom_extraction_templates_internal(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<ExtractionTemplate>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, field_key, description, system_prompt, user_prompt, is_enabled, created_at, updated_at
+             FROM extraction_templates
+             ORDER BY created_at ASC, name ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+        Ok(ExtractionTemplate {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            field_key: row.get(2)?,
+            description: row.get(3)?,
+            system_prompt: row.get(4)?,
+            user_prompt: row.get(5)?,
+            is_enabled: row.get::<_, i32>(6)? != 0,
+            is_builtin: false,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+fn load_custom_extraction_template_by_id_internal(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<ExtractionTemplate, String> {
+    conn.query_row(
+        "SELECT id, name, field_key, description, system_prompt, user_prompt, is_enabled, created_at, updated_at
+         FROM extraction_templates
+         WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(ExtractionTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                field_key: row.get(2)?,
+                description: row.get(3)?,
+                system_prompt: row.get(4)?,
+                user_prompt: row.get(5)?,
+                is_enabled: row.get::<_, i32>(6)? != 0,
+                is_builtin: false,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn load_custom_extraction_template_by_field_key_internal(
+    conn: &rusqlite::Connection,
+    field_key: &str,
+) -> Result<Option<ExtractionTemplate>, String> {
+    conn.query_row(
+        "SELECT id, name, field_key, description, system_prompt, user_prompt, is_enabled, created_at, updated_at
+         FROM extraction_templates
+         WHERE field_key = ?1",
+        [field_key],
+        |row| {
+            Ok(ExtractionTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                field_key: row.get(2)?,
+                description: row.get(3)?,
+                system_prompt: row.get(4)?,
+                user_prompt: row.get(5)?,
+                is_enabled: row.get::<_, i32>(6)? != 0,
+                is_builtin: false,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+fn build_builtin_extraction_templates(
+    settings: &crate::settings::SettingsManager,
+) -> Vec<ExtractionTemplate> {
+    let state_map = load_builtin_extraction_state_map(settings);
+    crate::extractor::builtin_templates()
+        .iter()
+        .map(|template| {
+            let enabled = state_map
+                .get(template.field_key)
+                .copied()
+                .unwrap_or(template.default_enabled);
+            template.to_template(enabled)
+        })
+        .collect()
+}
+
+fn resolve_extraction_templates(
+    conn: &rusqlite::Connection,
+    settings: &crate::settings::SettingsManager,
+    requested_field_keys: Option<&[String]>,
+) -> Result<Vec<ExtractionTemplate>, String> {
+    let builtin_templates = build_builtin_extraction_templates(settings);
+    let custom_templates = load_custom_extraction_templates_internal(conn)?;
+
+    if let Some(requested_field_keys) = requested_field_keys {
+        let mut resolved = Vec::with_capacity(requested_field_keys.len());
+        let mut missing = Vec::new();
+
+        for field_key in requested_field_keys {
+            if let Some(template) = builtin_templates
+                .iter()
+                .find(|template| template.field_key == *field_key)
+            {
+                resolved.push(template.clone());
+                continue;
+            }
+
+            if let Some(template) = custom_templates
+                .iter()
+                .find(|template| template.field_key == *field_key)
+            {
+                resolved.push(template.clone());
+                continue;
+            }
+
+            missing.push(field_key.clone());
+        }
+
+        if !missing.is_empty() {
+            return Err(format!(
+                "Unknown extraction template fields: {}",
+                missing.join(", ")
+            ));
+        }
+
+        if resolved.is_empty() {
+            return Err("No matching extraction templates found".to_string());
+        }
+
+        return Ok(resolved);
+    }
+
+    let mut resolved = builtin_templates
+        .into_iter()
+        .filter(|template| template.is_enabled)
+        .collect::<Vec<_>>();
+    resolved.extend(custom_templates.into_iter().filter(|template| template.is_enabled));
+
+    if resolved.is_empty() {
+        return Err("No enabled extraction templates found".to_string());
+    }
+
+    Ok(resolved)
+}
+
+fn load_document_metadata_rows_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<Vec<DocumentMetadataField>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, document_id, field_key, field_value, provider_id, model_name, extracted_at, error
+             FROM document_metadata
+             WHERE document_id = ?1
+             ORDER BY field_key ASC, extracted_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([document_id], |row| {
+        Ok(DocumentMetadataField {
+            id: row.get(0)?,
+            document_id: row.get(1)?,
+            field_key: row.get(2)?,
+            field_value: row.get(3)?,
+            provider_id: row.get(4)?,
+            model_name: row.get(5)?,
+            extracted_at: row.get(6)?,
+            error: row.get(7)?,
+        })
+    })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+fn upsert_document_metadata_fields_internal(
+    conn: &rusqlite::Connection,
+    rows: &[DocumentMetadataField],
+) -> Result<(), String> {
+    for row in rows {
+        let id = if row.id.trim().is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            row.id.clone()
+        };
+        let extracted_at = if row.extracted_at.trim().is_empty() {
+            Utc::now().to_rfc3339()
+        } else {
+            row.extracted_at.clone()
+        };
+
+        conn.execute(
+            "INSERT INTO document_metadata (
+                id,
+                document_id,
+                field_key,
+                field_value,
+                provider_id,
+                model_name,
+                extracted_at,
+                error
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(document_id, field_key) DO UPDATE SET
+                field_value = excluded.field_value,
+                provider_id = excluded.provider_id,
+                model_name = excluded.model_name,
+                extracted_at = excluded.extracted_at,
+                error = excluded.error",
+            (
+                &id,
+                &row.document_id,
+                &row.field_key,
+                &row.field_value,
+                &row.provider_id,
+                &row.model_name,
+                &extracted_at,
+                &row.error,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn persist_extraction_results_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    results: &[ExtractionResult],
+) -> Result<(), String> {
+    let rows = results
+        .iter()
+        .map(|result| DocumentMetadataField {
+            id: String::new(),
+            document_id: document_id.to_string(),
+            field_key: result.field_key.clone(),
+            field_value: result.field_value.clone(),
+            provider_id: Some(result.provider_id.clone()),
+            model_name: Some(result.model_name.clone()),
+            extracted_at: result.extracted_at.clone(),
+            error: result.error.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    upsert_document_metadata_fields_internal(conn, &rows)
+}
+
+fn rewrite_document_metadata_meta_json(
+    conn: &rusqlite::Connection,
+    app_dir: &Path,
+    document_id: &str,
+) -> Result<(), String> {
+    let rows = load_document_metadata_rows_internal(conn, document_id)?;
+    crate::extractor::write_meta_json(app_dir, document_id, &rows)
+}
+
+fn load_document_metadata_with_backfill_internal(
+    conn: &rusqlite::Connection,
+    app_dir: &Path,
+    document_id: &str,
+) -> Result<Vec<DocumentMetadataField>, String> {
+    let existing = load_document_metadata_rows_internal(conn, document_id)?;
+    if !existing.is_empty() {
+        return Ok(existing);
+    }
+
+    let meta_rows = match crate::extractor::read_meta_json(app_dir, document_id) {
+        Ok(rows) => rows,
+        Err(error) => {
+            log::warn!(
+                "Failed to backfill document metadata from meta.json for document {}: {}",
+                document_id,
+                error
+            );
+            return Ok(Vec::new());
+        }
+    };
+
+    if meta_rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    upsert_document_metadata_fields_internal(conn, &meta_rows)?;
+    load_document_metadata_rows_internal(conn, document_id)
 }
 
 fn next_content_version(
@@ -4230,6 +4735,441 @@ pub fn get_mineru_processed_files(
     .map_err(|e| e.to_string())?;
 
     load_mineru_processed_files_internal(conn, &document_id)
+}
+
+async fn extract_document_fields_internal(
+    state: &AppState,
+    app_dir: &Path,
+    document_id: &str,
+    provider_id: Option<&str>,
+    field_keys: Option<&[String]>,
+) -> Result<Vec<ExtractionResult>, String> {
+    let (provider_record, chat_model, sampling, extraction_input, templates) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        let parse_status = conn
+            .query_row(
+                "SELECT parse_status FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+                [document_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| e.to_string())?;
+
+        if parse_status != "completed" {
+            return Err("Document has not been parsed yet".to_string());
+        }
+
+        let (provider_record, chat_model, sampling) =
+            resolve_extraction_provider_internal(conn, state.settings.as_ref(), provider_id)?;
+        let runtime_settings = load_translation_runtime_settings(state.settings.as_ref())?;
+        let parsed_content = load_latest_parsed_content_internal(conn, document_id)?;
+        let extraction_input = crate::extractor::prepare_extraction_input(
+            &parsed_content.markdown_content,
+            runtime_settings.chunk_size,
+        );
+        let templates = resolve_extraction_templates(conn, state.settings.as_ref(), field_keys)?;
+
+        (
+            provider_record,
+            chat_model,
+            sampling,
+            extraction_input,
+            templates,
+        )
+    };
+
+    if extraction_input.trim().is_empty() {
+        return Err("Parsed content is empty and cannot be used for metadata extraction".to_string());
+    }
+
+    log::info!(
+        "Extracting {} metadata fields for document {} using provider '{}' / model '{}' from the first chunk ({} chars)",
+        templates.len(),
+        document_id,
+        provider_record.name,
+        chat_model.model_name,
+        extraction_input.len()
+    );
+
+    let mut retry_config = crate::retry::RetryConfig::for_network();
+    retry_config.max_retries = provider_record.max_retries.max(0) as usize;
+
+    let extractor = crate::extractor::Extractor::new(
+        provider_record.base_url.clone(),
+        provider_record.api_key.clone(),
+        chat_model.model_name.clone(),
+        sampling,
+    )
+    .with_retry_config(retry_config);
+
+    let mut results = Vec::with_capacity(templates.len());
+    for template in templates {
+        let extracted_at = Utc::now().to_rfc3339();
+        match extractor.extract_field(&template, &extraction_input).await {
+            Ok(field_value) => results.push(ExtractionResult {
+                document_id: document_id.to_string(),
+                field_key: template.field_key.clone(),
+                field_value: field_value.filter(|value| !value.trim().is_empty()),
+                provider_id: provider_record.id.clone(),
+                model_name: chat_model.model_name.clone(),
+                extracted_at,
+                error: None,
+            }),
+            Err(error) => {
+                log::warn!(
+                    "Metadata extraction failed for document {} field '{}': {}",
+                    document_id,
+                    template.field_key,
+                    error
+                );
+                results.push(ExtractionResult {
+                    document_id: document_id.to_string(),
+                    field_key: template.field_key.clone(),
+                    field_value: None,
+                    provider_id: provider_record.id.clone(),
+                    model_name: chat_model.model_name.clone(),
+                    extracted_at,
+                    error: Some(error),
+                });
+            }
+        }
+    }
+
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.get_connection();
+        persist_extraction_results_internal(conn, document_id, &results)?;
+        rewrite_document_metadata_meta_json(conn, app_dir, document_id)?;
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn get_extraction_templates(state: State<AppState>) -> Result<Vec<ExtractionTemplate>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    let mut templates = build_builtin_extraction_templates(state.settings.as_ref());
+    templates.extend(load_custom_extraction_templates_internal(conn)?);
+    Ok(templates)
+}
+
+#[tauri::command]
+pub fn create_extraction_template(
+    state: State<AppState>,
+    input: ExtractionTemplateInput,
+) -> Result<ExtractionTemplate, String> {
+    let name = input.name.trim();
+    if name.is_empty() {
+        return Err("Template name is required".to_string());
+    }
+
+    let field_key = normalize_field_key(&input.field_key)?;
+    if crate::extractor::is_builtin_field_key(&field_key) {
+        return Err(format!(
+            "Field key '{}' is reserved by a built-in extraction template",
+            field_key
+        ));
+    }
+
+    let system_prompt = input.system_prompt.trim();
+    if system_prompt.is_empty() {
+        return Err("System prompt is required".to_string());
+    }
+
+    let user_prompt = input.user_prompt.trim();
+    if user_prompt.is_empty() {
+        return Err("User prompt is required".to_string());
+    }
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    if load_custom_extraction_template_by_field_key_internal(conn, &field_key)?.is_some() {
+        return Err(format!(
+            "An extraction template for field '{}' already exists",
+            field_key
+        ));
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO extraction_templates (
+            id,
+            name,
+            field_key,
+            description,
+            system_prompt,
+            user_prompt,
+            is_enabled,
+            created_at,
+            updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        (
+            &id,
+            name,
+            &field_key,
+            &normalize_optional_string(input.description),
+            system_prompt,
+            user_prompt,
+            if input.is_enabled.unwrap_or(true) { 1 } else { 0 },
+            &now,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+
+    load_custom_extraction_template_by_id_internal(conn, &id)
+}
+
+#[tauri::command]
+pub fn update_extraction_template(
+    state: State<AppState>,
+    id: String,
+    input: ExtractionTemplateInput,
+) -> Result<ExtractionTemplate, String> {
+    if id.trim().starts_with("builtin:") {
+        return Err("Built-in extraction templates cannot be edited".to_string());
+    }
+
+    let name = input.name.trim();
+    if name.is_empty() {
+        return Err("Template name is required".to_string());
+    }
+
+    let system_prompt = input.system_prompt.trim();
+    if system_prompt.is_empty() {
+        return Err("System prompt is required".to_string());
+    }
+
+    let user_prompt = input.user_prompt.trim();
+    if user_prompt.is_empty() {
+        return Err("User prompt is required".to_string());
+    }
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    let existing = load_custom_extraction_template_by_id_internal(conn, &id)?;
+    let requested_field_key = normalize_field_key(&input.field_key)?;
+    if requested_field_key != existing.field_key {
+        return Err("Field key cannot be changed after the template is created".to_string());
+    }
+
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE extraction_templates
+         SET name = ?1,
+             description = ?2,
+             system_prompt = ?3,
+             user_prompt = ?4,
+             is_enabled = ?5,
+             updated_at = ?6
+         WHERE id = ?7",
+        (
+            name,
+            &normalize_optional_string(input.description),
+            system_prompt,
+            user_prompt,
+            if input.is_enabled.unwrap_or(existing.is_enabled) {
+                1
+            } else {
+                0
+            },
+            &now,
+            &id,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+
+    load_custom_extraction_template_by_id_internal(conn, &id)
+}
+
+#[tauri::command]
+pub fn delete_extraction_template(state: State<AppState>, id: String) -> Result<(), String> {
+    if id.trim().starts_with("builtin:") {
+        return Err("Built-in extraction templates cannot be deleted".to_string());
+    }
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    let deleted = conn
+        .execute("DELETE FROM extraction_templates WHERE id = ?1", [&id])
+        .map_err(|e| e.to_string())?;
+
+    if deleted == 0 {
+        return Err("Extraction template not found".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn toggle_builtin_template(
+    state: State<AppState>,
+    field_key: String,
+    enabled: bool,
+) -> Result<ExtractionTemplate, String> {
+    let field_key = normalize_field_key(&field_key)?;
+    let template = crate::extractor::builtin_template_by_field_key(&field_key)
+        .ok_or_else(|| format!("Built-in extraction template '{}' was not found", field_key))?;
+
+    let mut state_map = load_builtin_extraction_state_map(state.settings.as_ref());
+    if enabled == template.default_enabled {
+        state_map.remove(template.field_key);
+    } else {
+        state_map.insert(template.field_key.to_string(), enabled);
+    }
+    save_builtin_extraction_state_map(state.settings.as_ref(), &state_map)?;
+
+    Ok(template.to_template(enabled))
+}
+
+#[tauri::command]
+pub fn get_document_metadata(
+    state: State<AppState>,
+    document_id: String,
+) -> Result<Vec<DocumentMetadataField>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    load_document_metadata_with_backfill_internal(conn, &state.app_dir, &document_id)
+}
+
+#[tauri::command]
+pub fn get_all_documents_metadata(
+    state: State<AppState>,
+    document_ids: Vec<String>,
+) -> Result<HashMap<String, Vec<DocumentMetadataField>>, String> {
+    let unique_ids = unique_document_ids(&document_ids);
+    if unique_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+    let mut metadata = HashMap::new();
+
+    for document_id in unique_ids {
+        let exists = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM documents WHERE id = ?1 AND deleted_at IS NULL
+                )",
+                [&document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())?
+            != 0;
+        if !exists {
+            continue;
+        }
+
+        let rows = load_document_metadata_with_backfill_internal(conn, &state.app_dir, &document_id)?;
+        if !rows.is_empty() {
+            metadata.insert(document_id, rows);
+        }
+    }
+
+    Ok(metadata)
+}
+
+#[tauri::command]
+pub fn delete_document_metadata_field(
+    state: State<AppState>,
+    document_id: String,
+    field_key: String,
+) -> Result<(), String> {
+    let normalized_field_key = normalize_field_key(&field_key)?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "DELETE FROM document_metadata WHERE document_id = ?1 AND field_key = ?2",
+        (&document_id, &normalized_field_key),
+    )
+    .map_err(|e| e.to_string())?;
+
+    rewrite_document_metadata_meta_json(conn, &state.app_dir, &document_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn extract_document_fields(
+    state: State<'_, AppState>,
+    document_id: String,
+    provider_id: Option<String>,
+    field_keys: Option<Vec<String>>,
+) -> Result<Vec<ExtractionResult>, String> {
+    let normalized_field_keys = normalize_requested_field_keys(field_keys)?;
+    extract_document_fields_internal(
+        state.inner(),
+        &state.app_dir,
+        &document_id,
+        provider_id.as_deref(),
+        normalized_field_keys.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn batch_extract_document_fields(
+    state: State<'_, AppState>,
+    document_ids: Vec<String>,
+    provider_id: Option<String>,
+    field_keys: Option<Vec<String>>,
+) -> Result<BatchActionReport, String> {
+    let normalized_field_keys = normalize_requested_field_keys(field_keys)?;
+    let unique_ids = unique_document_ids(&document_ids);
+    let mut failures = Vec::new();
+    let mut succeeded = 0usize;
+
+    for document_id in unique_ids.iter() {
+        match extract_document_fields_internal(
+            state.inner(),
+            &state.app_dir,
+            document_id,
+            provider_id.as_deref(),
+            normalized_field_keys.as_deref(),
+        )
+        .await
+        {
+            Ok(results) if results.iter().all(|result| result.error.is_some()) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: summarize_extraction_failures(&results),
+                });
+            }
+            Ok(_) => {
+                succeeded += 1;
+            }
+            Err(error) => {
+                failures.push(BatchActionFailure {
+                    document_id: document_id.clone(),
+                    reason: error,
+                });
+            }
+        }
+    }
+
+    Ok(BatchActionReport {
+        requested: unique_ids.len(),
+        succeeded,
+        failed: failures.len(),
+        failures,
+    })
 }
 
 #[tauri::command]

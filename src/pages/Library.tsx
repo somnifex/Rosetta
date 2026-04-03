@@ -11,6 +11,7 @@ import { LibraryToolbar } from "@/components/library/LibraryToolbar"
 import { LibraryBatchBar } from "@/components/library/LibraryBatchBar"
 import { DocumentCard } from "@/components/library/DocumentCard"
 import { DocumentList } from "@/components/library/DocumentList"
+import { ExtractFieldsDialog } from "@/components/library/ExtractFieldsDialog"
 import { LibraryEmptyState } from "@/components/library/LibraryEmptyState"
 import { FolderDialog } from "@/components/library/FolderDialog"
 import { DocumentInfoDialog } from "@/components/library/DocumentInfoDialog"
@@ -21,7 +22,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useLibrarySelection } from "@/hooks/useLibrarySelection"
 import { useLibraryViewState } from "@/hooks/useLibraryViewState"
 import { useToast } from "@/hooks/use-toast"
-import type { BatchActionReport, Document, Folder, PermanentDeleteReport } from "../../packages/types"
+import type {
+  BatchActionReport,
+  Document,
+  DocumentMetadataField,
+  Folder,
+  PermanentDeleteReport,
+} from "../../packages/types"
 import {
   Archive,
   BookOpen,
@@ -84,6 +91,14 @@ function getCurrentFolderChildren(folders: Folder[], selectedFolderId: string | 
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
+function summarizeDocumentMetadata(fields?: DocumentMetadataField[]) {
+  const fieldMap = new Map(fields?.map((field) => [field.field_key, field.field_value || ""]) || [])
+  const authors = fieldMap.get("authors") || undefined
+  const journal = fieldMap.get("journal") || undefined
+  const publicationDate = fieldMap.get("publication_date") || undefined
+  return { authors, journal, publicationDate }
+}
+
 export default function Library() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -106,6 +121,7 @@ export default function Library() {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState>(null)
+  const [batchExtractOpen, setBatchExtractOpen] = useState(false)
 
   const selection = useLibrarySelection()
   const handleDropFilesRef = useRef<(paths: string[]) => void>(() => {})
@@ -544,6 +560,21 @@ export default function Library() {
 
   const currentViewIds = filteredDocuments.map((document) => document.id)
   const selectedFolder = useMemo(() => folders.find((folder) => folder.id === selectedFolderId) || null, [folders, selectedFolderId])
+  const { data: documentMetadataBatch = {} } = useQuery({
+    queryKey: ["documentMetadataBatch", activeSection, currentViewIds],
+    queryFn: () => api.getAllDocumentsMetadata(currentViewIds),
+    enabled: activeSection === "library" && currentViewIds.length > 0,
+  })
+  const metadataSummaryById = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(documentMetadataBatch).map(([documentId, fields]) => [
+          documentId,
+          summarizeDocumentMetadata(fields),
+        ])
+      ),
+    [documentMetadataBatch]
+  )
 
   const handleSectionChange = (section: "library" | "trash") => {
     selection.clearSelection()
@@ -702,6 +733,7 @@ export default function Library() {
             onRestore={() => restoreMutation.mutate(selection.selectedIds)}
             onPermanentDelete={() => openPermanentDeleteConfirm(selection.selectedIds)}
             onBatchParse={() => batchParseMutation.mutate(selection.selectedIds)}
+            onBatchExtract={() => setBatchExtractOpen(true)}
             onBatchTranslate={() => {
               const provider = getActiveProviderForType(providers, "translate")
               if (!provider) {
@@ -904,6 +936,7 @@ export default function Library() {
                   selected={selection.isSelected(document.id)}
                   selectionMode={selection.selectionMode}
                   statusLabel={t(`statuses.${statusLabel(document)}` as any)}
+                  metadataSummary={metadataSummaryById[document.id]}
                   onOpen={() => setSelectedDocumentId(document.id)}
                   onToggleSelect={(shiftKey) => selection.toggleId(document.id, currentViewIds, shiftKey)}
                   onDelete={() => openDeleteConfirm([document.id])}
@@ -920,6 +953,7 @@ export default function Library() {
                 selectionMode={selection.selectionMode}
                 selectedIds={selection.selectedSet}
                 statusLabel={(document) => t(`statuses.${statusLabel(document)}` as any)}
+                metadataSummaryById={metadataSummaryById}
                 onOpen={(documentId) => setSelectedDocumentId(documentId)}
                 onToggleSelect={(documentId, shiftKey) => selection.toggleId(documentId, currentViewIds, shiftKey)}
                 onDelete={(documentId) => openDeleteConfirm([documentId])}
@@ -965,6 +999,15 @@ export default function Library() {
         documentId={activeSection === "library" ? selectedDocumentId : null}
         open={!!selectedDocumentId && activeSection === "library"}
         onOpenChange={(open) => { if (!open) setSelectedDocumentId(null) }}
+      />
+      <ExtractFieldsDialog
+        open={batchExtractOpen}
+        documentIds={selection.selectedIds}
+        onOpenChange={setBatchExtractOpen}
+        onCompleted={() => {
+          queryClient.invalidateQueries({ queryKey: ["documentMetadataBatch"] })
+          queryClient.invalidateQueries({ queryKey: ["documentMetadata"] })
+        }}
       />
     </div>
   )

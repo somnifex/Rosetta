@@ -12,6 +12,8 @@ import zhCNSearch from './locales/zh-CN/search'
 import zhCNTasks from './locales/zh-CN/tasks'
 import zhCNSettings from './locales/zh-CN/settings'
 import zhCNChat from './locales/zh-CN/chat'
+import zhCNSettingsExtraction from './locales/zh-CN/settings-extraction'
+import zhCNLibraryExtraction from './locales/zh-CN/library-extraction'
 
 // en
 import enCommon from './locales/en/common'
@@ -82,14 +84,14 @@ i18n
   .init({
     resources: {
       'zh-CN': {
-        common: zhCNCommon,
-        dashboard: zhCNDashboard,
-        library: zhCNLibrary,
-        document: zhCNDocument,
-        search: zhCNSearch,
-        tasks: zhCNTasks,
-        settings: zhCNSettings,
-        chat: zhCNChat,
+        common: mergeLocale(enCommon, zhCNCommon),
+        dashboard: mergeLocale(enDashboard, zhCNDashboard),
+        library: mergeLocale(mergeLocale(enLibrary, zhCNLibrary), zhCNLibraryExtraction),
+        document: mergeLocale(enDocument, zhCNDocument),
+        search: mergeLocale(enSearch, zhCNSearch),
+        tasks: mergeLocale(enTasks, zhCNTasks),
+        settings: mergeLocale(mergeLocale(enSettings, zhCNSettings), zhCNSettingsExtraction),
+        chat: mergeLocale(enChat, zhCNChat),
       },
       en: {
         common: enCommon,

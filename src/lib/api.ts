@@ -2,8 +2,12 @@ import type {
   BatchActionReport,
   Category,
   Chunk,
+  DocumentMetadataField,
   Document,
   DocumentOutput,
+  ExtractionResult,
+  ExtractionTemplate,
+  ExtractionTemplateInput,
   Folder,
   LlmSamplingConfig,
   MineruProcessedFile,
@@ -636,6 +640,52 @@ export const api = {
 
   getDocumentChunks: (documentId: string) =>
     safeInvoke<Chunk[]>("get_document_chunks", { documentId }),
+
+  getExtractionTemplates: () =>
+    safeInvoke<ExtractionTemplate[]>("get_extraction_templates"),
+  createExtractionTemplate: (input: ExtractionTemplateInput) =>
+    safeInvoke<ExtractionTemplate>("create_extraction_template", { input }),
+  updateExtractionTemplate: (id: string, input: ExtractionTemplateInput) =>
+    safeInvoke<ExtractionTemplate>("update_extraction_template", { id, input }),
+  deleteExtractionTemplate: (id: string) =>
+    safeInvoke<void>("delete_extraction_template", { id }),
+  toggleBuiltinTemplate: (fieldKey: string, enabled: boolean) =>
+    safeInvoke<ExtractionTemplate>("toggle_builtin_template", { fieldKey, enabled }),
+  getExtractionProviderId: () =>
+    safeInvoke<string | null>("get_app_setting", { key: "extraction.provider_id" }),
+  setExtractionProviderId: (providerId: string) =>
+    safeInvoke<void>("set_app_setting", {
+      key: "extraction.provider_id",
+      value: providerId,
+    }),
+  getDocumentMetadata: (documentId: string) =>
+    safeInvoke<DocumentMetadataField[]>("get_document_metadata", { documentId }),
+  getAllDocumentsMetadata: (documentIds: string[]) =>
+    safeInvoke<Record<string, DocumentMetadataField[]>>("get_all_documents_metadata", {
+      documentIds,
+    }),
+  deleteDocumentMetadataField: (documentId: string, fieldKey: string) =>
+    safeInvoke<void>("delete_document_metadata_field", { documentId, fieldKey }),
+  extractDocumentFields: (data: {
+    documentId: string
+    providerId?: string
+    fieldKeys?: string[]
+  }) =>
+    safeInvoke<ExtractionResult[]>("extract_document_fields", {
+      documentId: data.documentId,
+      providerId: data.providerId,
+      fieldKeys: data.fieldKeys,
+    }),
+  batchExtractDocumentFields: (data: {
+    documentIds: string[]
+    providerId?: string
+    fieldKeys?: string[]
+  }) =>
+    safeInvoke<BatchActionReport>("batch_extract_document_fields", {
+      documentIds: data.documentIds,
+      providerId: data.providerId,
+      fieldKeys: data.fieldKeys,
+    }),
 
   getProviders: async () => {
     await ensureLegacyProviderMigration()

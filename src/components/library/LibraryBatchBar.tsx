@@ -28,6 +28,7 @@ import {
   Languages,
   Library,
   MoreHorizontal,
+  Sparkles,
   Tag as TagIcon,
   Tags,
   Trash2,
@@ -49,6 +50,7 @@ interface LibraryBatchBarProps {
   onRestore: () => void
   onPermanentDelete: () => void
   onBatchParse: () => void
+  onBatchExtract: () => void
   onBatchTranslate: () => void
   onBatchIndex: () => void
   onBatchAddTags: (tagIds: string[]) => void
@@ -74,6 +76,7 @@ export function LibraryBatchBar({
   onRestore,
   onPermanentDelete,
   onBatchParse,
+  onBatchExtract,
   onBatchTranslate,
   onBatchIndex,
   onBatchAddTags,
@@ -118,6 +121,16 @@ export function LibraryBatchBar({
               >
                 <FileCode2 className="h-3.5 w-3.5" />
                 {t("batch.parse")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={onBatchExtract}
+                disabled={selectedCount === 0}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {t("batch.extract")}
               </Button>
               <Button
                 variant="outline"

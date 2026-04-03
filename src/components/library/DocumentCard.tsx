@@ -97,6 +97,11 @@ interface DocumentCardProps {
   selected: boolean
   selectionMode: boolean
   statusLabel: string
+  metadataSummary?: {
+    authors?: string
+    publicationDate?: string
+    journal?: string
+  }
   onOpen: () => void
   onToggleSelect: (shiftKey: boolean) => void
   onDelete: () => void
@@ -110,6 +115,7 @@ export function DocumentCard({
   selected,
   selectionMode,
   statusLabel,
+  metadataSummary,
   onOpen,
   onToggleSelect,
   onDelete,
@@ -121,6 +127,8 @@ export function DocumentCard({
   const ctx = useDocumentContextMenu()
   const { t } = useTranslation("library")
   const [renameOpen, setRenameOpen] = useState(false)
+  const metadataSubtitle = metadataSummary?.authors || metadataSummary?.journal || ""
+  const publicationYear = metadataSummary?.publicationDate?.slice(0, 4) || ""
 
   return (
     <>
@@ -232,6 +240,17 @@ export function DocumentCard({
             <span className="shrink-0">{formatDate(inTrash ? document.deleted_at : document.updated_at)}</span>
             <span className="shrink-0">{formatBytes(document.file_size)}</span>
           </div>
+
+          {(metadataSubtitle || publicationYear) && (
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="truncate flex-1">{metadataSubtitle}</span>
+              {publicationYear ? (
+                <Badge variant="secondary" className="rounded-full px-1.5 py-0 font-normal text-[10px] shadow-none">
+                  {publicationYear}
+                </Badge>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </article>

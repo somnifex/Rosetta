@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const GeneralTab = lazy(() => import("./GeneralTab"))
 const TranslationTab = lazy(() => import("./TranslationTab"))
+const ExtractionTab = lazy(() => import("./ExtractionTab"))
 const ProvidersTab = lazy(() => import("./ProvidersTab"))
 const MineruTab = lazy(() => import("./MineruTab"))
 const WebDAVTab = lazy(() => import("./WebDAVTab"))
@@ -18,7 +19,7 @@ export default function Settings() {
   const tabFromQuery = searchParams.get("tab") || "general"
   const settingFromQuery = searchParams.get("setting") || ""
   const validTabs = useMemo(
-    () => new Set(["general", "translation", "providers", "mineru", "webdav", "rag", "logs"]),
+    () => new Set(["general", "translation", "extraction", "providers", "mineru", "webdav", "rag", "logs"]),
     []
   )
 
@@ -65,6 +66,7 @@ export default function Settings() {
         <TabsList>
           <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
           <TabsTrigger value="translation">{t("tabs.translation")}</TabsTrigger>
+          <TabsTrigger value="extraction">{t("tabs.extraction")}</TabsTrigger>
           <TabsTrigger value="providers">{t("tabs.providers")}</TabsTrigger>
           <TabsTrigger value="mineru">{t("tabs.mineru")}</TabsTrigger>
           <TabsTrigger value="webdav">{t("tabs.webdav")}</TabsTrigger>
@@ -77,6 +79,9 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="translation">
           <Suspense fallback={null}><TranslationTab /></Suspense>
+        </TabsContent>
+        <TabsContent value="extraction">
+          <Suspense fallback={null}><ExtractionTab /></Suspense>
         </TabsContent>
         <TabsContent value="providers">
           <Suspense fallback={null}><ProvidersTab /></Suspense>
