@@ -70,20 +70,38 @@ export default {
     autostart_desc: "Inicia Rosetta automáticamente cuando arranca el sistema",
     start_silent: "Iniciar minimizado",
     start_silent_desc: "Se inicia minimizado en la bandeja del sistema sin mostrar la ventana principal",
+    check_updates_on_startup: "Buscar actualizaciones al iniciar",
+    check_updates_on_startup_desc:
+      "Comprueba automáticamente si hay una nueva versión de Rosetta al iniciar la aplicación",
+    auto_update: "Actualizar automáticamente",
+    auto_update_desc:
+      "Si la comprobación al iniciar encuentra una nueva versión, se descargará e instalará automáticamente. Si es necesario reiniciar la aplicación, primero se mostrará un cuadro de confirmación.",
     chat_behavior_saved: "Configuración de comportamiento del chat guardada",
     chat_behavior_save_error: "No se pudo guardar la configuración de comportamiento del chat",
     update: "Buscar actualizaciones",
     update_desc: "Comprueba si hay una versión más reciente de Rosetta",
     update_checking: "Buscando actualizaciones...",
     update_available: "Hay una nueva versión {{version}} disponible",
+    update_available_desc:
+      "Abre Configuración para revisar las notas de la versión e instalar la actualización.",
     update_downloading: "Descargando actualización... {{progress}}%",
     update_installing: "Instalando actualización...",
+    update_ready_to_restart:
+      "La versión {{version}} está lista. Reinicia la aplicación para terminar de aplicar la actualización.",
     update_up_to_date: "Ya estás usando la versión más reciente",
     update_error: "No se pudo buscar actualizaciones",
     update_btn_check: "Buscar ahora",
     update_btn_download: "Descargar e instalar",
+    update_btn_restart: "Reiniciar ahora",
     update_notes: "Notas de la versión",
     current_version: "Versión actual",
+    update_ready_title: "Actualización lista",
+    update_ready_desc:
+      "La versión {{version}} se ha instalado y se aplicará después de reiniciar la aplicación.",
+    update_restart_confirm_title: "Reiniciar para aplicar la actualización",
+    update_restart_confirm_desc:
+      "Rosetta necesita reiniciarse para terminar de aplicar la versión {{version}}. ¿Reiniciar ahora?",
+    update_restart_error: "No se pudo reiniciar la aplicación",
   },
   providers: {
     failover: {

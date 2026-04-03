@@ -70,20 +70,38 @@ export default {
     autostart_desc: "Démarrer Rosetta automatiquement au démarrage du système",
     start_silent: "Démarrage silencieux",
     start_silent_desc: "Démarrer minimisé dans la barre des tâches sans afficher la fenêtre principale",
+    check_updates_on_startup: "Vérifier les mises à jour au démarrage",
+    check_updates_on_startup_desc:
+      "Vérifie automatiquement si une nouvelle version de Rosetta est disponible au lancement de l'application",
+    auto_update: "Mettre à jour automatiquement",
+    auto_update_desc:
+      "Si la vérification au démarrage trouve une nouvelle version, elle sera téléchargée et installée automatiquement. Si un redémarrage est nécessaire, une boîte de dialogue de confirmation s'affichera d'abord.",
     chat_behavior_saved: "Paramètres de comportement du chat enregistrés",
     chat_behavior_save_error: "Impossible d'enregistrer les paramètres de comportement du chat",
     update: "Vérifier les mises à jour",
     update_desc: "Vérifier si une nouvelle version de Rosetta est disponible",
     update_checking: "Vérification des mises à jour...",
     update_available: "Nouvelle version {{version}} disponible",
+    update_available_desc:
+      "Ouvrez les paramètres pour consulter les notes de version et installer la mise à jour.",
     update_downloading: "Téléchargement de la mise à jour... {{progress}}%",
     update_installing: "Installation de la mise à jour...",
+    update_ready_to_restart:
+      "La version {{version}} est prête. Redémarrez l'application pour terminer l'installation de la mise à jour.",
     update_up_to_date: "Vous utilisez la dernière version",
     update_error: "Échec de la vérification des mises à jour",
     update_btn_check: "Vérifier maintenant",
     update_btn_download: "Télécharger et installer",
+    update_btn_restart: "Redémarrer maintenant",
     update_notes: "Notes de version",
     current_version: "Version actuelle",
+    update_ready_title: "Mise à jour prête",
+    update_ready_desc:
+      "La version {{version}} a été installée et sera appliquée après le redémarrage de l'application.",
+    update_restart_confirm_title: "Redémarrer pour appliquer la mise à jour",
+    update_restart_confirm_desc:
+      "Rosetta doit redémarrer pour terminer l'application de la version {{version}}. Redémarrer maintenant ?",
+    update_restart_error: "Impossible de redémarrer l'application",
   },
   providers: {
     failover: {

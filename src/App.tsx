@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { SUPPORTED_LOCALES } from "@/i18n"
+import { AppUpdaterProvider } from "@/components/AppUpdaterProvider"
 import { Toaster } from "@/components/ui/toaster"
 import Layout from "@/components/Layout"
 import { applyAppTheme, getStoredTheme, THEME_CHANGE_EVENT } from "@/lib/theme"
@@ -80,19 +81,21 @@ function App() {
         <DirectionSetter />
         <BrowserBehaviorGuard />
         <ThemeController />
-        <Router>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/chat" element={<Chat />} />
-              <Route path="/library" element={<Library />} />
-              <Route path="/document/:id" element={<DocumentDetail />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
-          </Layout>
-        </Router>
+        <AppUpdaterProvider>
+          <Router>
+            <Layout>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/library" element={<Library />} />
+                <Route path="/document/:id" element={<DocumentDetail />} />
+                <Route path="/search" element={<Search />} />
+                <Route path="/tasks" element={<Tasks />} />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </Layout>
+          </Router>
+        </AppUpdaterProvider>
         <Toaster />
       </QueryClientProvider>
     </Suspense>

@@ -70,20 +70,38 @@ export default {
     autostart_desc: "تشغيل Rosetta تلقائياً عند بدء تشغيل النظام",
     start_silent: "بدء صامت",
     start_silent_desc: "البدء مصغراً في شريط المهام دون إظهار النافذة الرئيسية",
+    check_updates_on_startup: "التحقق من التحديثات عند التشغيل",
+    check_updates_on_startup_desc:
+      "يتحقق تلقائياً مما إذا كان هناك إصدار أحدث من Rosetta عند تشغيل التطبيق",
+    auto_update: "التحديث التلقائي",
+    auto_update_desc:
+      "إذا عثر التحقق عند التشغيل على إصدار جديد، فسيتم تنزيله وتثبيته تلقائياً. وإذا كان يلزم إعادة تشغيل التطبيق، فسيظهر مربع تأكيد أولاً.",
     chat_behavior_saved: "تم حفظ إعدادات سلوك المحادثة",
     chat_behavior_save_error: "تعذر حفظ إعدادات سلوك المحادثة",
     update: "التحقق من التحديثات",
     update_desc: "التحقق مما إذا كان إصدار أحدث من Rosetta متاحاً",
     update_checking: "جارٍ التحقق من التحديثات...",
     update_available: "إصدار جديد {{version}} متاح",
+    update_available_desc:
+      "افتح الإعدادات لمراجعة ملاحظات الإصدار وتثبيت التحديث.",
     update_downloading: "جارٍ تنزيل التحديث... {{progress}}%",
     update_installing: "جارٍ تثبيت التحديث...",
+    update_ready_to_restart:
+      "أصبح الإصدار {{version}} جاهزاً. أعد تشغيل التطبيق لإكمال تطبيق التحديث.",
     update_up_to_date: "أنت تستخدم أحدث إصدار",
     update_error: "فشل التحقق من التحديثات",
     update_btn_check: "تحقق الآن",
     update_btn_download: "تنزيل وتثبيت",
+    update_btn_restart: "إعادة التشغيل الآن",
     update_notes: "ملاحظات الإصدار",
     current_version: "الإصدار الحالي",
+    update_ready_title: "التحديث جاهز",
+    update_ready_desc:
+      "تم تثبيت الإصدار {{version}} وسيبدأ العمل بعد إعادة تشغيل التطبيق.",
+    update_restart_confirm_title: "إعادة التشغيل لتطبيق التحديث",
+    update_restart_confirm_desc:
+      "يحتاج Rosetta إلى إعادة التشغيل لإكمال تطبيق الإصدار {{version}}. هل تريد إعادة التشغيل الآن؟",
+    update_restart_error: "تعذر إعادة تشغيل التطبيق",
   },
   providers: {
     failover: {

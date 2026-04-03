@@ -70,20 +70,37 @@ export default {
     autostart_desc: "系统启动时自动运行 Rosetta",
     start_silent: "启动后静默运行",
     start_silent_desc: "启动后最小化到系统托盘，不显示主窗口",
+    check_updates_on_startup: "\u542f\u52a8\u65f6\u68c0\u67e5\u66f4\u65b0",
+    check_updates_on_startup_desc:
+      "\u5e94\u7528\u542f\u52a8\u65f6\u81ea\u52a8\u68c0\u67e5\u662f\u5426\u6709\u65b0\u7248\u672c\u7684 Rosetta",
+    auto_update: "\u81ea\u52a8\u66f4\u65b0",
+    auto_update_desc:
+      "\u82e5\u542f\u52a8\u68c0\u66f4\u65f6\u53d1\u73b0\u65b0\u7248\u672c\uff0c\u5219\u81ea\u52a8\u4e0b\u8f7d\u5e76\u5b89\u88c5\u3002\u5982\u9700\u91cd\u542f\u5e94\u7528\uff0c\u4f1a\u5148\u5f39\u51fa\u786e\u8ba4\u5bf9\u8bdd\u6846\u3002",
     chat_behavior_saved: "对话行为设置已保存",
     chat_behavior_save_error: "保存对话行为设置失败",
     update: "检查更新",
     update_desc: "检查是否有新版本的 Rosetta 可用",
     update_checking: "正在检查更新...",
     update_available: "发现新版本 {{version}}",
+    update_available_desc: "\u8bf7\u6253\u5f00\u8bbe\u7f6e\u67e5\u770b\u66f4\u65b0\u65e5\u5fd7\u5e76\u5b89\u88c5\u66f4\u65b0\u3002",
     update_downloading: "正在下载更新... {{progress}}%",
     update_installing: "正在安装更新...",
+    update_ready_to_restart:
+      "\u7248\u672c {{version}} \u5df2\u51c6\u5907\u5c31\u7eea\uff0c\u91cd\u542f\u5e94\u7528\u540e\u5373\u53ef\u5b8c\u6210\u66f4\u65b0\u3002",
     update_up_to_date: "当前已是最新版本",
     update_error: "检查更新失败",
     update_btn_check: "立即检查",
     update_btn_download: "下载并安装",
+    update_btn_restart: "\u7acb\u5373\u91cd\u542f",
     update_notes: "更新日志",
     current_version: "当前版本",
+    update_ready_title: "\u66f4\u65b0\u5df2\u5c31\u7eea",
+    update_ready_desc:
+      "\u7248\u672c {{version}} \u5df2\u5b89\u88c5\u5b8c\u6210\uff0c\u91cd\u542f\u5e94\u7528\u540e\u751f\u6548\u3002",
+    update_restart_confirm_title: "\u91cd\u542f\u4ee5\u5e94\u7528\u66f4\u65b0",
+    update_restart_confirm_desc:
+      "Rosetta \u9700\u8981\u91cd\u542f\u624d\u80fd\u5b8c\u6210\u7248\u672c {{version}} \u7684\u66f4\u65b0\uff0c\u73b0\u5728\u91cd\u542f\u5417\uff1f",
+    update_restart_error: "\u91cd\u542f\u5e94\u7528\u5931\u8d25",
   },
   providers: {
     failover: {
