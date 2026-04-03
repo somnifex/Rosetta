@@ -1484,6 +1484,15 @@ export default function Chat() {
                           </pre>
                         </div>
                       )
+                    ) : previewRenderablePdf ? (
+                      <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
+                        <PdfViewer
+                          fileUrl={previewRenderablePdf}
+                          fileName={previewDocument?.filename}
+                          showZoomControls={false}
+                          className="h-full"
+                        />
+                      </div>
                     ) : previewParsedMarkdown ? (
                       <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
                         <MarkdownViewer
@@ -1493,15 +1502,6 @@ export default function Chat() {
                           textScale={0.92}
                           className="h-full px-2 py-3"
                           contentClassName="prose-headings:tracking-tight prose-p:text-[0.98em]"
-                        />
-                      </div>
-                    ) : previewRenderablePdf ? (
-                      <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
-                        <PdfViewer
-                          fileUrl={previewRenderablePdf}
-                          fileName={previewDocument?.filename}
-                          showZoomControls={false}
-                          className="h-full"
                         />
                       </div>
                     ) : previewMarkdownContent ? (

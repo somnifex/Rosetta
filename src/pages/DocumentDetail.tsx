@@ -84,10 +84,12 @@ export default function DocumentDetail() {
   const parseReady = document?.parse_status === "completed"
   const hasParsedMarkdown = !!parsedContent?.markdown_content?.trim()
   const originalPdf = document && document.filename.toLowerCase().endsWith(".pdf") && !document.is_file_missing ? document.file_path : null
-  const originalPaneUsesPdf = !hasParsedMarkdown && !!originalPdf
+  const requestedOriginalView = searchParams.get("originalView") === "parsed" ? "parsed" : "pdf"
+  const originalPaneUsesParsedLayout = requestedOriginalView === "parsed" && hasParsedMarkdown
+  const originalPaneUsesPdf = !originalPaneUsesParsedLayout && !!originalPdf
   const translationReady = document?.translation_status === "completed"
   const compareReady = hasParsedMarkdown && !!translatedContent?.content
-  const originalContentLoading = parseReady && isParsedContentFetching
+  const originalContentLoading = parseReady && originalPaneUsesParsedLayout && isParsedContentFetching
   const translatedContentLoading = translationReady && !translatedPdf && isTranslatedContentFetching
   const compareContentLoading = parseReady && translationReady && (isParsedContentFetching || isTranslatedContentFetching)
   const prefersPlainTextLayout = !!document?.filename.toLowerCase().endsWith(".txt")
@@ -115,6 +117,18 @@ export default function DocumentDetail() {
     }
     setTextScale(scale)
   }, [originalPaneUsesPdf, readerState.baseMode, setOriginalScale, setTextScale, setTranslatedScale, translatedPdf])
+
+  const handleOriginalViewChange = useCallback((view: "pdf" | "parsed") => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (view === "parsed") {
+        next.set("originalView", "parsed")
+      } else {
+        next.delete("originalView")
+      }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const handleAsk = useCallback((text: string) => {
     setPrefillText(`请结合当前文档解释这段内容：\n\n${text}`)
@@ -235,6 +249,9 @@ export default function DocumentDetail() {
         onScaleChange={handleToolbarScaleChange}
         showScaleControls={true}
         showPageControls={false}
+        originalView={originalPaneUsesParsedLayout ? "parsed" : "pdf"}
+        onOriginalViewChange={handleOriginalViewChange}
+        showOriginalViewToggle={readerState.baseMode === "original" && !!originalPdf && hasParsedMarkdown}
         modeDisabled={{
           translated: !translationReady && !translatedPdf,
           compare: !compareReady,

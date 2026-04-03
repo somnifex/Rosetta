@@ -374,10 +374,14 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
     return typeof result === "string" ? result : null
   }
 
-  const openReader = (mode?: string) => {
+  const openReader = (mode?: string, originalView?: "pdf" | "parsed") => {
     if (!documentId) return
     onOpenChange(false)
-    navigate(mode ? `/document/${documentId}?mode=${mode}` : `/document/${documentId}`, {
+    const params = new URLSearchParams()
+    if (mode) params.set("mode", mode)
+    if (originalView === "parsed") params.set("originalView", "parsed")
+    const query = params.toString()
+    navigate(query ? `/document/${documentId}?${query}` : `/document/${documentId}`, {
       state: {
         source: "library",
         documentId,
@@ -481,6 +485,12 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       icon: Eye,
       onClick: () => openReader("original"),
       disabled: !isPdf && !parseReady,
+    },
+    {
+      title: "Layout",
+      icon: FileCode2,
+      onClick: () => openReader("original", "parsed"),
+      disabled: !parseReady,
     },
     {
       title: "查看翻译",
@@ -604,7 +614,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
               {/* ── Reading Entries (horizontal) ── */}
               <div className="border-b border-border px-6 py-5">
                 <h3 className="mb-3 text-sm font-semibold text-foreground">阅读入口</h3>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                   {readingActions.map((action) => {
                     const Icon = action.icon
                     return (

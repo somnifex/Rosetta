@@ -3,6 +3,7 @@ import type { ReaderBaseMode } from "@/hooks/useReaderState"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ReaderModeSwitcher } from "@/components/document-reader/ReaderModeSwitcher"
+import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
   ChevronLeft,
@@ -30,6 +31,9 @@ interface ReaderToolbarProps {
   pageControlsDisabled?: boolean
   showScaleControls?: boolean
   showPageControls?: boolean
+  originalView?: "pdf" | "parsed"
+  onOriginalViewChange?: (view: "pdf" | "parsed") => void
+  showOriginalViewToggle?: boolean
   modeDisabled?: Partial<Record<ReaderBaseMode | "ask", boolean>>
 }
 
@@ -49,6 +53,9 @@ export function ReaderToolbar({
   pageControlsDisabled = false,
   showScaleControls = true,
   showPageControls = true,
+  originalView = "pdf",
+  onOriginalViewChange,
+  showOriginalViewToggle = false,
   modeDisabled,
 }: ReaderToolbarProps) {
   const [fullScreen, setFullScreen] = useState(false)
@@ -120,6 +127,35 @@ export function ReaderToolbar({
           onAskToggle={onAskToggle}
           disabled={modeDisabled}
         />
+
+        {showOriginalViewToggle ? (
+          <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 p-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "rounded-xl px-3 text-xs sm:text-sm",
+                originalView === "pdf" &&
+                  "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+              )}
+              onClick={() => onOriginalViewChange?.("pdf")}
+            >
+              PDF
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "rounded-xl px-3 text-xs sm:text-sm",
+                originalView === "parsed" &&
+                  "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+              )}
+              onClick={() => onOriginalViewChange?.("parsed")}
+            >
+              Layout
+            </Button>
+          </div>
+        ) : null}
 
         {showPageControls ? (
           <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
