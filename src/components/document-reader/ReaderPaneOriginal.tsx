@@ -1,9 +1,11 @@
-import { useRef } from "react"
+import { useMemo, useRef } from "react"
 import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
+import { MineruLayoutViewer } from "@/components/viewer/MineruLayoutViewer"
 import { PdfViewer } from "@/components/viewer/PdfViewer"
 import { TextSelectionToolbar } from "@/components/viewer/TextSelectionToolbar"
 import { FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { parseMineruLayout } from "@/lib/mineru-layout"
 
 interface ReaderPaneOriginalProps {
   pdfPath?: string | null
@@ -11,6 +13,7 @@ interface ReaderPaneOriginalProps {
   pdfScale?: number
   onPdfScaleChange?: (scale: number) => void
   markdownContent?: string | null
+  layoutJson?: string | null
   markdownBaseDir?: string | null
   contentFormat?: "markdown" | "plain"
   textScale: number
@@ -25,6 +28,7 @@ export function ReaderPaneOriginal({
   pdfScale,
   onPdfScaleChange,
   markdownContent,
+  layoutJson,
   markdownBaseDir,
   contentFormat = "markdown",
   textScale,
@@ -33,6 +37,7 @@ export function ReaderPaneOriginal({
   className,
 }: ReaderPaneOriginalProps) {
   const viewerContainerRef = useRef<HTMLDivElement>(null)
+  const layoutPages = useMemo(() => parseMineruLayout(layoutJson), [layoutJson])
 
   return (
     <section className={cn("relative flex h-full min-w-0 flex-col overflow-hidden", className)}>
@@ -56,14 +61,23 @@ export function ReaderPaneOriginal({
           />
 
           <div ref={viewerContainerRef} className="flex-1 min-h-0 overflow-hidden">
-            <MarkdownViewer
-              content={markdownContent}
-              contentFormat={contentFormat}
-              assetBaseDir={markdownBaseDir}
-              textScale={textScale}
-              className="h-full"
-              contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"
-            />
+            {layoutPages?.length ? (
+              <MineruLayoutViewer
+                pages={layoutPages}
+                assetBaseDir={markdownBaseDir}
+                textScale={textScale}
+                className="h-full"
+              />
+            ) : (
+              <MarkdownViewer
+                content={markdownContent}
+                contentFormat={contentFormat}
+                assetBaseDir={markdownBaseDir}
+                textScale={textScale}
+                className="h-full"
+                contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"
+              />
+            )}
           </div>
         </>
       ) : (

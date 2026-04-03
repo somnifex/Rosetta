@@ -274,6 +274,7 @@ export default function DocumentDetail() {
                     pdfScale={readerState.originalScale}
                     onPdfScaleChange={setOriginalScale}
                     markdownContent={parsedContent?.markdown_content}
+                    layoutJson={parsedContent?.json_content}
                     markdownBaseDir={parsedContent?.asset_base_dir}
                     contentFormat={fallbackContentFormat}
                     textScale={readerState.textScale}

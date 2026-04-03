@@ -1,6 +1,8 @@
 import ReactMarkdown from "react-markdown"
+import rehypeKatex from "rehype-katex"
 import rehypeRaw from "rehype-raw"
 import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
 import { cn } from "@/lib/utils"
 import {
   resolveMarkdownAssetPath,
@@ -41,8 +43,8 @@ export function MarkdownRenderer({
   return (
     <div className={cn("reader-prose prose prose-slate max-w-none dark:prose-invert", className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={{
           a({ href, children, ...props }: any) {
             const resolvedHref = resolveMarkdownAssetUrl(href, assetBaseDir) ?? href
@@ -90,7 +92,30 @@ export function MarkdownRenderer({
           },
           img({ src, alt, ...props }: any) {
             const resolvedSrc = resolveMarkdownAssetUrl(src, assetBaseDir) ?? src
-            return <img src={resolvedSrc} alt={alt ?? ""} loading="lazy" {...props} />
+            return (
+              <span className="reader-figure">
+                <img src={resolvedSrc} alt={alt ?? ""} loading="lazy" {...props} />
+              </span>
+            )
+          },
+          blockquote({ className, children, ...props }: any) {
+            return (
+              <blockquote className={cn("reader-callout", className)} {...props}>
+                {children}
+              </blockquote>
+            )
+          },
+          hr({ className, ...props }: any) {
+            return <hr className={cn("reader-rule", className)} {...props} />
+          },
+          table({ className, children, ...props }: any) {
+            return (
+              <div className="reader-table-wrap">
+                <table className={className} {...props}>
+                  {children}
+                </table>
+              </div>
+            )
           },
           code({ inline, className, children, ...props }: any) {
             if (inline) {

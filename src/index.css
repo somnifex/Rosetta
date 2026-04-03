@@ -253,6 +253,7 @@
   .reader-prose {
     color: hsl(var(--foreground));
     line-height: 1.85;
+    text-wrap: pretty;
   }
 
   .reader-prose > :first-child,
@@ -276,6 +277,7 @@
   .reader-prose h1 {
     font-size: 2.15em;
     letter-spacing: -0.04em;
+    line-height: 1.14;
   }
 
   .reader-prose h2 {
@@ -290,10 +292,52 @@
     letter-spacing: -0.02em;
   }
 
+  .reader-prose h4 {
+    margin-top: 1.45em;
+    font-size: 1.12em;
+    letter-spacing: -0.01em;
+  }
+
   .reader-prose p,
   .reader-prose li,
   .reader-prose blockquote {
     font-size: 1.04em;
+  }
+
+  .reader-prose p {
+    color: hsl(var(--foreground) / 0.94);
+  }
+
+  .reader-prose strong {
+    color: hsl(var(--foreground));
+    font-weight: 650;
+  }
+
+  .reader-prose em {
+    color: hsl(var(--foreground) / 0.88);
+  }
+
+  .reader-prose ul,
+  .reader-prose ol {
+    margin: 1.25em 0;
+    padding-left: 1.4em;
+  }
+
+  .reader-prose li {
+    padding-left: 0.22em;
+  }
+
+  .reader-prose li + li {
+    margin-top: 0.4em;
+  }
+
+  .reader-prose li::marker {
+    color: hsl(var(--muted-foreground) / 0.9);
+  }
+
+  .reader-prose input[type="checkbox"] {
+    accent-color: hsl(var(--primary));
+    transform: translateY(1px);
   }
 
   .reader-prose a {
@@ -318,9 +362,19 @@
     font-size: 0.9em;
   }
 
+  .reader-prose code::before,
+  .reader-prose code::after {
+    content: none !important;
+  }
+
   .reader-prose pre {
     border: 1px solid hsl(var(--border) / 0.3);
     background: hsl(var(--muted) / 0.85);
+    overflow-x: auto;
+    border-radius: 1.25rem;
+    box-shadow:
+      0 16px 38px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.36);
   }
 
   .dark .reader-prose pre {
@@ -333,6 +387,8 @@
     border: 0;
     background: transparent;
     padding: 0;
+    font-size: 0.95em;
+    line-height: 1.72;
   }
 
   .reader-prose blockquote {
@@ -343,20 +399,40 @@
     padding: 0.2rem 0 0.2rem 1rem;
   }
 
+  .reader-callout > :first-child {
+    margin-top: 0;
+  }
+
+  .reader-callout > :last-child {
+    margin-bottom: 0;
+  }
+
   .reader-prose table {
-    display: block;
+    display: table;
     width: 100%;
-    overflow-x: auto;
     border-collapse: collapse;
     border-spacing: 0;
     font-size: 0.95em;
+    margin: 0;
+    min-width: 100%;
+  }
+
+  .reader-table-wrap {
+    margin: 1.5em 0;
+    overflow-x: auto;
+    border: 1px solid hsl(var(--border) / 0.78);
+    border-radius: 1.1rem;
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.98), hsl(var(--muted) / 0.28));
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
   }
 
   .reader-prose th,
   .reader-prose td {
     border: 1px solid hsl(var(--border) / 0.7);
     padding: 0.72rem 0.9rem;
-    white-space: nowrap;
+    white-space: normal;
+    vertical-align: top;
   }
 
   .reader-prose th {
@@ -364,9 +440,56 @@
     font-weight: 600;
   }
 
+  .reader-prose tbody tr:nth-child(even) td {
+    background: hsl(var(--muted) / 0.24);
+  }
+
   .reader-prose img {
+    display: block;
+    margin-inline: auto;
     border-radius: 1rem;
+    border: 1px solid hsl(var(--border) / 0.7);
     box-shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
+  }
+
+  .reader-figure {
+    display: block;
+    margin: 1.45em 0;
+  }
+
+  .reader-rule {
+    border: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--border) / 0.95) 18%,
+      hsl(var(--border) / 0.95) 82%,
+      transparent
+    );
+  }
+
+  .reader-prose .katex {
+    font-size: 1.03em;
+  }
+
+  .reader-prose .katex-display {
+    margin: 1.6em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 1rem 1.2rem;
+    border: 1px solid hsl(var(--border) / 0.78);
+    border-radius: 1.1rem;
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.98), hsl(var(--muted) / 0.34));
+    box-shadow:
+      0 12px 30px rgba(15, 23, 42, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  }
+
+  .reader-prose .katex-display > .katex {
+    display: inline-block;
+    min-width: max-content;
   }
 
   .reader-plain-text {
@@ -422,8 +545,125 @@
     user-select: text;
   }
 
+  .mineru-layout-surface {
+    background:
+      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.3) 100%),
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.04), transparent 42%);
+  }
+
+  .mineru-layout-stack {
+    padding-inline: clamp(6px, 2vw, 22px);
+  }
+
+  .mineru-layout-page {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(251, 251, 249, 0.99));
+    color: #171717;
+  }
+
+  .mineru-layout-page::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow:
+      inset 0 0 0 1px rgba(15, 23, 42, 0.04),
+      inset 0 22px 28px rgba(255, 255, 255, 0.42);
+  }
+
+  .mineru-layout-page-canvas {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    color: inherit;
+    user-select: text;
+  }
+
+  .mineru-layout-block {
+    color: inherit;
+    overflow-wrap: anywhere;
+  }
+
+  .mineru-layout-line {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .mineru-layout-title {
+    letter-spacing: -0.03em;
+  }
+
+  .mineru-layout-caption {
+    color: rgba(51, 65, 85, 0.92);
+  }
+
+  .mineru-layout-chrome {
+    color: rgba(71, 85, 105, 0.82);
+  }
+
+  .mineru-layout-discarded {
+    opacity: 0.85;
+  }
+
+  .mineru-layout-inline-equation {
+    font-size: 0.78em;
+    line-height: 1;
+  }
+
+  .mineru-layout-media-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    white-space: normal;
+  }
+
+  .mineru-layout-media-shell,
+  .mineru-layout-html {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 10px;
+    background: hsl(var(--muted) / 0.4);
+  }
+
+  .mineru-layout-media {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .mineru-layout-caption-copy {
+    flex: 0 0 auto;
+  }
+
+  .mineru-layout-html {
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .mineru-layout-html table {
+    width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+    font-size: 0.76em;
+    line-height: 1.28;
+  }
+
+  .mineru-layout-html td,
+  .mineru-layout-html th {
+    border: 1px solid hsl(var(--border) / 0.72);
+    padding: 0.42rem 0.46rem;
+    vertical-align: top;
+  }
+
+  .mineru-layout-html th {
+    background: hsl(var(--muted) / 0.7);
+    font-weight: 600;
+  }
+
   .dark .reader-doc-surface,
-  .dark .rosetta-pdf-shell {
+  .dark .rosetta-pdf-shell,
+  .dark .mineru-layout-surface {
     background: hsl(var(--background));
   }
 
@@ -456,6 +696,57 @@
 
   .dark .reader-prose th {
     background: hsl(var(--muted) / 0.7);
+  }
+
+  .dark .reader-table-wrap {
+    border-color: hsl(var(--border) / 0.9);
+    background:
+      linear-gradient(180deg, hsl(226 9% 12%), hsl(228 10% 10%));
+    box-shadow:
+      0 16px 34px rgba(0, 0, 0, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .dark .reader-prose tbody tr:nth-child(even) td {
+    background: hsl(var(--muted) / 0.38);
+  }
+
+  .dark .reader-prose img {
+    border-color: hsl(var(--border) / 0.95);
+  }
+
+  .dark .reader-rule {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--border) / 0.98) 18%,
+      hsl(var(--border) / 0.98) 82%,
+      transparent
+    );
+  }
+
+  .dark .reader-prose .katex-display {
+    border-color: hsl(var(--border) / 0.92);
+    background:
+      linear-gradient(180deg, hsl(226 9% 12%), hsl(228 10% 9%));
+    box-shadow:
+      0 16px 34px rgba(0, 0, 0, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .dark .mineru-layout-page {
+    background:
+      linear-gradient(180deg, rgba(252, 252, 251, 0.99), rgba(247, 247, 245, 0.99));
+    color: #171717;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 28px 70px rgba(0, 0, 0, 0.3),
+      0 1px 0 rgba(255, 255, 255, 0.22) inset;
+  }
+
+  .dark .mineru-layout-media-shell,
+  .dark .mineru-layout-html {
+    background: rgba(148, 163, 184, 0.09);
   }
 
   .dark .rosetta-pdf-shell .react-pdf__Page {
