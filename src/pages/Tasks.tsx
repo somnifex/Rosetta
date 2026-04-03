@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
@@ -96,10 +97,10 @@ function TypeIcon({ type }: { type: "parse" | "translation" | "index" }) {
   }
 }
 
-function formatDuration(startedAt: string | null, completedAt: string | null): string {
+function formatDuration(startedAt: string | null, completedAt: string | null, now: number): string {
   if (!startedAt) return "-"
   const start = new Date(startedAt).getTime()
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now()
+  const end = completedAt ? new Date(completedAt).getTime() : now
   const seconds = Math.floor((end - start) / 1000)
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
@@ -120,6 +121,7 @@ export default function Tasks() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const ctx = useDocumentContextMenu()
+  const [now, setNow] = useState(() => Date.now())
 
   const invalidateTaskQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["parseJobs"] })
@@ -279,9 +281,26 @@ export default function Tasks() {
     ["pending", "parsing", "translating", "indexing"].includes(t.status)
   )
 
+  const hasRunningTasks = allTasks.some((t) =>
+    Boolean(t.startedAt) && !t.completedAt && ["parsing", "translating", "indexing"].includes(t.status)
+  )
+
   const activeCount = allTasks.filter((t) =>
     ["pending", "parsing", "translating", "indexing"].includes(t.status)
   ).length
+
+  useEffect(() => {
+    if (!hasRunningTasks) return
+
+    setNow(Date.now())
+    const timer = window.setInterval(() => {
+      setNow(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [hasRunningTasks])
 
   function renderTaskList(tasks: UnifiedTask[]) {
     if (tasks.length === 0) return null
@@ -349,7 +368,7 @@ export default function Tasks() {
 
                 <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
                   <span>{formatTime(task.createdAt)}</span>
-                  <span>{t("columns.duration")}: {formatDuration(task.startedAt, task.completedAt)}</span>
+                  <span>{t("columns.duration")}: {formatDuration(task.startedAt, task.completedAt, now)}</span>
                 </div>
               </div>
 
