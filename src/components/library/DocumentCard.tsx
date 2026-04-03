@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Document as PdfDocument, Page, pdfjs } from "react-pdf"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import type { Document } from "../../../packages/types"
@@ -118,6 +119,7 @@ export function DocumentCard({
   const Icon = getFileIcon(document.filename)
   const isPdf = document.filename.toLowerCase().endsWith(".pdf")
   const ctx = useDocumentContextMenu()
+  const { t } = useTranslation("library")
   const [renameOpen, setRenameOpen] = useState(false)
 
   return (
@@ -219,7 +221,7 @@ export function DocumentCard({
             {document.translation_status === "completed" && (
               <Badge className="shrink-0 gap-0.5 rounded-full shadow-none font-normal text-[11px] px-2 py-0 bg-primary text-primary-foreground">
                 <CheckCircle2 className="h-2.5 w-2.5" />
-                译
+                {t("badge.translated")}
               </Badge>
             )}
           </div>
@@ -237,23 +239,23 @@ export function DocumentCard({
       <ContextMenuContent className="w-56">
         {!inTrash ? (
           <>
-            <ContextMenuItem onClick={onOpen}>打开</ContextMenuItem>
-            <ContextMenuItem onClick={() => ctx.revealMutation.mutate(document.id)}>在文件夹中显示</ContextMenuItem>
+            <ContextMenuItem onClick={onOpen}>{t("context_menu.open")}</ContextMenuItem>
+            <ContextMenuItem onClick={() => ctx.revealMutation.mutate(document.id)}>{t("context_menu.reveal")}</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => setRenameOpen(true)}>重命名</ContextMenuItem>
+            <ContextMenuItem onClick={() => setRenameOpen(true)}>{t("context_menu.rename")}</ContextMenuItem>
             <ContextMenuSub>
-              <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{t("context_menu.copy")}</ContextMenuSubTrigger>
               <ContextMenuSubContent>
-                <ContextMenuItem onClick={() => ctx.handleCopy(document.title, "文档名称")}>复制文档名称</ContextMenuItem>
-                <ContextMenuItem onClick={() => ctx.handleCopy(document.id, "文档 ID")}>复制文档 ID</ContextMenuItem>
-                <ContextMenuItem onClick={() => ctx.handleCopyPath(document.id)}>复制物理路径</ContextMenuItem>
+                <ContextMenuItem onClick={() => ctx.handleCopy(document.title, t("copy_labels.document_name"))}>{t("context_menu.copy_name")}</ContextMenuItem>
+                <ContextMenuItem onClick={() => ctx.handleCopy(document.id, t("copy_labels.document_id"))}>{t("context_menu.copy_id")}</ContextMenuItem>
+                <ContextMenuItem onClick={() => ctx.handleCopyPath(document.id)}>{t("context_menu.copy_path")}</ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
-            <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(document.id)}>创建副本</ContextMenuItem>
+            <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(document.id)}>{t("context_menu.duplicate")}</ContextMenuItem>
             <ContextMenuSeparator />
             {ctx.categories.length > 0 && (
               <ContextMenuSub>
-                <ContextMenuSubTrigger>移动到分类</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger>{t("context_menu.move_to_category")}</ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                   {ctx.categories.map((c) => (
                     <ContextMenuItem key={c.id} onClick={() => ctx.moveMutation.mutate({ documentId: document.id, categoryId: c.id })}>
@@ -265,7 +267,7 @@ export function DocumentCard({
             )}
             {ctx.folders.length > 0 && (
               <ContextMenuSub>
-                <ContextMenuSubTrigger>移动到文件夹</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger>{t("context_menu.move_to_folder")}</ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                   {ctx.folders.map((f) => (
                     <ContextMenuItem key={f.id} onClick={() => ctx.moveMutation.mutate({ documentId: document.id, folderId: f.id })}>
@@ -276,13 +278,13 @@ export function DocumentCard({
               </ContextMenuSub>
             )}
             <ContextMenuSeparator />
-            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>移入回收站</ContextMenuItem>
+            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>{t("context_menu.move_to_trash")}</ContextMenuItem>
           </>
         ) : (
           <>
-            <ContextMenuItem onClick={onRestore}>恢复文档</ContextMenuItem>
+            <ContextMenuItem onClick={onRestore}>{t("context_menu.restore")}</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={onPermanentDelete}>永久删除</ContextMenuItem>
+            <ContextMenuItem className="text-destructive focus:text-destructive" onClick={onPermanentDelete}>{t("context_menu.permanent_delete")}</ContextMenuItem>
           </>
         )}
       </ContextMenuContent>

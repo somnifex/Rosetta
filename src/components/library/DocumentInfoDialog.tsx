@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Document, Page, pdfjs } from "react-pdf"
@@ -66,15 +67,19 @@ function formatDate(value?: string) {
   return new Date(value).toLocaleString()
 }
 
-function getProgressBadge(status: string, progress?: number) {
-  if (status === "failed") return <Badge variant="destructive">失败</Badge>
-  if (status === "completed") return <Badge>已完成</Badge>
-  if (status === "pending") return <Badge variant="outline">未开始</Badge>
+function getProgressBadge(
+  status: string,
+  progress: number | undefined,
+  t: any
+) {
+  if (status === "failed") return <Badge variant="destructive">{t("document_info.status.failed")}</Badge>
+  if (status === "completed") return <Badge>{t("document_info.status.completed")}</Badge>
+  if (status === "pending") return <Badge variant="outline">{t("document_info.status.pending")}</Badge>
   if (status === "parsing" || status === "translating" || status === "indexing") {
     return (
       <Badge variant="secondary" className="gap-1">
         <Loader2 className="h-3 w-3 animate-spin" />
-        {progress !== undefined && progress > 0 ? `${Math.round(progress)}%` : "处理中"}
+        {progress !== undefined && progress > 0 ? `${Math.round(progress)}%` : t("document_info.status.processing")}
       </Badge>
     )
   }
@@ -103,14 +108,20 @@ const MINERU_ARTIFACT_ORDER: MineruProcessedFile["artifact_type"][] = [
   "archive",
 ]
 
-const MINERU_ARTIFACT_LABELS: Record<MineruProcessedFile["artifact_type"], string> = {
-  markdown: "布局 Markdown",
-  html: "HTML 文档",
-  docx: "DOCX 文档",
-  latex: "LaTeX 文档",
-  json: "布局 JSON",
-  structure: "结构 JSON",
-  archive: "原始 ZIP",
+function getMineruArtifactLabel(
+  artifactType: MineruProcessedFile["artifact_type"],
+  t: any
+) {
+  const keyMap: Record<MineruProcessedFile["artifact_type"], string> = {
+    markdown: "document_info.artifacts.markdown",
+    html: "document_info.artifacts.html",
+    docx: "document_info.artifacts.docx",
+    latex: "document_info.artifacts.latex",
+    json: "document_info.artifacts.json",
+    structure: "document_info.artifacts.structure",
+    archive: "document_info.artifacts.archive",
+  }
+  return t(keyMap[artifactType] || "document_info.artifacts.archive")
 }
 
 function FolderSelect({
@@ -122,13 +133,14 @@ function FolderSelect({
   value: string | null | undefined
   onChange: (value: string | null) => void
 }) {
+  const { t } = useTranslation("library")
   return (
     <Select value={value ?? "root"} onValueChange={(nextValue) => onChange(nextValue === "root" ? null : nextValue)}>
       <SelectTrigger className="h-9 rounded-lg">
-        <SelectValue placeholder="根目录" />
+        <SelectValue placeholder={t("document_info.meta.root_folder")} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="root">根目录</SelectItem>
+        <SelectItem value="root">{t("document_info.meta.root_folder")}</SelectItem>
         {folders.map((folder) => (
           <SelectItem key={folder.id} value={folder.id}>
             {folder.name}
@@ -171,6 +183,8 @@ function PdfPreview({
 
 export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentInfoDialogProps) {
   const navigate = useNavigate()
+  const { t } = useTranslation("library")
+  const { t: tc } = useTranslation("common")
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [thumbnailPages, setThumbnailPages] = useState<number | null>(null)
@@ -238,28 +252,28 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const updateDocMutation = useMutation({
     mutationFn: api.updateDocument,
     onSuccess: invalidateAll,
-    onError: (error: Error) => toast({ title: "文档信息更新失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.document_update_error"), description: error.message, variant: "destructive" }),
   })
 
   const updateFolderMutation = useMutation({
     mutationFn: (folderId: string | null) => api.batchUpdateDocuments({ documentIds: [documentId!], folderId: folderId ?? "" }),
     onSuccess: invalidateAll,
-    onError: (error: Error) => toast({ title: "文件夹更新失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.folder_update_error"), description: error.message, variant: "destructive" }),
   })
 
   const parseMutation = useMutation({
     mutationFn: () => api.startParseJob(documentId!),
     onSuccess: () => {
       invalidateAll()
-      toast({ title: "已开始重新解析" })
+      toast({ title: t("document_info.toast.parse_started") })
     },
-    onError: (error: Error) => toast({ title: "启动解析失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.parse_start_error"), description: error.message, variant: "destructive" }),
   })
 
   const translationMutation = useMutation({
     mutationFn: () => {
       if (!document) throw new Error("Document not found")
-      if (!activeTranslateProvider) throw new Error("未找到可用的翻译模型渠道")
+      if (!activeTranslateProvider) throw new Error(t("document_info.toast.no_translate_provider"))
       return api.startTranslationJob({
         documentId: document.id,
         providerId: activeTranslateProvider.id,
@@ -269,49 +283,49 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
     },
     onSuccess: () => {
       invalidateAll()
-      toast({ title: "已开始翻译" })
+      toast({ title: t("document_info.toast.translation_started") })
     },
-    onError: (error: Error) => toast({ title: "启动翻译失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.translation_start_error"), description: error.message, variant: "destructive" }),
   })
 
   const indexMutation = useMutation({
     mutationFn: () => {
       if (!document) throw new Error("Document not found")
-      if (!activeEmbedProvider) throw new Error("未找到可用的 embedding 模型渠道")
+      if (!activeEmbedProvider) throw new Error(t("document_info.toast.no_embed_provider"))
       return api.startIndexJob(document.id, activeEmbedProvider.id)
     },
     onSuccess: () => {
       invalidateAll()
-      toast({ title: "已开始建立索引" })
+      toast({ title: t("document_info.toast.index_started") })
     },
-    onError: (error: Error) => toast({ title: "启动索引失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.index_start_error"), description: error.message, variant: "destructive" }),
   })
 
   const replaceOriginalMutation = useMutation({
     mutationFn: (filePath: string) => api.replaceOriginalDocumentFile(documentId!, filePath),
     onSuccess: () => {
       invalidateAll()
-      toast({ title: "原始 PDF 已替换，解析任务已自动重启" })
+      toast({ title: t("document_info.toast.replace_original_success") })
     },
-    onError: (error: Error) => toast({ title: "替换原始 PDF 失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.replace_original_error"), description: error.message, variant: "destructive" }),
   })
 
   const replaceTranslatedPdfMutation = useMutation({
     mutationFn: (filePath: string) => api.replaceTranslatedPdf(documentId!, filePath),
     onSuccess: () => {
       invalidateAll()
-      toast({ title: "翻译版 PDF 已更新" })
+      toast({ title: t("document_info.toast.replace_translated_success") })
     },
-    onError: (error: Error) => toast({ title: "替换翻译版 PDF 失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.replace_translated_error"), description: error.message, variant: "destructive" }),
   })
 
   const replaceMarkdownMutation = useMutation({
     mutationFn: (filePath: string) => api.replaceParsedMarkdown(documentId!, filePath),
     onSuccess: () => {
       invalidateAll()
-      toast({ title: "Markdown 已替换，相关翻译与索引状态已重置" })
+      toast({ title: t("document_info.toast.replace_markdown_success") })
     },
-    onError: (error: Error) => toast({ title: "替换 Markdown 失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.replace_markdown_error"), description: error.message, variant: "destructive" }),
   })
 
   const moveToTrashMutation = useMutation({
@@ -320,9 +334,9 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       invalidateAll()
       setConfirmTrashOpen(false)
       onOpenChange(false)
-      toast({ title: "文档已移入回收站" })
+      toast({ title: t("document_info.toast.move_to_trash_success") })
     },
-    onError: (error: Error) => toast({ title: "移入回收站失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("document_info.toast.move_to_trash_error"), description: error.message, variant: "destructive" }),
   })
 
   const handleExportText = async (contentType: "original" | "translated" | "bilingual", ext = "md", label = "Markdown") => {
@@ -340,9 +354,9 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
         contentType,
         outputPath,
       })
-      toast({ title: "导出成功", description: outputPath })
+      toast({ title: t("document_info.toast.export_success"), description: outputPath })
     } catch (error: any) {
-      toast({ title: "导出失败", description: error.message, variant: "destructive" })
+      toast({ title: t("document_info.toast.export_error"), description: error.message, variant: "destructive" })
     }
   }
 
@@ -360,9 +374,9 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
         assetType,
         outputPath,
       })
-      toast({ title: "导出成功", description: outputPath })
+      toast({ title: t("document_info.toast.export_success"), description: outputPath })
     } catch (error: any) {
-      toast({ title: "导出失败", description: error.message, variant: "destructive" })
+      toast({ title: t("document_info.toast.export_error"), description: error.message, variant: "destructive" })
     }
   }
 
@@ -395,7 +409,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       const shell = await import("@tauri-apps/plugin-shell")
       await shell.open(document.file_path)
     } catch (error: any) {
-      toast({ title: "打开文件失败", description: error.message, variant: "destructive" })
+      toast({ title: t("document_info.toast.open_file_error"), description: error.message, variant: "destructive" })
     }
   }
 
@@ -404,7 +418,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       const shell = await import("@tauri-apps/plugin-shell")
       await shell.open(path)
     } catch (error: any) {
-      toast({ title: "打开文件失败", description: error.message, variant: "destructive" })
+      toast({ title: t("document_info.toast.open_file_error"), description: error.message, variant: "destructive" })
     }
   }
 
@@ -412,7 +426,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
     try {
       await api.revealInOs(path)
     } catch (error: any) {
-      toast({ title: "定位文件失败", description: error.message, variant: "destructive" })
+      toast({ title: t("document_info.toast.reveal_file_error"), description: error.message, variant: "destructive" })
     }
   }
 
@@ -439,25 +453,25 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const displayedPageCount = document.page_count > 0 ? document.page_count : thumbnailPages
   const recommendedAction = !parseReady
     ? {
-        title: "建议先完成解析",
-        description: "解析完成后，原文阅读、翻译、对照和问答都会自动变得可用。",
-        label: "立即解析",
+        title: t("document_info.recommended.parse.title"),
+        description: t("document_info.recommended.parse.description"),
+        label: t("document_info.recommended.parse.label"),
         onClick: () => parseMutation.mutate(),
         disabled: parseMutation.isPending,
       }
     : !translationReady
       ? {
-          title: "建议继续生成翻译",
-          description: "翻译完成后可以直接进入翻译模式和对照阅读模式。",
-          label: "开始翻译",
+          title: t("document_info.recommended.translate.title"),
+          description: t("document_info.recommended.translate.description"),
+          label: t("document_info.recommended.translate.label"),
           onClick: () => translationMutation.mutate(),
           disabled: translationMutation.isPending,
         }
       : !translatedPdf
         ? {
-            title: "可补充翻译版 PDF",
-            description: "如果需要最终版面校对或导出 PDF，可以上传翻译版 PDF。",
-            label: "上传翻译版 PDF",
+            title: t("document_info.recommended.translated_pdf.title"),
+            description: t("document_info.recommended.translated_pdf.description"),
+            label: t("document_info.recommended.translated_pdf.label"),
             onClick: async () => {
               const filePath = await pickSingleFile(["pdf"])
               if (filePath) replaceTranslatedPdfMutation.mutate(filePath)
@@ -465,23 +479,23 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
             disabled: replaceTranslatedPdfMutation.isPending,
           }
         : {
-            title: "阅读与交付都已就绪",
-            description: "当前文档已经具备原文、翻译、对照和导出能力。",
-            label: "继续阅读",
+            title: t("document_info.recommended.ready.title"),
+            description: t("document_info.recommended.ready.description"),
+            label: t("document_info.recommended.ready.label"),
             onClick: () => openReader(),
             disabled: false,
           }
 
   const readingActions = [
     {
-      title: "继续阅读",
+      title: t("document_info.reading_actions.continue"),
       icon: BookOpen,
       onClick: () => openReader(),
       disabled: false,
       primary: true,
     },
     {
-      title: "查看原文",
+      title: t("document_info.reading_actions.original"),
       icon: Eye,
       onClick: () => openReader("original"),
       disabled: !isPdf && !parseReady,
@@ -493,19 +507,19 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       disabled: !parseReady,
     },
     {
-      title: "查看翻译",
+      title: t("document_info.reading_actions.translated"),
       icon: Languages,
       onClick: () => openReader("translated"),
       disabled: !translationReady && !translatedPdf,
     },
     {
-      title: "对照阅读",
+      title: t("document_info.reading_actions.compare"),
       icon: SearchCheck,
       onClick: () => openReader("compare"),
       disabled: !compareReady,
     },
     {
-      title: "阅读并提问",
+      title: t("document_info.reading_actions.ask"),
       icon: PanelRightOpen,
       onClick: () => openReader("ask"),
       disabled: !askReady,
@@ -548,12 +562,12 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={handleOpenOriginalFile}>在系统中打开原文件</DropdownMenuItem>
+                          <DropdownMenuItem onClick={handleOpenOriginalFile}>{t("document_info.menu.open_original_file")}</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleExportText("bilingual", "md", "Markdown")} disabled={!compareReady}>
-                            导出双语 Markdown
+                            {t("document_info.menu.export_bilingual_markdown")}
                           </DropdownMenuItem>
                           <DropdownMenuItem className="text-destructive" onClick={() => setConfirmTrashOpen(true)}>
-                            移入回收站
+                            {t("document_info.menu.move_to_trash")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -569,9 +583,9 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     <span className="text-muted-foreground/45">|</span>
                     <span>{formatBytes(document.file_size)}</span>
                     <span className="text-muted-foreground/45">|</span>
-                    <span>{displayedPageCount ? `${displayedPageCount} 页` : "页数未知"}</span>
+                    <span>{displayedPageCount ? `${displayedPageCount} ${tc("units.pages")}` : t("document_info.meta.unknown_pages")}</span>
                     <span className="text-muted-foreground/45">|</span>
-                    <span>{document.source_language || "自动识别"} → {document.target_language || "未设置"}</span>
+                    <span>{document.source_language || t("document_info.meta.auto_detect")} → {document.target_language || t("document_info.meta.not_set")}</span>
                   </div>
                 </div>
 
@@ -579,18 +593,18 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={document.parse_status} />
-                    <span>解析</span>
+                    <span>{t("document_info.meta.parse")}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={document.translation_status} />
-                    <span>翻译</span>
+                    <span>{t("document_info.meta.translation")}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={document.index_status} />
-                    <span>索引</span>
+                    <span>{t("document_info.meta.index")}</span>
                   </div>
-                  {document.is_file_missing && <Badge variant="destructive" className="rounded-full text-xs shadow-none">原始文件缺失</Badge>}
-                  {translatedPdf && <Badge className="rounded-full text-xs shadow-none">翻译版 PDF 已就绪</Badge>}
+                  {document.is_file_missing && <Badge variant="destructive" className="rounded-full text-xs shadow-none">{t("document_info.meta.original_file_missing")}</Badge>}
+                  {translatedPdf && <Badge className="rounded-full text-xs shadow-none">{t("document_info.meta.translated_pdf_ready")}</Badge>}
                 </div>
               </div>
             </div>
@@ -613,7 +627,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
 
               {/* ── Reading Entries (horizontal) ── */}
               <div className="border-b border-border px-6 py-5">
-                <h3 className="mb-3 text-sm font-semibold text-foreground">阅读入口</h3>
+                <h3 className="mb-3 text-sm font-semibold text-foreground">{t("document_info.sections.reading_entries")}</h3>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                   {readingActions.map((action) => {
                     const Icon = action.icon
@@ -643,9 +657,9 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
               <div className="px-6 py-5">
                 <Tabs defaultValue="outputs" className="w-full">
                   <TabsList className="w-full justify-start rounded-lg">
-                    <TabsTrigger value="outputs" className="rounded-md text-xs">输出与导出</TabsTrigger>
-                    <TabsTrigger value="archive" className="rounded-md text-xs">归档与标注</TabsTrigger>
-                    <TabsTrigger value="advanced" className="rounded-md text-xs">高级操作</TabsTrigger>
+                    <TabsTrigger value="outputs" className="rounded-md text-xs">{t("document_info.sections.outputs")}</TabsTrigger>
+                    <TabsTrigger value="archive" className="rounded-md text-xs">{t("document_info.sections.archive")}</TabsTrigger>
+                    <TabsTrigger value="advanced" className="rounded-md text-xs">{t("document_info.sections.advanced")}</TabsTrigger>
                   </TabsList>
 
                   {/* ── Tab: Outputs ── */}
@@ -655,13 +669,13 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       <div className="flex items-center gap-3 min-w-0">
                         <FileOutput className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium">原文 PDF</p>
-                          <p className="text-xs text-muted-foreground truncate">{isPdf && !document.is_file_missing ? "可直接导出原始 PDF" : "当前不是可导出的 PDF 文件"}</p>
+                          <p className="text-sm font-medium">{t("document_info.outputs.original_pdf_title")}</p>
+                          <p className="text-xs text-muted-foreground truncate">{isPdf && !document.is_file_missing ? t("document_info.outputs.original_pdf_available") : t("document_info.outputs.original_pdf_unavailable")}</p>
                         </div>
                       </div>
                       <Button variant="outline" size="sm" className="shrink-0 rounded-lg" disabled={!isPdf || !!document.is_file_missing} onClick={() => handleExportAsset("original_pdf", document.filename)}>
                         <Download className="mr-1.5 h-3.5 w-3.5" />
-                        导出
+                        {t("document_info.buttons.export")}
                       </Button>
                     </div>
 
@@ -670,15 +684,15 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       <div className="flex items-center gap-3 min-w-0">
                         <Languages className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium">翻译版 PDF</p>
-                          <p className="text-xs text-muted-foreground truncate">{translatedPdf ? "已接入真实输出资产" : "尚未提供翻译版 PDF"}</p>
+                          <p className="text-sm font-medium">{t("document_info.outputs.translated_pdf_title")}</p>
+                          <p className="text-xs text-muted-foreground truncate">{translatedPdf ? t("document_info.outputs.translated_pdf_available") : t("document_info.outputs.translated_pdf_unavailable")}</p>
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <Badge variant={translatedPdf ? "secondary" : "outline"} className="rounded-full shadow-none text-xs font-normal">{translatedPdf ? "已准备" : "未提供"}</Badge>
+                        <Badge variant={translatedPdf ? "secondary" : "outline"} className="rounded-full shadow-none text-xs font-normal">{translatedPdf ? t("document_info.outputs.provided") : t("document_info.outputs.not_provided")}</Badge>
                         <Button variant="outline" size="sm" className="rounded-lg" disabled={!translatedPdf || !!translatedPdf?.is_file_missing} onClick={() => handleExportAsset("translated_pdf", `${document.title}.translated.pdf`)}>
                           <Download className="mr-1.5 h-3.5 w-3.5" />
-                          导出
+                          {t("document_info.buttons.export")}
                         </Button>
                       </div>
                     </div>
@@ -688,15 +702,15 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       <div className="flex items-center gap-3 min-w-0">
                         <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium">Markdown</p>
-                          <p className="text-xs text-muted-foreground truncate">{parseReady ? "解析后的 Markdown 已生成" : "完成解析后可导出 Markdown"}</p>
+                          <p className="text-sm font-medium">{t("document_info.outputs.markdown_title")}</p>
+                          <p className="text-xs text-muted-foreground truncate">{parseReady ? t("document_info.outputs.markdown_available") : t("document_info.outputs.markdown_unavailable")}</p>
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <Badge variant={parseReady ? "secondary" : "outline"} className="rounded-full shadow-none text-xs font-normal">{parseReady ? "已生成" : "未生成"}</Badge>
+                        <Badge variant={parseReady ? "secondary" : "outline"} className="rounded-full shadow-none text-xs font-normal">{parseReady ? t("document_info.outputs.generated") : t("document_info.outputs.not_generated")}</Badge>
                         <Button variant="outline" size="sm" className="rounded-lg" disabled={!parseReady} onClick={() => handleExportText("original", "md", "Markdown")}>
                           <Download className="mr-1.5 h-3.5 w-3.5" />
-                          导出
+                          {t("document_info.buttons.export")}
                         </Button>
                       </div>
                     </div>
@@ -706,9 +720,9 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         <div className="flex min-w-0 items-center gap-3">
                           <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <div className="min-w-0">
-                            <p className="text-sm font-medium">MinerU 解析文件</p>
+                            <p className="text-sm font-medium">{t("document_info.outputs.mineru_title")}</p>
                             <p className="text-xs text-muted-foreground truncate">
-                              直接查看布局 Markdown、结构 JSON 以及 MinerU 返回的附带文件
+                              {t("document_info.outputs.mineru_description")}
                             </p>
                           </div>
                         </div>
@@ -717,8 +731,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           className="rounded-full shadow-none text-xs font-normal"
                         >
                           {sortedMineruArtifacts.length > 0
-                            ? `${sortedMineruArtifacts.length} 个文件`
-                            : "暂无文件"}
+                            ? t("document_info.outputs.mineru_count", { count: sortedMineruArtifacts.length })
+                            : t("document_info.outputs.mineru_empty")}
                         </Badge>
                       </div>
 
@@ -731,7 +745,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                             >
                               <div className="min-w-0">
                                 <p className="text-sm font-medium">
-                                  {MINERU_ARTIFACT_LABELS[artifact.artifact_type] || artifact.artifact_type}
+                                  {getMineruArtifactLabel(artifact.artifact_type, t) || artifact.artifact_type}
                                 </p>
                                 <p className="text-xs text-muted-foreground truncate">
                                   {artifact.file_path}
@@ -745,7 +759,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                                   disabled={!!artifact.is_file_missing}
                                   onClick={() => revealPathInSystem(artifact.file_path)}
                                 >
-                                  查看位置
+                                  {t("document_info.buttons.reveal")}
                                 </Button>
                                 <Button
                                   variant="outline"
@@ -754,7 +768,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                                   disabled={!!artifact.is_file_missing}
                                   onClick={() => openPathInSystem(artifact.file_path)}
                                 >
-                                  打开
+                                  {t("document_info.buttons.open")}
                                 </Button>
                               </div>
                             </div>
@@ -762,7 +776,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                         </div>
                       ) : (
                         <p className="mt-3 text-xs text-muted-foreground">
-                          解析完成后，这里会显示 MinerU 返回的布局文档和附带产物。
+                          {t("document_info.outputs.mineru_empty_description")}
                         </p>
                       )}
                     </div>
@@ -770,36 +784,36 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     {/* Pipeline status row */}
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       <div className="rounded-lg border border-border p-3">
-                        <p className="text-xs font-medium text-muted-foreground">解析结果</p>
+                        <p className="text-xs font-medium text-muted-foreground">{t("document_info.pipeline.parse_result")}</p>
                         <div className="mt-2.5 flex items-center justify-between">
-                          {getProgressBadge(document.parse_status, parseJob?.progress)}
+                          {getProgressBadge(document.parse_status, parseJob?.progress, t)}
                           <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => parseMutation.mutate()} disabled={parseMutation.isPending}>
                             <RefreshCcw className="mr-1 h-3 w-3" />
-                            重试
+                            {t("document_info.buttons.retry")}
                           </Button>
                         </div>
                         {parseJob?.error_message ? <p className="mt-1.5 text-xs text-destructive">{parseJob.error_message}</p> : null}
                       </div>
 
                       <div className="rounded-lg border border-border p-3">
-                        <p className="text-xs font-medium text-muted-foreground">翻译结果</p>
+                        <p className="text-xs font-medium text-muted-foreground">{t("document_info.pipeline.translation_result")}</p>
                         <div className="mt-2.5 flex items-center justify-between">
-                          {getProgressBadge(document.translation_status, translationJob?.progress)}
+                          {getProgressBadge(document.translation_status, translationJob?.progress, t)}
                           <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => translationMutation.mutate()} disabled={translationMutation.isPending || !parseReady}>
                             <RefreshCcw className="mr-1 h-3 w-3" />
-                            重试
+                            {t("document_info.buttons.retry")}
                           </Button>
                         </div>
                         {translationJob?.error_message ? <p className="mt-1.5 text-xs text-destructive">{translationJob.error_message}</p> : null}
                       </div>
 
                       <div className="rounded-lg border border-border p-3">
-                        <p className="text-xs font-medium text-muted-foreground">索引状态</p>
+                        <p className="text-xs font-medium text-muted-foreground">{t("document_info.pipeline.index_status")}</p>
                         <div className="mt-2.5 flex items-center justify-between">
-                          {getProgressBadge(document.index_status)}
+                          {getProgressBadge(document.index_status, undefined, t)}
                           <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => indexMutation.mutate()} disabled={indexMutation.isPending || !parseReady}>
                             <RefreshCcw className="mr-1 h-3 w-3" />
-                            重试
+                            {t("document_info.buttons.retry")}
                           </Button>
                         </div>
                       </div>
@@ -810,16 +824,16 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                   <TabsContent value="archive" className="mt-4 space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <p className="text-sm font-medium">分类</p>
+                        <p className="text-sm font-medium">{t("document_info.archive_section.category")}</p>
                         <Select
                           value={document.category_id || "none"}
                           onValueChange={(value) => updateDocMutation.mutate({ id: document.id, categoryId: value === "none" ? "" : value })}
                         >
                           <SelectTrigger className="h-9 rounded-lg">
-                            <SelectValue placeholder="未分类" />
+                            <SelectValue placeholder={t("document_info.meta.uncategorized")} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">未分类</SelectItem>
+                            <SelectItem value="none">{t("document_info.meta.uncategorized")}</SelectItem>
                             {categories.map((category) => (
                               <SelectItem key={category.id} value={category.id}>
                                 {category.name}
@@ -832,7 +846,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       <div className="space-y-2">
                         <p className="flex items-center gap-2 text-sm font-medium">
                           <FolderTree className="h-4 w-4" />
-                          文件夹
+                          {t("document_info.archive_section.folder")}
                         </p>
                         <FolderSelect
                           folders={folders}
@@ -843,7 +857,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     </div>
 
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">标签</p>
+                      <p className="text-sm font-medium">{t("document_info.archive_section.tags")}</p>
                       <TagPicker documentId={document.id} />
                     </div>
                   </TabsContent>
@@ -851,8 +865,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                   {/* ── Tab: Advanced ── */}
                   <TabsContent value="advanced" className="mt-4 space-y-4">
                     <div>
-                      <h4 className="text-sm font-semibold">替换与维护</h4>
-                      <p className="mt-1 text-xs text-muted-foreground">替换文件会自动重置相关流水线任务。</p>
+                      <h4 className="text-sm font-semibold">{t("document_info.advanced.maintenance_title")}</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">{t("document_info.advanced.maintenance_description")}</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <Button
                           variant="outline"
@@ -864,7 +878,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           disabled={replaceOriginalMutation.isPending}
                         >
                           <Upload className="mr-2 h-4 w-4" />
-                          替换原版 PDF
+                          {t("document_info.advanced.replace_original_pdf")}
                         </Button>
                         <Button
                           variant="outline"
@@ -876,7 +890,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           disabled={replaceTranslatedPdfMutation.isPending}
                         >
                           <Upload className="mr-2 h-4 w-4" />
-                          替换翻译版 PDF
+                          {t("document_info.advanced.replace_translated_pdf")}
                         </Button>
                         <Button
                           variant="outline"
@@ -888,17 +902,17 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           disabled={replaceMarkdownMutation.isPending}
                         >
                           <Upload className="mr-2 h-4 w-4" />
-                          替换 Markdown
+                          {t("document_info.advanced.replace_markdown")}
                         </Button>
                       </div>
                     </div>
 
                     <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
-                      <h4 className="text-sm font-semibold text-destructive">危险操作</h4>
-                      <p className="mt-1 text-xs text-muted-foreground">删除不会直接永久清除，而是先进入回收站。</p>
+                      <h4 className="text-sm font-semibold text-destructive">{t("document_info.advanced.danger_title")}</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">{t("document_info.advanced.danger_description")}</p>
                       <Button variant="destructive" size="sm" className="mt-3 rounded-lg shadow-none" onClick={() => setConfirmTrashOpen(true)}>
                         <Trash2 className="mr-2 h-3.5 w-3.5" />
-                        移入回收站
+                        {t("document_info.advanced.move_to_trash")}
                       </Button>
                     </div>
                   </TabsContent>
@@ -912,10 +926,10 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       <ConfirmActionDialog
         open={confirmTrashOpen}
         onOpenChange={setConfirmTrashOpen}
-        title="移入回收站"
-        description="这份文档将从文档库主视图移除，并进入回收站。相关阅读入口会随之关闭。"
-        confirmLabel="确认移入"
-        cancelLabel="取消"
+        title={t("document_info.confirm_trash.title")}
+        description={t("document_info.confirm_trash.description")}
+        confirmLabel={t("document_info.confirm_trash.confirm")}
+        cancelLabel={t("document_info.confirm_trash.cancel")}
         loading={moveToTrashMutation.isPending}
         onConfirm={() => moveToTrashMutation.mutate()}
       />

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import type { ReaderBaseMode } from "@/hooks/useReaderState"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -58,6 +59,7 @@ export function ReaderToolbar({
   showOriginalViewToggle = false,
   modeDisabled,
 }: ReaderToolbarProps) {
+  const { t } = useTranslation("document")
   const [fullScreen, setFullScreen] = useState(false)
   const [pageInput, setPageInput] = useState(pageNumber ? String(pageNumber) : "1")
 
@@ -86,7 +88,7 @@ export function ReaderToolbar({
       <div className="flex min-w-0 items-center gap-2">
         <Button variant="outline" size="sm" className="shrink-0 rounded-xl bg-background/70" onClick={onBackToLibrary}>
           <ArrowLeft className="mr-1.5 h-4 w-4" />
-          返回
+          {t("reader.toolbar.back")}
         </Button>
 
         <div className="min-w-0 flex-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 shadow-sm">
@@ -100,7 +102,7 @@ export function ReaderToolbar({
                   className="h-7 w-7 rounded-lg"
                   onClick={() => onScaleChange?.((scale ?? 1) - 0.1)}
                   disabled={!onScaleChange}
-                  aria-label="缩小"
+                  aria-label={t("reader.toolbar.zoom_out")}
                 >
                   <ZoomOut className="h-3.5 w-3.5" />
                 </Button>
@@ -111,7 +113,7 @@ export function ReaderToolbar({
                   className="h-7 w-7 rounded-lg"
                   onClick={() => onScaleChange?.((scale ?? 1) + 0.1)}
                   disabled={!onScaleChange}
-                  aria-label="放大"
+                  aria-label={t("reader.toolbar.zoom_in")}
                 >
                   <ZoomIn className="h-3.5 w-3.5" />
                 </Button>
@@ -195,7 +197,7 @@ export function ReaderToolbar({
 
         <Button variant="outline" size="sm" className="shrink-0 rounded-xl bg-background/70" onClick={onAskToggle}>
           <PanelRightOpen className="mr-1.5 h-4 w-4" />
-          {askOpen ? "收起" : "问答"}
+          {askOpen ? t("reader.toolbar.ask_close") : t("reader.toolbar.ask_open")}
         </Button>
 
         <Button variant="outline" size="icon" className="shrink-0 rounded-xl bg-background/70" onClick={toggleFullscreen}>

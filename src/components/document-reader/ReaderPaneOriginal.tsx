@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
 import { MineruLayoutViewer } from "@/components/viewer/MineruLayoutViewer"
 import { PdfViewer } from "@/components/viewer/PdfViewer"
@@ -36,6 +37,7 @@ export function ReaderPaneOriginal({
   onTranslateSelection,
   className,
 }: ReaderPaneOriginalProps) {
+  const { t } = useTranslation("document")
   const viewerContainerRef = useRef<HTMLDivElement>(null)
   const layoutPages = useMemo(() => parseMineruLayout(layoutJson), [layoutJson])
 
@@ -84,8 +86,8 @@ export function ReaderPaneOriginal({
         <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
           <FileText className="h-10 w-10" />
           <div>
-            <p className="font-medium text-foreground">原文暂不可读</p>
-            <p className="text-sm">请先完成解析，或检查原始文件是否仍然可用。</p>
+            <p className="font-medium text-foreground">{t("reader.empty.original_title")}</p>
+            <p className="text-sm">{t("reader.empty.original_description")}</p>
           </div>
         </div>
       )}

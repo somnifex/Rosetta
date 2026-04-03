@@ -22,6 +22,7 @@ import { RenameDialog } from "@/components/library/RenameDialog"
 export default function Dashboard() {
   const { t } = useTranslation("dashboard")
   const { t: tc } = useTranslation("common")
+  const { t: tl } = useTranslation("library")
   const ctx = useDocumentContextMenu()
   const [renameDoc, setRenameDoc] = useState<Document | null>(null)
 
@@ -134,22 +135,22 @@ export default function Dashboard() {
                   </ContextMenuTrigger>
                   <ContextMenuContent className="w-56">
                     <ContextMenuItem asChild>
-                      <Link to={`/document/${doc.id}`}>打开</Link>
+                      <Link to={`/document/${doc.id}`}>{tl("context_menu.open")}</Link>
                     </ContextMenuItem>
-                    <ContextMenuItem onClick={() => ctx.revealMutation.mutate(doc.id)}>在文件夹中显示</ContextMenuItem>
+                    <ContextMenuItem onClick={() => ctx.revealMutation.mutate(doc.id)}>{tl("context_menu.reveal")}</ContextMenuItem>
                     <ContextMenuSeparator />
-                    <ContextMenuItem onClick={() => setRenameDoc(doc as Document)}>重命名</ContextMenuItem>
+                    <ContextMenuItem onClick={() => setRenameDoc(doc as Document)}>{tl("context_menu.rename")}</ContextMenuItem>
                     <ContextMenuSub>
-                      <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+                      <ContextMenuSubTrigger>{tl("context_menu.copy")}</ContextMenuSubTrigger>
                       <ContextMenuSubContent>
-                        <ContextMenuItem onClick={() => ctx.handleCopy(doc.title, "文档名称")}>复制文档名称</ContextMenuItem>
-                        <ContextMenuItem onClick={() => ctx.handleCopy(doc.id, "文档 ID")}>复制文档 ID</ContextMenuItem>
-                        <ContextMenuItem onClick={() => ctx.handleCopyPath(doc.id)}>复制物理路径</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopy(doc.title, tl("copy_labels.document_name"))}>{tl("context_menu.copy_name")}</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopy(doc.id, tl("copy_labels.document_id"))}>{tl("context_menu.copy_id")}</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopyPath(doc.id)}>{tl("context_menu.copy_path")}</ContextMenuItem>
                       </ContextMenuSubContent>
                     </ContextMenuSub>
-                    <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(doc.id)}>创建副本</ContextMenuItem>
+                    <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(doc.id)}>{tl("context_menu.duplicate")}</ContextMenuItem>
                     <ContextMenuSeparator />
-                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => ctx.trashMutation.mutate([doc.id])}>移入回收站</ContextMenuItem>
+                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => ctx.trashMutation.mutate([doc.id])}>{tl("context_menu.move_to_trash")}</ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
               ))}

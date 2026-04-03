@@ -2,6 +2,7 @@ import type { LlmSamplingConfig } from "../../packages/types"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { readFile } from "@tauri-apps/plugin-fs"
+import i18n from "../i18n"
 import { api } from "./api"
 import {
   getActiveProviderForType,
@@ -73,21 +74,28 @@ const EVENT_CHAT_CHUNK = "rag-chat-chunk"
 const EVENT_CHAT_DONE = "rag-chat-done"
 const EVENT_CHAT_ERROR = "rag-chat-error"
 
-const DEFAULT_DOCUMENT_APPEND_PROMPT =
-  "用户问题：{{user_input}}\n\n以下是文档全文，请优先基于全文回答并在结论后指出关键依据：\n\n{{document_content}}"
-
-const DEFAULT_LONG_TEXT_RAG_PROMPT =
-  "用户输入很长，请先给出结构化摘要，再按要点回答，必要时明确指出不确定性。\n\n原始输入：\n{{user_input}}"
-
-const DEFAULT_CHAT_MODEL_BEHAVIOR_DESCRIPTION =
-  "普通对话默认不走本地RAG；文档线程可按设置注入全文；长文本自动提示并切换本地RAG；若模型支持视觉会自动附带图片。"
-
 export interface ChatBehaviorSettings {
   modelBehaviorDescription: string
   documentAppendPrompt: string
   longTextRagPrompt: string
   longTextThreshold: number
   defaultAlwaysIncludeFullDocument: boolean
+}
+
+export function getDefaultChatBehaviorSettings(): ChatBehaviorSettings {
+  return {
+    modelBehaviorDescription: i18n.t(
+      "settings:general.chat_behavior_defaults.model_behavior_description"
+    ),
+    documentAppendPrompt: i18n.t(
+      "settings:general.chat_behavior_defaults.document_append_prompt"
+    ),
+    longTextRagPrompt: i18n.t(
+      "settings:general.chat_behavior_defaults.long_text_rag_prompt"
+    ),
+    longTextThreshold: 3000,
+    defaultAlwaysIncludeFullDocument: false,
+  }
 }
 
 function cleanString(value: unknown) {
@@ -626,6 +634,7 @@ export function renderPromptTemplate(
 export async function loadChatBehaviorSettings(): Promise<ChatBehaviorSettings> {
   const settings = await api.getAllAppSettings()
   const map = new Map(settings.map((item) => [item.key, item.value]))
+  const defaults = getDefaultChatBehaviorSettings()
 
   const thresholdRaw = map.get("chat.long_text_threshold")?.trim() ?? ""
   const parsedThreshold = Number(thresholdRaw)
@@ -633,15 +642,15 @@ export async function loadChatBehaviorSettings(): Promise<ChatBehaviorSettings> 
   return {
     modelBehaviorDescription:
       map.get("chat.model_behavior_description") ||
-      DEFAULT_CHAT_MODEL_BEHAVIOR_DESCRIPTION,
+      defaults.modelBehaviorDescription,
     documentAppendPrompt:
-      map.get("chat.prompt.document_append") || DEFAULT_DOCUMENT_APPEND_PROMPT,
+      map.get("chat.prompt.document_append") || defaults.documentAppendPrompt,
     longTextRagPrompt:
-      map.get("chat.prompt.long_text_rag") || DEFAULT_LONG_TEXT_RAG_PROMPT,
+      map.get("chat.prompt.long_text_rag") || defaults.longTextRagPrompt,
     longTextThreshold:
       Number.isFinite(parsedThreshold) && parsedThreshold >= 400
         ? Math.floor(parsedThreshold)
-        : 3000,
+        : defaults.longTextThreshold,
     defaultAlwaysIncludeFullDocument:
       map.get("chat.default_always_include_full_document") === "true",
   }

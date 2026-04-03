@@ -1,4 +1,5 @@
 import type { ReaderBaseMode } from "@/hooks/useReaderState"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Columns2, FileText, Languages, MessageSquareMore } from "lucide-react"
@@ -11,17 +12,6 @@ interface ReaderModeSwitcherProps {
   disabled?: Partial<Record<ReaderBaseMode | "ask", boolean>>
 }
 
-const MODE_ITEMS: Array<{
-  key: ReaderBaseMode
-  label: string
-  icon: typeof FileText
-  shortcut: string
-}> = [
-  { key: "original", label: "原文", icon: FileText, shortcut: "1" },
-  { key: "translated", label: "翻译", icon: Languages, shortcut: "2" },
-  { key: "compare", label: "对照", icon: Columns2, shortcut: "3" },
-]
-
 export function ReaderModeSwitcher({
   mode,
   askOpen,
@@ -29,6 +19,18 @@ export function ReaderModeSwitcher({
   onAskToggle,
   disabled,
 }: ReaderModeSwitcherProps) {
+  const { t } = useTranslation("document")
+  const MODE_ITEMS: Array<{
+    key: ReaderBaseMode
+    label: string
+    icon: typeof FileText
+    shortcut: string
+  }> = [
+    { key: "original", label: t("reader.modes.original"), icon: FileText, shortcut: "1" },
+    { key: "translated", label: t("reader.modes.translated"), icon: Languages, shortcut: "2" },
+    { key: "compare", label: t("reader.modes.compare"), icon: Columns2, shortcut: "3" },
+  ]
+
   return (
     <div className="desktop-panel flex flex-wrap items-center gap-1 rounded-2xl border border-border/70 p-1.5">
       {MODE_ITEMS.map((item) => {
@@ -70,7 +72,7 @@ export function ReaderModeSwitcher({
         disabled={disabled?.ask}
       >
         <MessageSquareMore className="mr-1.5 h-4 w-4" />
-        提问
+        {t("reader.modes.ask")}
         <span className={cn(
           "ml-2 rounded-md border px-1.5 py-0.5 text-[10px] leading-none",
           askOpen

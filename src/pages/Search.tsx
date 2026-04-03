@@ -269,12 +269,16 @@ function localizeSettingFieldLabel(key: string, tSettings: (key: any) => string)
   return localized === translationKey ? toReadableSettingKey(key) : localized
 }
 
-function localizeSettingGroupLabel(key: string, tSettings: (key: any) => string) {
+function localizeSettingGroupLabel(
+  key: string,
+  tSettings: (key: any) => string,
+  fallbackLabel: string
+) {
   const prefix = key.split(".")[0] || ""
   const translationKey = SETTING_GROUP_BY_PREFIX[prefix]
-  if (!translationKey) return "设置"
+  if (!translationKey) return fallbackLabel
   const localized = tSettings(translationKey)
-  return localized === translationKey ? "设置" : localized
+  return localized === translationKey ? fallbackLabel : localized
 }
 
 function getSettingTargetTab(key: string) {
@@ -374,8 +378,8 @@ export default function SearchPage() {
     if (!activeProvider) {
       setSemanticResults([])
       toast({
-        title: tc("no_active_provider.title"),
-        description: "已执行全局搜索；语义搜索需要激活 embedding provider",
+        title: t("toast.global_only.title"),
+        description: t("toast.global_only.description"),
       })
       return
     }
@@ -481,7 +485,7 @@ export default function SearchPage() {
 
     const collected = appSettings.reduce<DisplaySearchResult[]>((acc, item) => {
       const fieldLabel = localizeSettingFieldLabel(item.key, ts)
-      const groupLabel = localizeSettingGroupLabel(item.key, ts)
+      const groupLabel = localizeSettingGroupLabel(item.key, ts, t("labels.settings"))
       const settingTitle = `${groupLabel} / ${fieldLabel}`
       const similarity = computeSettingSimilarity(
         item.key,
@@ -568,7 +572,11 @@ export default function SearchPage() {
                 {(result.similarity * 100).toFixed(1)}%
               </Badge>
               <Badge variant="outline" className="rounded-full text-[11px]">
-                {result.type === "global" ? "全局-文档" : result.type === "setting" ? "全局-设置" : "语义"}
+                {result.type === "global"
+                  ? t("results.type_global_document")
+                  : result.type === "setting"
+                  ? t("results.type_global_setting")
+                  : t("results.type_semantic")}
               </Badge>
               {result.type === "setting" ? (
                 <Button asChild size="sm" variant="outline" className="rounded-lg">
@@ -579,7 +587,7 @@ export default function SearchPage() {
                         : "/settings"
                     }
                   >
-                    前往设置
+                    {t("btn.go_to_settings")}
                   </Link>
                 </Button>
               ) : result.documentId ? (
@@ -623,7 +631,7 @@ export default function SearchPage() {
         <CardContent className="space-y-4 pt-5">
           <div className="flex items-center gap-2 text-sm font-medium">
             <SlidersHorizontal className="h-4 w-4" />
-            综合搜索设置
+            {t("options.title")}
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -633,7 +641,7 @@ export default function SearchPage() {
                 checked={options.includeDocuments}
                 onChange={(event) => setOptions((prev) => ({ ...prev, includeDocuments: event.target.checked }))}
               />
-              文档全局匹配
+              {t("options.include_documents")}
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -641,7 +649,7 @@ export default function SearchPage() {
                 checked={options.includeSettings}
                 onChange={(event) => setOptions((prev) => ({ ...prev, includeSettings: event.target.checked }))}
               />
-              设置项检索
+              {t("options.include_settings")}
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -649,13 +657,13 @@ export default function SearchPage() {
                 checked={options.includeSemantic}
                 onChange={(event) => setOptions((prev) => ({ ...prev, includeSemantic: event.target.checked }))}
               />
-              语义检索
+              {t("options.include_semantic")}
             </label>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <label className="space-y-1 text-xs text-muted-foreground">
-              优先级
+              {t("options.priority")}
               <select
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
                 value={options.priority}
@@ -666,13 +674,13 @@ export default function SearchPage() {
                   }))
                 }
               >
-                <option value="global-first">全局优先</option>
-                <option value="semantic-first">语义优先</option>
+                <option value="global-first">{t("options.global_first")}</option>
+                <option value="semantic-first">{t("options.semantic_first")}</option>
               </select>
             </label>
 
             <label className="space-y-1 text-xs text-muted-foreground">
-              全局结果上限
+              {t("options.max_global_results")}
               <Input
                 type="number"
                 min={1}
@@ -685,7 +693,7 @@ export default function SearchPage() {
             </label>
 
             <label className="space-y-1 text-xs text-muted-foreground">
-              语义结果上限
+              {t("options.max_semantic_results")}
               <Input
                 type="number"
                 min={1}
@@ -698,7 +706,7 @@ export default function SearchPage() {
             </label>
 
             <label className="space-y-1 text-xs text-muted-foreground">
-              语义阈值（0-1）
+              {t("options.min_semantic_score")}
               <Input
                 type="number"
                 step={0.05}
@@ -723,7 +731,7 @@ export default function SearchPage() {
             {t("results.count", { count: combinedResults.length })}
           </p>
           <div className="space-y-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">综合结果</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("labels.combined_results")}</p>
             {combinedResults.map((result) => renderResultCard(result))}
           </div>
         </div>

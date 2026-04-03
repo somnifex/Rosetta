@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import type { Document } from "../../../packages/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -74,6 +75,7 @@ export function DocumentList({
   inTrash,
 }: DocumentListProps) {
   const ctx = useDocumentContextMenu()
+  const { t } = useTranslation("library")
   const [renameDoc, setRenameDoc] = useState<Document | null>(null)
 
   return (
@@ -81,12 +83,12 @@ export function DocumentList({
       {/* Table header */}
       <div className={cn("grid gap-3 border-b px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground", COL_TEMPLATE)}>
         <span />
-        <span>文档</span>
-        <span>分类 / 文件夹</span>
-        <span className="text-center">状态</span>
-        <span className="text-right">大小</span>
-        <span>{inTrash ? "删除时间" : "更新时间"}</span>
-        <span className="text-center">操作</span>
+        <span>{t("table.document")}</span>
+        <span>{t("table.category_folder")}</span>
+        <span className="text-center">{t("table.status")}</span>
+        <span className="text-right">{t("table.size")}</span>
+        <span>{inTrash ? t("table.deleted_at") : t("table.updated_at")}</span>
+        <span className="text-center">{t("table.actions")}</span>
       </div>
 
       {/* Table rows */}
@@ -138,8 +140,8 @@ export function DocumentList({
 
               {/* Category / Folder */}
               <div className="min-w-0">
-                <p className="truncate text-sm">{document.category_name || "未分类"}</p>
-                <p className="truncate text-xs text-muted-foreground">{document.folder_name || "根目录"}</p>
+                <p className="truncate text-sm">{document.category_name || t("fields.uncategorized")}</p>
+                <p className="truncate text-xs text-muted-foreground">{document.folder_name || t("fields.root_folder")}</p>
               </div>
 
               {/* Status */}
@@ -186,23 +188,23 @@ export function DocumentList({
               <ContextMenuContent className="w-56">
                 {!inTrash ? (
                   <>
-                    <ContextMenuItem onClick={() => onOpen(document.id)}>打开</ContextMenuItem>
-                    <ContextMenuItem onClick={() => ctx.revealMutation.mutate(document.id)}>在文件夹中显示</ContextMenuItem>
+                    <ContextMenuItem onClick={() => onOpen(document.id)}>{t("context_menu.open")}</ContextMenuItem>
+                    <ContextMenuItem onClick={() => ctx.revealMutation.mutate(document.id)}>{t("context_menu.reveal")}</ContextMenuItem>
                     <ContextMenuSeparator />
-                    <ContextMenuItem onClick={() => setRenameDoc(document)}>重命名</ContextMenuItem>
+                    <ContextMenuItem onClick={() => setRenameDoc(document)}>{t("context_menu.rename")}</ContextMenuItem>
                     <ContextMenuSub>
-                      <ContextMenuSubTrigger>复制</ContextMenuSubTrigger>
+                      <ContextMenuSubTrigger>{t("context_menu.copy")}</ContextMenuSubTrigger>
                       <ContextMenuSubContent>
-                        <ContextMenuItem onClick={() => ctx.handleCopy(document.title, "文档名称")}>复制文档名称</ContextMenuItem>
-                        <ContextMenuItem onClick={() => ctx.handleCopy(document.id, "文档 ID")}>复制文档 ID</ContextMenuItem>
-                        <ContextMenuItem onClick={() => ctx.handleCopyPath(document.id)}>复制物理路径</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopy(document.title, t("copy_labels.document_name"))}>{t("context_menu.copy_name")}</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopy(document.id, t("copy_labels.document_id"))}>{t("context_menu.copy_id")}</ContextMenuItem>
+                        <ContextMenuItem onClick={() => ctx.handleCopyPath(document.id)}>{t("context_menu.copy_path")}</ContextMenuItem>
                       </ContextMenuSubContent>
                     </ContextMenuSub>
-                    <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(document.id)}>创建副本</ContextMenuItem>
+                    <ContextMenuItem onClick={() => ctx.duplicateMutation.mutate(document.id)}>{t("context_menu.duplicate")}</ContextMenuItem>
                     <ContextMenuSeparator />
                     {ctx.categories.length > 0 && (
                       <ContextMenuSub>
-                        <ContextMenuSubTrigger>移动到分类</ContextMenuSubTrigger>
+                        <ContextMenuSubTrigger>{t("context_menu.move_to_category")}</ContextMenuSubTrigger>
                         <ContextMenuSubContent>
                           {ctx.categories.map((c) => (
                             <ContextMenuItem key={c.id} onClick={() => ctx.moveMutation.mutate({ documentId: document.id, categoryId: c.id })}>
@@ -214,7 +216,7 @@ export function DocumentList({
                     )}
                     {ctx.folders.length > 0 && (
                       <ContextMenuSub>
-                        <ContextMenuSubTrigger>移动到文件夹</ContextMenuSubTrigger>
+                        <ContextMenuSubTrigger>{t("context_menu.move_to_folder")}</ContextMenuSubTrigger>
                         <ContextMenuSubContent>
                           {ctx.folders.map((f) => (
                             <ContextMenuItem key={f.id} onClick={() => ctx.moveMutation.mutate({ documentId: document.id, folderId: f.id })}>
@@ -225,13 +227,13 @@ export function DocumentList({
                       </ContextMenuSub>
                     )}
                     <ContextMenuSeparator />
-                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(document.id)}>移入回收站</ContextMenuItem>
+                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(document.id)}>{t("context_menu.move_to_trash")}</ContextMenuItem>
                   </>
                 ) : (
                   <>
-                    <ContextMenuItem onClick={() => onRestore(document.id)}>恢复文档</ContextMenuItem>
+                    <ContextMenuItem onClick={() => onRestore(document.id)}>{t("context_menu.restore")}</ContextMenuItem>
                     <ContextMenuSeparator />
-                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onPermanentDelete(document.id)}>永久删除</ContextMenuItem>
+                    <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onPermanentDelete(document.id)}>{t("context_menu.permanent_delete")}</ContextMenuItem>
                   </>
                 )}
               </ContextMenuContent>

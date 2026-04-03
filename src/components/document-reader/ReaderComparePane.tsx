@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { RefObject } from "react"
+import { useTranslation } from "react-i18next"
 import type { CompareOrder } from "@/hooks/useReaderState"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -46,6 +47,7 @@ export function ReaderComparePane({
   onAskAI,
   onTranslateSelection,
 }: ReaderComparePaneProps) {
+  const { t } = useTranslation("document")
   const rootRef = useRef<HTMLDivElement>(null)
   const originalWrapperRef = useRef<HTMLDivElement>(null)
   const translatedWrapperRef = useRef<HTMLDivElement>(null)
@@ -94,7 +96,7 @@ export function ReaderComparePane({
   const leftPane =
     compareOrder === "original-left"
       ? {
-          title: "原文",
+          title: t("reader.compare.original"),
           variant: "outline" as const,
           content: originalContent,
           format: originalFormat,
@@ -104,7 +106,7 @@ export function ReaderComparePane({
           onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
         }
       : {
-          title: "译文",
+          title: t("reader.compare.translated"),
           variant: "default" as const,
           content: translatedContent,
           format: translatedFormat,
@@ -117,7 +119,7 @@ export function ReaderComparePane({
   const rightPane =
     compareOrder === "original-left"
       ? {
-          title: "译文",
+          title: t("reader.compare.translated"),
           variant: "default" as const,
           content: translatedContent,
           format: translatedFormat,
@@ -127,7 +129,7 @@ export function ReaderComparePane({
           onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
         }
       : {
-          title: "原文",
+          title: t("reader.compare.original"),
           variant: "outline" as const,
           content: originalContent,
           format: originalFormat,
@@ -141,9 +143,9 @@ export function ReaderComparePane({
     <section className="flex h-full min-w-0 flex-col overflow-hidden">
       <div className="glass-surface flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
         <div className="flex items-center gap-2">
-          <Badge variant="outline">同步滚动</Badge>
+          <Badge variant="outline">{t("reader.compare.sync_scroll")}</Badge>
           <p className="text-xs text-muted-foreground">
-            对照模式默认使用解析后的原文与翻译内容
+            {t("reader.compare.parsed_notice")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -177,7 +179,7 @@ export function ReaderComparePane({
             }
           >
             <ArrowLeftRight className="mr-1.5 h-4 w-4" />
-            切换顺序
+            {t("reader.compare.swap_order")}
           </Button>
         </div>
       </div>

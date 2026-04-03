@@ -306,7 +306,7 @@ export default function TranslationTab() {
                 <tr className="border-b">
                   <td className="px-4 py-2 font-mono text-xs text-primary">{"{{target_lang}}"}</td>
                   <td className="px-4 py-2 text-muted-foreground">{t("prompt.variables.target_lang")}</td>
-                  <td className="px-4 py-2 text-muted-foreground">中文</td>
+                  <td className="px-4 py-2 text-muted-foreground">Chinese</td>
                 </tr>
                 <tr className="border-b">
                   <td className="px-4 py-2 font-mono text-xs text-primary">{"{{text}}"}</td>

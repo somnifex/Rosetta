@@ -23,6 +23,7 @@ export default {
     test_connection: "Probar conexión",
     testing: "Probando...",
     delete: "Eliminar",
+    confirm: "Confirmar",
   },
   units: {
     pages: "páginas",

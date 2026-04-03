@@ -1,4 +1,5 @@
 import { useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
 import { PdfViewer } from "@/components/viewer/PdfViewer"
 import { TextSelectionToolbar } from "@/components/viewer/TextSelectionToolbar"
@@ -30,6 +31,7 @@ export function ReaderPaneTranslated({
   onTranslateSelection,
   className,
 }: ReaderPaneTranslatedProps) {
+  const { t } = useTranslation("document")
   const viewerContainerRef = useRef<HTMLDivElement>(null)
 
   return (
@@ -67,8 +69,8 @@ export function ReaderPaneTranslated({
         <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
           <FileText className="h-10 w-10" />
           <div>
-            <p className="font-medium text-foreground">翻译内容尚未准备好</p>
-            <p className="text-sm">请先在文档操作页生成翻译结果，或上传翻译版 PDF。</p>
+            <p className="font-medium text-foreground">{t("reader.empty.translated_title")}</p>
+            <p className="text-sm">{t("reader.empty.translated_description")}</p>
           </div>
         </div>
       )}

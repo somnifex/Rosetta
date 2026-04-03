@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +15,7 @@ interface RenameDialogProps {
 }
 
 export function RenameDialog({ document, open, onOpenChange, onConfirm, loading }: RenameDialogProps) {
+  const { t } = useTranslation("library")
   const [title, setTitle] = useState("")
 
   useEffect(() => {
@@ -36,16 +38,16 @@ export function RenameDialog({ document, open, onOpenChange, onConfirm, loading 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>重命名文档</DialogTitle>
+          <DialogTitle>{t("rename_dialog.title")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
           <div className="space-y-2">
-            <Label htmlFor="title">名称</Label>
+            <Label htmlFor="title">{t("rename_dialog.name_label")}</Label>
             <Input
               id="title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="输入文档新名称"
+              placeholder={t("rename_dialog.name_placeholder")}
               autoFocus
             />
           </div>
@@ -56,13 +58,13 @@ export function RenameDialog({ document, open, onOpenChange, onConfirm, loading 
               onClick={() => onOpenChange(false)}
               disabled={loading}
             >
-              取消
+              {t("btn.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={loading || !title.trim() || (!!document && title.trim() === document.title)}
             >
-              确定
+              {t("btn.confirm")}
             </Button>
           </DialogFooter>
         </form>

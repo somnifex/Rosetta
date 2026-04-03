@@ -79,7 +79,7 @@ export function TagManagerDialog({ open, onOpenChange }: TagManagerDialogProps) 
             <div>
               <DialogTitle className="text-base">{t("tags.manager_title")}</DialogTitle>
               <DialogDescription className="mt-0.5 text-sm">
-                创建和管理文档标签，为你的文献建立标注体系
+                {t("tags.manager_description")}
               </DialogDescription>
             </div>
           </div>
@@ -88,7 +88,7 @@ export function TagManagerDialog({ open, onOpenChange }: TagManagerDialogProps) 
         <div className="space-y-5 pt-1">
           {/* Create new tag */}
           <div className="rounded-lg border border-border bg-muted/30 p-3">
-            <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">新建标签</p>
+            <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("tags.new_section")}</p>
             <div className="flex items-center gap-2">
               <div className="relative">
                 <input
@@ -115,7 +115,7 @@ export function TagManagerDialog({ open, onOpenChange }: TagManagerDialogProps) 
           {/* Tag list */}
           <div>
             <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              已有标签 · {tags.length}
+              {t("tags.existing", { count: tags.length })}
             </p>
             <div className="max-h-[280px] space-y-1.5 overflow-auto">
               {tags.map((tag) =>

@@ -2,7 +2,7 @@ export default {
   app_title: "Rosetta",
   nav: {
     dashboard: "لوحة التحكم",
-    chat: "المحادثة",
+    chat: "الدردشة",
     library: "المكتبة",
     search: "البحث",
     tasks: "المهام",
@@ -23,13 +23,14 @@ export default {
     test_connection: "اختبار الاتصال",
     testing: "جارٍ الاختبار...",
     delete: "حذف",
+    confirm: "تأكيد",
   },
   units: {
     pages: "صفحات",
     mb: "ميجابايت",
   },
   no_active_provider: {
-    title: "لا يوجد مزود نشط",
-    description: "يرجى تكوين مزود LLM نشط في الإعدادات",
+    title: "لا يوجد موفر نشط",
+    description: "يرجى إعداد موفر LLM نشط من صفحة الإعدادات",
   },
 }

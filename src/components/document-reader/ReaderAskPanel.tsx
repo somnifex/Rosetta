@@ -7,6 +7,7 @@ import {
   ensureDocumentConversation,
   findDocumentConversation,
   genId,
+  getDefaultChatBehaviorSettings,
   generateConversationTitle,
   loadChatBehaviorSettings,
   loadConversations,
@@ -196,16 +197,17 @@ export function ReaderAskPanel({
   async function handleSend() {
     if (!input.trim() || !activeConversation) return
 
+    const defaultBehavior = getDefaultChatBehaviorSettings()
     const effectiveBehavior = {
       documentAppendPrompt:
         chatBehaviorSettings?.documentAppendPrompt ||
-        "用户问题：{{user_input}}\n\n以下是文档全文，请优先基于全文回答并在结论后指出关键依据：\n\n{{document_content}}",
+        defaultBehavior.documentAppendPrompt,
       longTextRagPrompt:
         chatBehaviorSettings?.longTextRagPrompt ||
-        "用户输入很长，请先给出结构化摘要，再按要点回答，必要时明确指出不确定性。\n\n原始输入：\n{{user_input}}",
-      longTextThreshold: chatBehaviorSettings?.longTextThreshold ?? 3000,
+        defaultBehavior.longTextRagPrompt,
+      longTextThreshold: chatBehaviorSettings?.longTextThreshold ?? defaultBehavior.longTextThreshold,
       defaultAlwaysIncludeFullDocument:
-        chatBehaviorSettings?.defaultAlwaysIncludeFullDocument ?? false,
+        chatBehaviorSettings?.defaultAlwaysIncludeFullDocument ?? defaultBehavior.defaultAlwaysIncludeFullDocument,
     }
 
     const alwaysIncludeFullDocument =

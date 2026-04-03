@@ -1,5 +1,6 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import type { Category, Folder } from "../../../packages/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -145,6 +146,7 @@ export function LibrarySidebar({
   onUpdateCategory,
   onDeleteCategory,
 }: LibrarySidebarProps) {
+  const { t } = useTranslation("library")
   const [isCreatingCategory, setIsCreatingCategory] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
@@ -260,8 +262,8 @@ export function LibrarySidebar({
               <SidebarItemActions
                 count={categoryCounts[category.id] || 0}
                 active={activeSection === "library" && selectedCategoryKey === categoryKey}
-                editLabel="重命名分类"
-                deleteLabel="删除分类"
+                editLabel={t("categories.rename")}
+                deleteLabel={t("categories.delete")}
                 onEdit={() => {
                   setEditingCategoryId(category.id)
                   setEditCategoryName(category.name)
@@ -275,11 +277,11 @@ export function LibrarySidebar({
               setEditingCategoryId(category.id)
               setEditCategoryName(category.name)
             }}>
-              重命名分类
+              {t("categories.rename")}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDeleteCategory(category.id)}>
-              删除分类
+              {t("categories.delete")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -341,8 +343,8 @@ export function LibrarySidebar({
               <SidebarItemActions
                 count={folderCounts[folder.id] || 0}
                 active={activeSection === "library" && selectedFolderId === folder.id}
-                editLabel="重命名文件夹"
-                deleteLabel="删除文件夹"
+                editLabel={t("folders.rename")}
+                deleteLabel={t("folders.delete")}
                 onEdit={() => {
                   setEditingFolderId(folder.id)
                   setEditFolderName(folder.name)
@@ -356,11 +358,11 @@ export function LibrarySidebar({
               setEditingFolderId(folder.id)
               setEditFolderName(folder.name)
             }}>
-              重命名文件夹
+              {t("folders.rename")}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDeleteFolder(folder.id)}>
-              删除文件夹
+              {t("folders.delete")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -373,10 +375,10 @@ export function LibrarySidebar({
     <aside className="flex h-full w-full flex-col border-r border-border bg-background xl:w-[280px]">
       <div className="border-b border-border px-4 py-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          文档库
+          {t("sidebar.title")}
         </p>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground/80">
-          分类、文件夹与回收站
+          {t("sidebar.subtitle")}
         </p>
       </div>
 
@@ -392,7 +394,7 @@ export function LibrarySidebar({
             }}
           >
             <Layers3 className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">全部文档</span>
+            <span className="flex-1 text-left">{t("sidebar.all_documents")}</span>
             <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
               {totalCount}
             </Badge>
@@ -407,7 +409,7 @@ export function LibrarySidebar({
             }}
           >
             <FileQuestion className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">未分类</span>
+            <span className="flex-1 text-left">{t("sidebar.uncategorized")}</span>
             <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
               {uncategorizedCount}
             </Badge>
@@ -418,7 +420,7 @@ export function LibrarySidebar({
             onClick={() => onSelectSection("trash")}
           >
             <Archive className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">回收站</span>
+            <span className="flex-1 text-left">{t("sidebar.trash")}</span>
             <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] font-normal shadow-none">
               {trashCount}
             </Badge>
@@ -428,7 +430,7 @@ export function LibrarySidebar({
         <div className="space-y-2">
           <div className="flex items-center justify-between px-2 pt-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
-              分类
+              {t("sidebar.categories")}
             </p>
             <Button
               variant="ghost"
@@ -447,7 +449,7 @@ export function LibrarySidebar({
               <Input
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="分类名称"
+                placeholder={t("categories.name_placeholder")}
                 className="h-7 text-sm"
                 autoFocus
                 onKeyDown={(e) => {
@@ -471,7 +473,7 @@ export function LibrarySidebar({
         <div className="space-y-2">
           <div className="flex items-center justify-between px-2 pt-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
-              文件夹
+              {t("sidebar.folders")}
             </p>
             <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md" onClick={onCreateFolder}>
               <FolderPlus className="h-3.5 w-3.5" />
@@ -486,7 +488,7 @@ export function LibrarySidebar({
             }}
           >
             <FolderOpen className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">根目录</span>
+            <span className="flex-1 text-left">{t("sidebar.root")}</span>
           </button>
           <div className="space-y-0.5 ml-2 border-l border-border/50">
             {rootFolders.map((folder) => renderFolder(folder, 1))}

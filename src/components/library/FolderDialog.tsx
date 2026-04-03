@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import type { Folder } from "../../../packages/types"
 import {
   Dialog,
@@ -42,6 +43,7 @@ export function FolderDialog({
   cancelLabel,
   onSubmit,
 }: FolderDialogProps) {
+  const { t } = useTranslation("library")
   const [name, setName] = useState("")
   const [parentId, setParentId] = useState<string>("root")
 
@@ -63,7 +65,7 @@ export function FolderDialog({
             <div>
               <DialogTitle className="text-base">{title}</DialogTitle>
               <DialogDescription className="mt-0.5 text-sm">
-                为文件夹设置名称和父级目录
+                {t("folders.description")}
               </DialogDescription>
             </div>
           </div>
@@ -71,11 +73,11 @@ export function FolderDialog({
 
         <div className="space-y-4 pt-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">文件夹名称</label>
+            <label className="text-sm font-medium text-foreground">{t("folders.name_label")}</label>
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="输入文件夹名称"
+              placeholder={t("folders.name_placeholder")}
               className="h-10 rounded-lg"
               onKeyDown={(event) => {
                 if (event.key === "Enter" && name.trim()) {
@@ -89,13 +91,13 @@ export function FolderDialog({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">上级目录</label>
+            <label className="text-sm font-medium text-foreground">{t("folders.parent_label")}</label>
             <Select value={parentId} onValueChange={setParentId}>
               <SelectTrigger className="h-10 rounded-lg">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="root">根目录</SelectItem>
+                <SelectItem value="root">{t("folders.root")}</SelectItem>
                 {folders.map((folder) => (
                   <SelectItem key={folder.id} value={folder.id}>
                     {folder.name}

@@ -95,6 +95,42 @@ export default {
       save_error: "保存高亮失败",
     },
   },
+  reader: {
+    modes: {
+      original: "原文",
+      translated: "翻译",
+      compare: "对照",
+      ask: "提问",
+    },
+    toolbar: {
+      back: "返回",
+      zoom_out: "缩小",
+      zoom_in: "放大",
+      ask_open: "问答",
+      ask_close: "收起",
+    },
+    compare: {
+      original: "原文",
+      translated: "译文",
+      sync_scroll: "同步滚动",
+      parsed_notice: "对照模式默认使用解析后的原文与翻译内容。",
+      swap_order: "切换顺序",
+    },
+    empty: {
+      original_title: "原文暂不可读",
+      original_description: "请先完成解析，或检查原始文件是否仍然可用。",
+      translated_title: "翻译内容尚未准备好",
+      translated_description: "请先在文档操作页生成翻译结果，或上传翻译版 PDF。",
+    },
+    detail: {
+      ask_explain_template: "请结合当前文档解释这段内容：\n\n{{text}}",
+      translate_explain_template: "请翻译并解释这段内容：\n\n{{text}}",
+      not_found: "未找到文档",
+      compare_not_ready_title: "对照阅读尚未就绪",
+      compare_not_ready_description: "完成解析和翻译后，这里会自动切换为左右对照阅读模式。",
+      back_to_actions: "返回文档操作中心",
+    },
+  },
   delete_confirm: {
     title: "删除文档",
     description: "确定要删除此文档吗？此操作无法撤销。",

@@ -129,11 +129,13 @@ function getModelCount(provider: Provider, modelType: ProviderModelType) {
   return (provider.models ?? []).filter((model) => model.model_type === modelType).length
 }
 
-function modelConfigSummary(model: ProviderModel) {
-  if (model.model_type === "embed" && model.config?.dimensions) return `维度 ${model.config.dimensions}`
+function modelConfigSummary(model: ProviderModel, t: any) {
+  if (model.model_type === "embed" && model.config?.dimensions) {
+    return t("providers_manager.summary.dimensions", { value: model.config.dimensions })
+  }
   if (model.model_type === "rerank" && model.config?.rerank_top_n) return `Top N ${model.config.rerank_top_n}`
-  if ((model.model_type === "chat" || model.model_type === "translate") && model.supports_vision) return "支持视觉"
-  return "默认配置"
+  if ((model.model_type === "chat" || model.model_type === "translate") && model.supports_vision) return t("providers_manager.summary.vision")
+  return t("providers_manager.summary.default")
 }
 
 export default function ProvidersTab() {
@@ -198,10 +200,10 @@ export default function ProvidersTab() {
     },
     onSuccess: () => {
       invalidateSettings()
-      toast({ title: "全局模型参数已保存" })
+      toast({ title: t("providers_manager.toast.global_saved") })
     },
     onError: (error: Error) => {
-      toast({ title: "保存全局模型参数失败", description: error.message, variant: "destructive" })
+      toast({ title: t("providers_manager.toast.global_save_error"), description: error.message, variant: "destructive" })
     },
   })
 
@@ -215,10 +217,10 @@ export default function ProvidersTab() {
       setChannelDialogOpen(false)
       setEditingChannel(null)
       setChannelForm(emptyChannelForm())
-      toast({ title: "渠道配置已保存" })
+      toast({ title: t("providers_manager.toast.channel_saved") })
     },
     onError: (error: Error) => {
-      toast({ title: "保存渠道失败", description: error.message, variant: "destructive" })
+      toast({ title: t("providers_manager.toast.channel_save_error"), description: error.message, variant: "destructive" })
     },
   })
 
@@ -226,10 +228,10 @@ export default function ProvidersTab() {
     mutationFn: api.deleteProvider,
     onSuccess: () => {
       invalidateSettings()
-      toast({ title: "渠道已删除" })
+      toast({ title: t("providers_manager.toast.channel_deleted") })
     },
     onError: (error: Error) => {
-      toast({ title: "删除渠道失败", description: error.message, variant: "destructive" })
+      toast({ title: t("providers_manager.toast.channel_delete_error"), description: error.message, variant: "destructive" })
     },
   })
 
@@ -242,10 +244,10 @@ export default function ProvidersTab() {
       setModelTargetChannel(null)
       setEditingModel(null)
       setModelForm(emptyModelForm())
-      toast({ title: "模型配置已保存" })
+      toast({ title: t("providers_manager.toast.model_saved") })
     },
     onError: (error: Error) => {
-      toast({ title: "保存模型失败", description: error.message, variant: "destructive" })
+      toast({ title: t("providers_manager.toast.model_save_error"), description: error.message, variant: "destructive" })
     },
   })
 
@@ -290,8 +292,8 @@ export default function ProvidersTab() {
   const handleSaveChannel = () => {
     if (!channelForm.name.trim() || !channelForm.baseUrl.trim() || !channelForm.apiKey.trim()) {
       toast({
-        title: "请填写完整渠道信息",
-        description: "渠道名称、Base URL 和 API Key 为必填项。",
+        title: t("providers_manager.validation.channel_title"),
+        description: t("providers_manager.validation.channel_description"),
         variant: "destructive",
       })
       return
@@ -312,8 +314,8 @@ export default function ProvidersTab() {
     if (!modelTargetChannel) return
     if (!modelForm.name?.trim() || !modelForm.modelName?.trim()) {
       toast({
-        title: "请填写完整模型信息",
-        description: "模型显示名称和模型标识为必填项。",
+        title: t("providers_manager.validation.model_title"),
+        description: t("providers_manager.validation.model_description"),
         variant: "destructive",
       })
       return
@@ -368,15 +370,15 @@ export default function ProvidersTab() {
             <div className="space-y-1">
               <CardTitle className="flex items-center gap-2">
                 <Settings2 className="h-5 w-5 text-primary" />
-                渠道与模型
+                {t("providers_manager.section_title")}
               </CardTitle>
               <CardDescription>
-                渠道负责保存接口与认证信息，模型负责声明用途与专属配置。
+                {t("providers_manager.section_description")}
               </CardDescription>
             </div>
             <Button onClick={openCreateChannel}>
               <Plus className="mr-2 h-4 w-4" />
-              新建渠道
+              {t("providers_manager.new_channel")}
             </Button>
           </div>
         </CardHeader>
@@ -392,11 +394,11 @@ export default function ProvidersTab() {
           {providersLoading ? (
             <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              正在加载渠道配置...
+              {t("providers_manager.loading")}
             </div>
           ) : providers.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-              还没有渠道。先新建一个渠道，再按类型添加 Chat、Translate、Embed 或 Rerank 模型。
+              {t("providers_manager.empty")}
             </div>
           ) : (
             <div className="space-y-3">
@@ -410,10 +412,10 @@ export default function ProvidersTab() {
                           <span className="font-semibold">{provider.name}</span>
                         </div>
                         <Badge variant={provider.is_active ? "default" : "outline"}>
-                          {provider.is_active ? "启用中" : "已停用"}
+                          {provider.is_active ? t("providers_manager.enabled") : t("providers_manager.disabled")}
                         </Badge>
-                        <Badge variant="outline">优先级 {provider.priority}</Badge>
-                        <Badge variant="outline">重试 {provider.max_retries}</Badge>
+                        <Badge variant="outline">{t("providers_manager.priority", { value: provider.priority })}</Badge>
+                        <Badge variant="outline">{t("providers_manager.retries", { value: provider.max_retries })}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground break-all">{provider.base_url}</p>
                       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -426,16 +428,16 @@ export default function ProvidersTab() {
 
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
-                        <span className="text-xs text-muted-foreground">渠道启用</span>
+                        <span className="text-xs text-muted-foreground">{t("providers_manager.channel_enabled")}</span>
                         <Switch checked={provider.is_active} onCheckedChange={(checked) => handleToggleChannel(provider, checked)} />
                       </div>
                       <Button variant="outline" size="sm" onClick={() => openEditChannel(provider)}>
                         <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                        编辑渠道
+                        {t("providers_manager.edit_channel")}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => openCreateModel(provider)}>
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
-                        添加模型
+                        {t("providers_manager.add_model")}
                       </Button>
                       <Button
                         variant="ghost"
@@ -451,7 +453,7 @@ export default function ProvidersTab() {
                   <div className="space-y-3 px-4 py-4">
                     {(provider.models ?? []).length === 0 ? (
                       <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                        这个渠道还没有模型，可以继续添加。
+                        {t("providers_manager.no_models")}
                       </div>
                     ) : (
                       provider.models.map((model) => {
@@ -470,23 +472,23 @@ export default function ProvidersTab() {
                                   </Badge>
                                   <span className="font-medium">{model.name}</span>
                                   <Badge variant="outline">{model.model_name}</Badge>
-                                  {isPrimary && <Badge variant="secondary">默认</Badge>}
-                                  {!model.is_active && <Badge variant="outline">停用</Badge>}
+                                  {isPrimary && <Badge variant="secondary">{t("providers_manager.default_badge")}</Badge>}
+                                  {!model.is_active && <Badge variant="outline">{t("providers_manager.disabled_badge")}</Badge>}
                                 </div>
                                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                  <span>优先级 {model.priority}</span>
-                                  <span>{modelConfigSummary(model)}</span>
+                                  <span>{t("providers_manager.priority", { value: model.priority })}</span>
+                                  <span>{modelConfigSummary(model, t)}</span>
                                 </div>
                               </div>
 
                               <div className="flex flex-wrap items-center gap-2">
                                 <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
-                                  <span className="text-xs text-muted-foreground">模型启用</span>
+                                  <span className="text-xs text-muted-foreground">{t("providers_manager.model_enabled")}</span>
                                   <Switch checked={model.is_active} onCheckedChange={(checked) => handleToggleModel(provider, model, checked)} />
                                 </div>
                                 <Button variant="outline" size="sm" onClick={() => openEditModel(provider, model)}>
                                   <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                                  编辑模型
+                                  {t("providers_manager.edit_model")}
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -512,8 +514,8 @@ export default function ProvidersTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>全局采样参数</CardTitle>
-          <CardDescription>留空即使用服务端默认值。</CardDescription>
+          <CardTitle>{t("providers_manager.global_sampling_title")}</CardTitle>
+          <CardDescription>{t("providers_manager.global_sampling_description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -533,7 +535,7 @@ export default function ProvidersTab() {
                       <div key={field.key} className="space-y-1.5">
                         <Label>{field.label}</Label>
                         <Input
-                          placeholder="默认"
+                          placeholder={t("providers_manager.default_placeholder")}
                           value={section.form[field.key]}
                           onChange={(event) =>
                             section.setter((current) => ({ ...current, [field.key]: event.target.value }))
@@ -559,12 +561,12 @@ export default function ProvidersTab() {
       <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingChannel ? "编辑渠道" : "新建渠道"}</DialogTitle>
-            <DialogDescription>渠道保存 Base URL、API Key 和优先级，模型单独管理。</DialogDescription>
+            <DialogTitle>{editingChannel ? t("providers_manager.dialogs.channel_title_edit") : t("providers_manager.dialogs.channel_title_new")}</DialogTitle>
+            <DialogDescription>{t("providers_manager.dialogs.channel_description")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>渠道名称</Label>
+              <Label>{t("providers_manager.dialogs.channel_name")}</Label>
               <Input value={channelForm.name} onChange={(event) => setChannelForm((current) => ({ ...current, name: event.target.value }))} />
             </div>
             <div className="space-y-1.5">
@@ -576,26 +578,26 @@ export default function ProvidersTab() {
               <Input type="password" value={channelForm.apiKey} onChange={(event) => setChannelForm((current) => ({ ...current, apiKey: event.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>优先级</Label>
+              <Label>{t("providers_manager.dialogs.priority")}</Label>
               <Input type="number" value={channelForm.priority ?? 0} onChange={(event) => setChannelForm((current) => ({ ...current, priority: Number(event.target.value || "0") }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>失败重试次数</Label>
+              <Label>{t("providers_manager.dialogs.retry_count")}</Label>
               <Input type="number" value={channelForm.maxRetries ?? 3} onChange={(event) => setChannelForm((current) => ({ ...current, maxRetries: Number(event.target.value || "0") }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>并发数</Label>
+              <Label>{t("providers_manager.dialogs.concurrency")}</Label>
               <Input type="number" value={channelForm.concurrency ?? 3} onChange={(event) => setChannelForm((current) => ({ ...current, concurrency: Number(event.target.value || "1") }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>超时 (ms，可选)</Label>
+              <Label>{t("providers_manager.dialogs.timeout")}</Label>
               <Input type="number" value={channelForm.timeout ?? ""} onChange={(event) => setChannelForm((current) => ({ ...current, timeout: event.target.value.trim() ? Number(event.target.value) : undefined }))} />
             </div>
           </div>
           <div className="flex items-center justify-between rounded-lg border px-4 py-3">
             <div>
-              <p className="font-medium text-sm">启用这个渠道</p>
-              <p className="text-xs text-muted-foreground">停用后不会参与自动选择。</p>
+              <p className="font-medium text-sm">{t("providers_manager.dialogs.enable_channel_title")}</p>
+              <p className="text-xs text-muted-foreground">{t("providers_manager.dialogs.enable_channel_description")}</p>
             </div>
             <Switch checked={channelForm.isActive ?? true} onCheckedChange={(checked) => setChannelForm((current) => ({ ...current, isActive: checked }))} />
           </div>
@@ -603,7 +605,7 @@ export default function ProvidersTab() {
             <Button variant="ghost" onClick={() => setChannelDialogOpen(false)}>{tc("btn.cancel")}</Button>
             <Button onClick={handleSaveChannel} disabled={saveChannelMutation.isPending}>
               {saveChannelMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              保存渠道
+              {t("providers_manager.dialogs.save_channel")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -612,16 +614,16 @@ export default function ProvidersTab() {
       <Dialog open={modelDialogOpen} onOpenChange={setModelDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingModel ? "编辑模型" : "添加模型"}</DialogTitle>
-            <DialogDescription>模型类型决定它会参与哪个流程。</DialogDescription>
+            <DialogTitle>{editingModel ? t("providers_manager.dialogs.model_title_edit") : t("providers_manager.dialogs.model_title_new")}</DialogTitle>
+            <DialogDescription>{t("providers_manager.dialogs.model_description")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>显示名称</Label>
+              <Label>{t("providers_manager.dialogs.display_name")}</Label>
               <Input value={modelForm.name ?? ""} onChange={(event) => setModelForm((current) => ({ ...current, name: event.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>模型类型</Label>
+              <Label>{t("providers_manager.dialogs.model_type")}</Label>
               <Select value={modelForm.modelType} onValueChange={(value) => setModelForm((current) => ({ ...current, modelType: value as ProviderModelType, supportsVision: value === "chat" || value === "translate" ? (current.supportsVision ?? false) : false }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -630,11 +632,11 @@ export default function ProvidersTab() {
               </Select>
             </div>
             <div className="space-y-1.5 md:col-span-2">
-              <Label>模型标识</Label>
+              <Label>{t("providers_manager.dialogs.model_identifier")}</Label>
               <Input value={modelForm.modelName ?? ""} onChange={(event) => setModelForm((current) => ({ ...current, modelName: event.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>优先级</Label>
+              <Label>{t("providers_manager.dialogs.priority")}</Label>
               <Input type="number" value={modelForm.priority ?? 0} onChange={(event) => setModelForm((current) => ({ ...current, priority: Number(event.target.value || "0") }))} />
             </div>
           </div>
@@ -643,8 +645,8 @@ export default function ProvidersTab() {
               <div className="flex items-start gap-3">
                 <Eye className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="font-medium text-sm">支持视觉</p>
-                  <p className="text-xs text-muted-foreground">适用于图文输入场景。</p>
+                  <p className="font-medium text-sm">{t("providers_manager.dialogs.vision_title")}</p>
+                  <p className="text-xs text-muted-foreground">{t("providers_manager.dialogs.vision_description")}</p>
                 </div>
               </div>
               <Switch checked={modelForm.supportsVision ?? false} onCheckedChange={(checked) => setModelForm((current) => ({ ...current, supportsVision: checked }))} />
@@ -652,20 +654,20 @@ export default function ProvidersTab() {
           )}
           {modelForm.modelType === "embed" && (
             <div className="space-y-1.5 rounded-lg border px-4 py-3">
-              <Label>Embedding 维度 (可选)</Label>
+              <Label>{t("providers_manager.dialogs.embedding_dimensions")}</Label>
               <Input type="number" value={modelForm.config?.dimensions ?? ""} onChange={(event) => setModelForm((current) => ({ ...current, config: { ...current.config, dimensions: event.target.value.trim() ? Number(event.target.value) : undefined } }))} />
             </div>
           )}
           {modelForm.modelType === "rerank" && (
             <div className="space-y-1.5 rounded-lg border px-4 py-3">
-              <Label>Rerank Top N 覆盖 (可选)</Label>
+              <Label>{t("providers_manager.dialogs.rerank_top_n")}</Label>
               <Input type="number" value={modelForm.config?.rerank_top_n ?? ""} onChange={(event) => setModelForm((current) => ({ ...current, config: { ...current.config, rerank_top_n: event.target.value.trim() ? Number(event.target.value) : undefined } }))} />
             </div>
           )}
           <div className="flex items-center justify-between rounded-lg border px-4 py-3">
             <div>
-              <p className="font-medium text-sm">启用这个模型</p>
-              <p className="text-xs text-muted-foreground">同类型模型会按优先级选择默认项。</p>
+              <p className="font-medium text-sm">{t("providers_manager.dialogs.enable_model_title")}</p>
+              <p className="text-xs text-muted-foreground">{t("providers_manager.dialogs.enable_model_description")}</p>
             </div>
             <Switch checked={modelForm.isActive ?? true} onCheckedChange={(checked) => setModelForm((current) => ({ ...current, isActive: checked }))} />
           </div>
@@ -673,7 +675,7 @@ export default function ProvidersTab() {
             <Button variant="ghost" onClick={() => setModelDialogOpen(false)}>{tc("btn.cancel")}</Button>
             <Button onClick={handleSaveModel} disabled={saveModelMutation.isPending}>
               {saveModelMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              保存模型
+              {t("providers_manager.dialogs.save_model")}
             </Button>
           </DialogFooter>
         </DialogContent>

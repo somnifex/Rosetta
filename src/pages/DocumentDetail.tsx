@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -20,6 +21,7 @@ function toModeQuery(baseMode: "original" | "translated" | "compare", askOpen: b
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { t } = useTranslation("document")
   const [searchParams, setSearchParams] = useSearchParams()
   const [prefillText, setPrefillText] = useState("")
 
@@ -131,14 +133,14 @@ export default function DocumentDetail() {
   }, [setSearchParams])
 
   const handleAsk = useCallback((text: string) => {
-    setPrefillText(`请结合当前文档解释这段内容：\n\n${text}`)
+    setPrefillText(t("reader.detail.ask_explain_template", { text }))
     setAskOpen(true)
-  }, [setAskOpen])
+  }, [setAskOpen, t])
 
   const handleTranslateSelection = useCallback((text: string) => {
-    setPrefillText(`请翻译并解释这段内容：\n\n${text}`)
+    setPrefillText(t("reader.detail.translate_explain_template", { text }))
     setAskOpen(true)
-  }, [setAskOpen])
+  }, [setAskOpen, t])
 
   const handleBack = useCallback(() => {
     const state = window.history.state as { idx?: number } | null
@@ -229,7 +231,7 @@ export default function DocumentDetail() {
   if (!document || !id) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center">
-        <p className="text-muted-foreground">未找到文档</p>
+        <p className="text-muted-foreground">{t("reader.detail.not_found")}</p>
       </div>
     )
   }
@@ -327,11 +329,11 @@ export default function DocumentDetail() {
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
                     <div className="rounded-[28px] border border-primary/10 bg-primary/5 px-8 py-7 shadow-sm">
-                      <p className="text-lg font-medium">对照阅读尚未就绪</p>
-                      <p className="mt-2 text-sm text-muted-foreground">完成解析和翻译后，这里会自动切换为左右对照阅读模式。</p>
+                      <p className="text-lg font-medium">{t("reader.detail.compare_not_ready_title")}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{t("reader.detail.compare_not_ready_description")}</p>
                     </div>
                     <Button variant="outline" className="rounded-2xl bg-background/70" onClick={() => navigate("/library", { state: { reopenDocumentId: document.id } })}>
-                      返回文档操作中心
+                      {t("reader.detail.back_to_actions")}
                     </Button>
                   </div>
                 )

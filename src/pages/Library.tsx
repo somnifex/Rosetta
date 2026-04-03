@@ -57,17 +57,17 @@ function deriveLibraryStatus(document: Document): LibraryStatusKey {
 function statusLabel(document: Document) {
   switch (deriveLibraryStatus(document)) {
     case "completed":
-      return "已完成"
+      return "completed"
     case "pending":
-      return "未处理"
+      return "pending"
     case "processing":
-      return "处理中"
+      return "processing"
     case "failed":
-      return "失败"
+      return "failed"
     case "deleted":
-      return "已删除"
+      return "deleted"
     default:
-      return "全部"
+      return "all"
   }
 }
 
@@ -165,10 +165,10 @@ export default function Library() {
     mutationFn: api.createFolder,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders"] })
-      toast({ title: "文件夹已创建" })
+      toast({ title: t("toast.folder_created") })
       setFolderDialogOpen(false)
     },
-    onError: (error: Error) => toast({ title: "创建文件夹失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("toast.folder_create_error"), description: error.message, variant: "destructive" }),
   })
 
   const updateFolderMutation = useMutation({
@@ -176,9 +176,9 @@ export default function Library() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders"] })
       invalidateLibraryQueries()
-      toast({ title: "文件夹已更新" })
+      toast({ title: t("toast.folder_updated") })
     },
-    onError: (error: Error) => toast({ title: "更新文件夹失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("toast.folder_update_error"), description: error.message, variant: "destructive" }),
   })
 
   const deleteFolderMutation = useMutation({
@@ -188,18 +188,18 @@ export default function Library() {
       invalidateLibraryQueries()
       // If we deleted the currently selected folder or a parent of it
       setSelectedFolderId(null)
-      toast({ title: "文件夹已删除" })
+      toast({ title: t("toast.folder_deleted") })
     },
-    onError: (error: Error) => toast({ title: "删除文件夹失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("toast.folder_delete_error"), description: error.message, variant: "destructive" }),
   })
 
   const createCategoryMutation = useMutation({
     mutationFn: (name: string) => api.createCategory({ name }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] })
-      toast({ title: "分类已创建" })
+      toast({ title: t("toast.category_created") })
     },
-    onError: (error: Error) => toast({ title: "创建分类失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("toast.category_create_error"), description: error.message, variant: "destructive" }),
   })
 
   const updateCategoryMutation = useMutation({
@@ -207,9 +207,9 @@ export default function Library() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] })
       invalidateLibraryQueries()
-      toast({ title: "分类已更新" })
+      toast({ title: t("toast.category_updated") })
     },
-    onError: (error: Error) => toast({ title: "更新分类失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("toast.category_update_error"), description: error.message, variant: "destructive" }),
   })
 
   const deleteCategoryMutation = useMutation({
@@ -217,9 +217,9 @@ export default function Library() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] })
       invalidateLibraryQueries()
-      toast({ title: "分类已删除" })
+      toast({ title: t("toast.category_deleted") })
     },
-    onError: (error: Error) => toast({ title: "删除分类失败", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("toast.category_delete_error"), description: error.message, variant: "destructive" }),
   })
 
   const batchUpdateMutation = useMutation({
@@ -571,15 +571,19 @@ export default function Library() {
   const openDeleteConfirm = (ids: string[]) => setConfirmState({
     kind: "trash",
     ids,
-    title: "移入回收站",
-    description: ids.length === 1 ? "该文档会从资料库隐藏，并进入回收站。" : `选中的 ${ids.length} 份文档会移入回收站。`,
+    title: t("confirm.trash_title"),
+    description: ids.length === 1
+      ? t("confirm.trash_description_one")
+      : t("confirm.trash_description_many", { count: ids.length }),
   })
 
   const openPermanentDeleteConfirm = (ids: string[]) => setConfirmState({
     kind: "permanent",
     ids,
-    title: "永久删除文档",
-    description: ids.length === 1 ? "这会删除数据库记录、原始文件和所有已知派生资源，且无法恢复。" : `这会永久删除 ${ids.length} 份文档及其本地文件与派生资源，且无法恢复。`,
+    title: t("confirm.permanent_title"),
+    description: ids.length === 1
+      ? t("confirm.permanent_description_one")
+      : t("confirm.permanent_description_many", { count: ids.length }),
   })
 
   const handleConfirm = () => {
@@ -651,13 +655,17 @@ export default function Library() {
         <div className="border-b bg-card/70 px-4 py-3 xl:hidden">
           <Button variant="outline" className="gap-2 rounded-2xl" onClick={() => setMobileSidebarOpen(true)}>
             <SlidersHorizontal className="h-4 w-4" />
-            分类与文件夹
+            {t("page.mobile_sidebar")}
           </Button>
         </div>
 
         <LibraryToolbar
-          title={activeSection === "trash" ? "回收站" : "文档库"}
-          totalLabel={activeSection === "trash" ? `共 ${trashDocuments.length} 份已删除文档` : `共 ${activeDocuments.length} 份文档`}
+          title={activeSection === "trash" ? t("page.title_trash") : t("page.title_library")}
+          totalLabel={
+            activeSection === "trash"
+              ? t("page.total_trash", { count: trashDocuments.length })
+              : t("page.total_library", { count: activeDocuments.length })
+          }
           searchQuery={searchQuery}
           selectedStatus={selectedStatus}
           sortField={sortField}
@@ -725,13 +733,13 @@ export default function Library() {
               {selectedCategoryKey !== "all" && (
                 <span className="rounded-full border bg-card px-3 py-1 text-sm text-muted-foreground">
                   {selectedCategoryKey === "uncategorized"
-                    ? "未分类"
-                    : categories.find((category) => `category:${category.id}` === selectedCategoryKey)?.name || "分类"}
+                    ? t("fields.uncategorized")
+                    : categories.find((category) => `category:${category.id}` === selectedCategoryKey)?.name || t("page.filter_category_default")}
                 </span>
               )}
               {selectedTagIds.length > 0 && (
                 <span className="rounded-full border bg-card px-3 py-1 text-sm text-muted-foreground">
-                  标签筛选: {selectedTagIds.length}
+                  {t("page.selected_tag_filter", { count: selectedTagIds.length })}
                 </span>
               )}
             </div>
@@ -740,7 +748,7 @@ export default function Library() {
           {/* Folder breadcrumb with back navigation */}
           {activeSection === "library" && selectedFolderId && (() => {
             const buildBreadcrumb = () => {
-              const crumbs: { id: string | null; name: string }[] = [{ id: null, name: "根目录" }]
+              const crumbs: { id: string | null; name: string }[] = [{ id: null, name: t("breadcrumb.root") }]
               const visited = new Set<string>()
               let currentId: string | null = selectedFolderId
               const path: { id: string; name: string }[] = []
@@ -765,7 +773,7 @@ export default function Library() {
                   onClick={() => setSelectedFolderId(parentId)}
                 >
                   <CornerLeftUp className="h-3.5 w-3.5" />
-                  返回上级
+                  {t("breadcrumb.back_to_parent")}
                 </Button>
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   {breadcrumb.map((crumb, index) => {
@@ -799,12 +807,12 @@ export default function Library() {
                 className="gap-2 rounded-2xl"
                 onClick={() => setConfirmState({
                   kind: "empty-trash",
-                  title: "清空回收站",
-                  description: "这会永久删除回收站中的所有文档，并清理本地文件与已知派生资源。",
+                  title: t("confirm.empty_trash_title"),
+                  description: t("confirm.empty_trash_description"),
                 })}
               >
                 <Trash2 className="h-4 w-4" />
-                清空回收站
+                {t("page.empty_trash_action")}
               </Button>
             </div>
           )}
@@ -812,9 +820,9 @@ export default function Library() {
           {activeSection === "library" && visibleFolders.length > 0 && (
             <section className="mb-6">
               <div className="mb-3">
-                <h2 className="text-lg font-semibold">文件夹</h2>
+                <h2 className="text-lg font-semibold">{t("folders.title")}</h2>
                 <p className="text-sm text-muted-foreground">
-                  {selectedFolder ? `当前位于 ${selectedFolder.name}` : "优先浏览根目录文件夹"}
+                  {selectedFolder ? t("folders.current_location", { name: selectedFolder.name }) : t("folders.root_hint")}
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -831,7 +839,7 @@ export default function Library() {
                       </div>
                       <div>
                         <p className="font-medium">{folder.name}</p>
-                        <p className="text-sm text-muted-foreground">{folderCounts[folder.id] || 0} 份文档</p>
+                        <p className="text-sm text-muted-foreground">{t("folders.count", { count: folderCounts[folder.id] || 0 })}</p>
                       </div>
                     </div>
                   </button>
@@ -855,34 +863,34 @@ export default function Library() {
           ) : filteredDocuments.length === 0 ? (
             activeSection === "trash" && trashDocuments.length === 0 ? (
               <LibraryEmptyState
-                title="回收站为空"
-                description="删除后的文档会先进入这里，恢复或永久删除都可以在此完成。"
+                title={t("empty.trash.title")}
+                description={t("empty.trash.description")}
                 icon={<Archive className="h-8 w-8" />}
               />
             ) : searchQuery || selectedTagIds.length > 0 || selectedCategoryKey !== "all" || selectedFolderId || selectedStatus !== "all" ? (
               <LibraryEmptyState
-                title="没有匹配结果"
-                description="试试调整搜索词、状态、分类、文件夹或标签筛选条件。"
+                title={t("empty.no_results.title")}
+                description={t("empty.no_results.description")}
                 icon={<SearchX className="h-8 w-8" />}
               />
             ) : activeSection === "library" && selectedFolderId ? (
               <LibraryEmptyState
-                title="文件夹还是空的"
-                description="可以把文档移动进来，或者在这里继续创建下一级文件夹。"
-                actionLabel="新建文件夹"
+                title={t("empty.folder.title")}
+                description={t("empty.folder.description")}
+                actionLabel={t("empty.folder.action")}
                 onAction={() => setFolderDialogOpen(true)}
                 icon={<FolderOpen className="h-8 w-8" />}
               />
             ) : activeSection === "library" ? (
               <LibraryEmptyState
-                title="文档库还是空的"
-                description="导入第一份文档后，这里会自动生成更适合书库管理的视图。"
+                title={t("empty.library.title")}
+                description={t("empty.library.description")}
                 icon={<BookOpen className="h-8 w-8" />}
               />
             ) : (
               <LibraryEmptyState
-                title="暂时没有内容"
-                description="当前视图下还没有可显示的文档。"
+                title={t("empty.generic.title")}
+                description={t("empty.generic.description")}
                 icon={<SearchX className="h-8 w-8" />}
               />
             )
@@ -895,7 +903,7 @@ export default function Library() {
                   inTrash={activeSection === "trash"}
                   selected={selection.isSelected(document.id)}
                   selectionMode={selection.selectionMode}
-                  statusLabel={statusLabel(document)}
+                  statusLabel={t(`statuses.${statusLabel(document)}` as any)}
                   onOpen={() => setSelectedDocumentId(document.id)}
                   onToggleSelect={(shiftKey) => selection.toggleId(document.id, currentViewIds, shiftKey)}
                   onDelete={() => openDeleteConfirm([document.id])}
@@ -911,7 +919,7 @@ export default function Library() {
                 documents={filteredDocuments}
                 selectionMode={selection.selectionMode}
                 selectedIds={selection.selectedSet}
-                statusLabel={statusLabel}
+                statusLabel={(document) => t(`statuses.${statusLabel(document)}` as any)}
                 onOpen={(documentId) => setSelectedDocumentId(documentId)}
                 onToggleSelect={(documentId, shiftKey) => selection.toggleId(documentId, currentViewIds, shiftKey)}
                 onDelete={(documentId) => openDeleteConfirm([documentId])}
@@ -932,9 +940,9 @@ export default function Library() {
         folders={folders}
         defaultParentId={selectedFolderId}
         loading={createFolderMutation.isPending}
-        title="新建文件夹"
-        confirmLabel="创建"
-        cancelLabel="取消"
+        title={t("folders.new")}
+        confirmLabel={t("btn.create")}
+        cancelLabel={t("btn.cancel")}
         onSubmit={(data) => createFolderMutation.mutate(data)}
       />
       <ConfirmActionDialog
@@ -942,8 +950,14 @@ export default function Library() {
         onOpenChange={(open) => { if (!open) setConfirmState(null) }}
         title={confirmState?.title || ""}
         description={confirmState?.description || ""}
-        confirmLabel={confirmState?.kind === "trash" ? "移入回收站" : confirmState?.kind === "empty-trash" ? "清空回收站" : "永久删除"}
-        cancelLabel="取消"
+        confirmLabel={
+          confirmState?.kind === "trash"
+            ? t("confirm.confirm_move_to_trash")
+            : confirmState?.kind === "empty-trash"
+            ? t("confirm.confirm_empty_trash")
+            : t("confirm.confirm_permanent_delete")
+        }
+        cancelLabel={t("btn.cancel")}
         loading={pendingConfirm}
         onConfirm={handleConfirm}
       />

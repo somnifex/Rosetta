@@ -95,6 +95,42 @@ export default {
       save_error: "Failed to save highlights",
     },
   },
+  reader: {
+    modes: {
+      original: "Original",
+      translated: "Translation",
+      compare: "Compare",
+      ask: "Ask",
+    },
+    toolbar: {
+      back: "Back",
+      zoom_out: "Zoom out",
+      zoom_in: "Zoom in",
+      ask_open: "Ask",
+      ask_close: "Close",
+    },
+    compare: {
+      original: "Original",
+      translated: "Translation",
+      sync_scroll: "Sync Scroll",
+      parsed_notice: "Compare mode uses parsed original content and translated content by default.",
+      swap_order: "Swap Order",
+    },
+    empty: {
+      original_title: "Original content is not available yet",
+      original_description: "Finish parsing first, or check whether the original file is still available.",
+      translated_title: "Translated content is not ready yet",
+      translated_description: "Generate translation results from the document actions page, or upload a translated PDF.",
+    },
+    detail: {
+      ask_explain_template: "Please explain this passage in the context of the current document:\n\n{{text}}",
+      translate_explain_template: "Please translate and explain this passage:\n\n{{text}}",
+      not_found: "Document not found",
+      compare_not_ready_title: "Side-by-side view is not ready yet",
+      compare_not_ready_description: "After parsing and translation finish, this area will switch into side-by-side reading automatically.",
+      back_to_actions: "Back to Document Actions",
+    },
+  },
   delete_confirm: {
     title: "Delete Document",
     description: "Are you sure you want to delete this document? This action cannot be undone.",

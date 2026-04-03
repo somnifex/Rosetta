@@ -9,10 +9,10 @@ export default {
     settings: "Настройки",
   },
   status: {
-    pending: "Ожидание",
+    pending: "В ожидании",
     parsing: "Анализ",
     completed: "Завершено",
-    failed: "Ошибка",
+    failed: "Сбой",
     translating: "Перевод",
     indexing: "Индексация",
     not_started: "Не начато",
@@ -23,6 +23,7 @@ export default {
     test_connection: "Проверить соединение",
     testing: "Проверка...",
     delete: "Удалить",
+    confirm: "Подтвердить",
   },
   units: {
     pages: "стр.",
@@ -30,6 +31,6 @@ export default {
   },
   no_active_provider: {
     title: "Нет активного провайдера",
-    description: "Настройте активного LLM-провайдера в разделе Настройки",
+    description: "Настройте активного провайдера LLM в разделе Настройки",
   },
 }

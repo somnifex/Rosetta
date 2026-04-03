@@ -23,10 +23,10 @@ export default {
     not_set: "Не задано",
   },
   tabs: {
-    preview: "Предпросмотр PDF",
+    preview: "Предпросмотр",
     parsed: "Проанализированное содержимое",
     translated: "Перевод",
-    comparison: "Сравнение",
+    comparison: "Параллельный просмотр",
     structure: "Структура",
     chunks: "Фрагменты",
   },
@@ -67,13 +67,70 @@ export default {
     empty: "Задавайте вопросы по этому документу",
     input_placeholder: "Спросите о документе...",
     no_provider: "Активный провайдер чата не настроен",
+    no_embed_provider: "Активный провайдер эмбеддингов не настроен",
     error: "Ошибка чата",
+  },
+  sources: {
+    label: "Источники",
+    chunk: "Фрагмент {{index}}",
   },
   selection: {
     ask_ai: "Спросить ИИ",
     translate: "Перевести",
     ask_about: "Объяснить этот текст",
     translate_text: "Перевести этот текст",
+  },
+  reader_highlight: {
+    save: "Сохранить выделения",
+    saved: "Сохранено",
+    unsaved: "Не сохранено",
+    undo: "Отменить",
+    redo: "Повторить",
+    zoom_in: "Увеличить",
+    zoom_out: "Уменьшить",
+    add_highlight: "Добавить выделение",
+    shortcuts_hint: "Ctrl/Cmd+S Сохранить · Ctrl/Cmd+Z Отменить · Ctrl/Cmd+Shift+Z Повторить",
+    toast: {
+      save_success: "Выделения сохранены",
+      save_error: "Не удалось сохранить выделения",
+    },
+  },
+  reader: {
+    modes: {
+      original: "Оригинал",
+      translated: "Перевод",
+      compare: "Сравнение",
+      ask: "Спросить",
+    },
+    toolbar: {
+      back: "Назад",
+      zoom_out: "Уменьшить",
+      zoom_in: "Увеличить",
+      ask_open: "Спросить",
+      ask_close: "Закрыть",
+    },
+    compare: {
+      original: "Оригинал",
+      translated: "Перевод",
+      sync_scroll: "Синхронизировать прокрутку",
+      parsed_notice: "Режим сравнения по умолчанию использует проанализированный оригинал и переведённый текст.",
+      swap_order: "Поменять порядок",
+    },
+    empty: {
+      original_title: "Оригинальное содержимое пока недоступно",
+      original_description: "Сначала завершите анализ или проверьте, доступен ли исходный файл.",
+      translated_title: "Переведённое содержимое пока не готово",
+      translated_description: "Сгенерируйте перевод на странице действий с документом или загрузите переведённый PDF.",
+    },
+    detail: {
+      ask_explain_template: "Пожалуйста, объясните этот фрагмент в контексте текущего документа:\n\n{{text}}",
+      translate_explain_template: "Пожалуйста, переведите и объясните этот фрагмент:\n\n{{text}}",
+      not_found: "Документ не найден",
+      compare_not_ready_title: "Параллельный просмотр пока не готов",
+      compare_not_ready_description:
+        "После завершения анализа и перевода эта область автоматически переключится в режим параллельного чтения.",
+      back_to_actions: "Вернуться к действиям документа",
+    },
   },
   delete_confirm: {
     title: "Удалить документ",
@@ -85,7 +142,7 @@ export default {
     translation_complete: "Перевод завершён",
     translation_incomplete: "Не переведено",
     btn: {
-      continue_view: "Продолжить просмотр",
+      continue_view: "Продолжить чтение",
       view_original: "Смотреть оригинал",
       retranslate: "Перевести заново",
     },
@@ -133,7 +190,7 @@ export default {
       title: "Не удалось начать индексацию",
     },
     export_success: {
-      title: "Экспорт успешен",
+      title: "Экспорт выполнен",
       description: "Документ экспортирован в {{path}}",
     },
     export_error: {

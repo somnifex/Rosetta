@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -31,15 +32,6 @@ interface LibraryToolbarProps {
   uploadSlot: ReactNode
 }
 
-const statusOptions: Array<{ key: LibraryStatusKey; label: string }> = [
-  { key: "all", label: "全部" },
-  { key: "completed", label: "已完成" },
-  { key: "pending", label: "未处理" },
-  { key: "processing", label: "处理中" },
-  { key: "failed", label: "失败" },
-  { key: "deleted", label: "已删除" },
-]
-
 export function LibraryToolbar({
   title,
   totalLabel,
@@ -55,6 +47,16 @@ export function LibraryToolbar({
   onToggleSelectionMode,
   uploadSlot,
 }: LibraryToolbarProps) {
+  const { t } = useTranslation("library")
+  const statusOptions: Array<{ key: LibraryStatusKey; label: string }> = [
+    { key: "all", label: t("statuses.all") },
+    { key: "completed", label: t("statuses.completed") },
+    { key: "pending", label: t("statuses.pending") },
+    { key: "processing", label: t("statuses.processing") },
+    { key: "failed", label: t("statuses.failed") },
+    { key: "deleted", label: t("statuses.deleted") },
+  ]
+
   return (
     <div className="sticky top-0 z-20 space-y-4 bg-background/95 px-4 py-5 backdrop-blur sm:px-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -69,7 +71,7 @@ export function LibraryToolbar({
             onClick={onToggleSelectionMode}
           >
             <SlidersHorizontal className="h-4 w-4" />
-            批量管理
+            {t("toolbar.batch_manage")}
           </Button>
           {uploadSlot}
         </div>
@@ -81,7 +83,7 @@ export function LibraryToolbar({
           <Input
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="搜索标题、文件名、标签、分类或文件夹"
+            placeholder={t("toolbar.search_placeholder")}
             className="h-10 rounded-full bg-muted border-none pl-10 shadow-none focus-visible:ring-1"
           />
         </div>
@@ -92,10 +94,10 @@ export function LibraryToolbar({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="updated">最近更新</SelectItem>
-              <SelectItem value="created">创建时间</SelectItem>
-              <SelectItem value="name">名称</SelectItem>
-              <SelectItem value="size">大小</SelectItem>
+              <SelectItem value="updated">{t("sort.updated")}</SelectItem>
+              <SelectItem value="created">{t("sort.created")}</SelectItem>
+              <SelectItem value="name">{t("sort.name")}</SelectItem>
+              <SelectItem value="size">{t("sort.size")}</SelectItem>
             </SelectContent>
           </Select>
 

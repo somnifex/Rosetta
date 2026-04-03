@@ -63,14 +63,14 @@ export function ImportButton() {
         toast({
           title: t("toast.import_success.title"),
           description: successCount > 1
-            ? `成功导入 ${successCount} 份文档`
+            ? t("toast.import_success.description_many", { count: successCount })
             : t("toast.import_success.description"),
         })
       }
       if (errors.length > 0 && successCount > 0) {
         toast({
-          title: "部分导入失败",
-          description: `${errors.length} 份文档导入失败`,
+          title: t("toast.import_partial.title"),
+          description: t("toast.import_partial.description", { count: errors.length }),
           variant: "destructive",
         })
       }

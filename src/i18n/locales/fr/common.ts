@@ -2,7 +2,7 @@ export default {
   app_title: "Rosetta",
   nav: {
     dashboard: "Tableau de bord",
-    chat: "Discussion",
+    chat: "Chat",
     library: "Bibliothèque",
     search: "Recherche",
     tasks: "Tâches",
@@ -12,7 +12,7 @@ export default {
     pending: "En attente",
     parsing: "Analyse en cours",
     completed: "Terminé",
-    failed: "Échoué",
+    failed: "Échec",
     translating: "Traduction en cours",
     indexing: "Indexation en cours",
     not_started: "Non démarré",
@@ -23,6 +23,7 @@ export default {
     test_connection: "Tester la connexion",
     testing: "Test en cours...",
     delete: "Supprimer",
+    confirm: "Confirmer",
   },
   units: {
     pages: "pages",
