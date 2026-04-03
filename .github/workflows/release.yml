@@ -34,48 +34,48 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Resolve tag from tauri.conf.json
-        id: tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG=$(python3 - <<'PY'
-          import json
+    - name: Resolve tag from tauri.conf.json
+      id: tag
+      shell: bash
+      run: |
+        set -euo pipefail
+        TAG=$(python3 - <<'PY'
+        import json
 
-          with open('src-tauri/tauri.conf.json', 'r', encoding='utf-8') as f:
-              conf = json.load(f)
+        with open('src-tauri/tauri.conf.json', 'r', encoding='utf-8') as f:
+            conf = json.load(f)
 
-          version = str(conf.get('version', '')).strip()
-          if not version:
-              raise SystemExit('Missing version in src-tauri/tauri.conf.json')
+        version = str(conf.get('version', '')).strip()
+        if not version:
+            raise SystemExit('Missing version in src-tauri/tauri.conf.json')
 
-          print(version if version.startswith('v') else f'v{version}')
-          PY
-          )
+        print(version if version.startswith('v') else f'v{version}')
+        PY
+        )
 
-          echo "Resolved tag: $TAG"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        echo "Resolved tag: $TAG"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Create and push tag (if not exists)
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
+    - name: Create and push tag (if not exists)
+      shell: bash
+      run: |
+        set -euo pipefail
+        TAG="${{ steps.tag.outputs.tag }}"
 
-          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists, skip creating."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "Release $TAG"
-            git push origin "$TAG"
-            echo "Tag $TAG created and pushed."
-          fi
+        if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists, skip creating."
+        else
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Tag $TAG created and pushed."
+        fi
 
   generate-release-notes:
     needs: prepare-tag
@@ -86,111 +86,111 @@ jobs:
     outputs:
       release_body: ${{ steps.release-notes.outputs.release_body }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
 
-      - name: Generate release notes with GitHub Models
-        id: release-notes
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.prepare-tag.outputs.tag }}
-          REPOSITORY: ${{ github.repository }}
-          INPUT_RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
-        run: |
-          set -euo pipefail
+    - name: Generate release notes with GitHub Models
+      id: release-notes
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ needs.prepare-tag.outputs.tag }}
+        REPOSITORY: ${{ github.repository }}
+        INPUT_RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+      run: |
+        set -euo pipefail
 
-          if [ -n "${INPUT_RELEASE_NOTES:-}" ]; then
-            DELIM="__RELEASE_BODY_${RANDOM}_${RANDOM}__"
-            {
-              echo "release_body<<$DELIM"
-              printf '%s\n' "$INPUT_RELEASE_NOTES"
-              echo "$DELIM"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          PREVIOUS_TAG=$(git tag --sort=-version:refname | awk -v tag="$TAG" '$0 != tag { print; exit }')
-          if [ -n "$PREVIOUS_TAG" ]; then
-            CHANGELOG=$(git log --first-parent --no-merges --pretty=format:'- %s (%h)' "$PREVIOUS_TAG..HEAD")
-          else
-            CHANGELOG=$(git log --first-parent --no-merges --pretty=format:'- %s (%h)' --max-count=80)
-          fi
-
-          CHANGELOG=${CHANGELOG:0:12000}
-
-          RELEASE_BODY=$(node --input-type=module <<'NODE'
-const response = await fetch('https://models.github.ai/inference/chat/completions', {
-  method: 'POST',
-  headers: {
-    Accept: 'application/vnd.github+json',
-    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-    'X-GitHub-Api-Version': '2022-11-28',
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    model: 'openai/gpt-4.1-mini',
-    temperature: 0.2,
-    messages: [
-      {
-        role: 'system',
-        content: 'You write concise GitHub release notes in Markdown. Use only the supplied changes. Do not invent features, numbers, or claims.',
-      },
-      {
-        role: 'user',
-        content: `Create release notes for ${process.env.TAG} in Markdown.
-
-Requirements:
-- Start with a short one-sentence summary.
-- Add a Highlights section with 3-6 bullets.
-- Add a Notes section only when important caveats exist.
-- Keep the tone concise and user-facing.
-- Base everything strictly on the changes below.
-
-Repository: ${process.env.REPOSITORY}
-
-Changes:
-${process.env.CHANGELOG || '- No commit details were available.'}`,
-      },
-    ],
-  }),
-});
-
-if (!response.ok) {
-  throw new Error(`GitHub Models request failed: ${response.status} ${await response.text()}`);
-}
-
-const data = await response.json();
-const content = data?.choices?.[0]?.message?.content?.trim();
-
-if (!content) {
-  throw new Error('GitHub Models returned an empty response');
-}
-
-process.stdout.write(content);
-NODE
-          )
-
-          if [ -z "$RELEASE_BODY" ]; then
-            RELEASE_BODY="Automated release for $TAG"
-          fi
-
+        if [ -n "${INPUT_RELEASE_NOTES:-}" ]; then
           DELIM="__RELEASE_BODY_${RANDOM}_${RANDOM}__"
           {
             echo "release_body<<$DELIM"
-            printf '%s\n' "$RELEASE_BODY"
+            printf '%s\n' "$INPUT_RELEASE_NOTES"
             echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        PREVIOUS_TAG=$(git tag --sort=-version:refname | awk -v tag="$TAG" '$0 != tag { print; exit }')
+        if [ -n "$PREVIOUS_TAG" ]; then
+          CHANGELOG=$(git log --first-parent --no-merges --pretty=format:'- %s (%h)' "$PREVIOUS_TAG..HEAD")
+        else
+          CHANGELOG=$(git log --first-parent --no-merges --pretty=format:'- %s (%h)' --max-count=80)
+        fi
+
+        CHANGELOG=${CHANGELOG:0:12000}
+
+        RELEASE_BODY=$(node --input-type=module <<'NODE'
+        const response = await fetch('https://models.github.ai/inference/chat/completions', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'openai/gpt-4.1-mini',
+            temperature: 0.2,
+            messages: [
+              {
+                role: 'system',
+                content: 'You write concise GitHub release notes in Markdown. Use only the supplied changes. Do not invent features, numbers, or claims.',
+              },
+              {
+                role: 'user',
+                content: `Create release notes for ${process.env.TAG} in Markdown.
+
+        Requirements:
+        - Start with a short one-sentence summary.
+        - Add a Highlights section with 3-6 bullets.
+        - Add a Notes section only when important caveats exist.
+        - Keep the tone concise and user-facing.
+        - Base everything strictly on the changes below.
+
+        Repository: ${process.env.REPOSITORY}
+
+        Changes:
+        ${process.env.CHANGELOG || '- No commit details were available.'}`,
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`GitHub Models request failed: ${response.status} ${await response.text()}`);
+        }
+
+        const data = await response.json();
+        const content = data?.choices?.[0]?.message?.content?.trim();
+
+        if (!content) {
+          throw new Error('GitHub Models returned an empty response');
+        }
+
+        process.stdout.write(content);
+        NODE
+        )
+
+        if [ -z "$RELEASE_BODY" ]; then
+          RELEASE_BODY="Automated release for $TAG"
+        fi
+
+        DELIM="__RELEASE_BODY_${RANDOM}_${RANDOM}__"
+        {
+          echo "release_body<<$DELIM"
+          printf '%s\n' "$RELEASE_BODY"
+          echo "$DELIM"
+        } >> "$GITHUB_OUTPUT"
 
   build-and-release:
-    needs: [prepare-tag, generate-release-notes]
+    needs: [ prepare-tag, generate-release-notes ]
     strategy:
       fail-fast: false
       matrix:
@@ -199,44 +199,44 @@ NODE
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-22.04'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          patchelf
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
 
-      - name: Install frontend dependencies
-        run: npm ci
+    - name: Install frontend dependencies
+      run: npm ci
 
-      - name: Build app and publish release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ needs.prepare-tag.outputs.tag }}
-          releaseName: ${{ github.event.inputs.release_name != '' && github.event.inputs.release_name || format('Rosetta {0}', needs.prepare-tag.outputs.tag) }}
-          releaseBody: ${{ github.event.inputs.release_notes != '' && github.event.inputs.release_notes || needs.generate-release-notes.outputs.release_body }}
-          releaseDraft: ${{ github.event.inputs.draft }}
-          prerelease: ${{ github.event.inputs.prerelease }}
-          updaterJsonPreferNsis: true
+    - name: Build app and publish release
+      uses: tauri-apps/tauri-action@v0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      with:
+        tagName: ${{ needs.prepare-tag.outputs.tag }}
+        releaseName: ${{ github.event.inputs.release_name != '' && github.event.inputs.release_name || format('Rosetta {0}', needs.prepare-tag.outputs.tag) }}
+        releaseBody: ${{ github.event.inputs.release_notes != '' && github.event.inputs.release_notes || needs.generate-release-notes.outputs.release_body }}
+        releaseDraft: ${{ github.event.inputs.draft }}
+        prerelease: ${{ github.event.inputs.prerelease }}
+        updaterJsonPreferNsis: true
