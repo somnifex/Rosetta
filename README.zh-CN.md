@@ -149,3 +149,4 @@ Rosetta 采用 [GNU General Public License v3.0](LICENSE) 许可证。
 - [MinerU](https://github.com/opendatalab/MinerU)
 - [Radix UI](https://www.radix-ui.com/)
 - [shadcn/ui](https://ui.shadcn.com/)
+- 也感谢 Reddit、GitHub、Linux.do 等开源与交流社区。一路上读过很多项目源码、issue、经验贴和讨论串，从中学到了非常多东西，这些分享也在潜移默化中影响了 Rosetta 的形成。
