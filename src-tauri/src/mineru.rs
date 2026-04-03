@@ -1,11 +1,14 @@
 use reqwest::multipart::{Form, Part};
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{Client, Response, StatusCode, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use zip::ZipArchive;
+
+const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const TASK_RESULT_TIMEOUT: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Deserialize)]
 pub struct ParseResult {
@@ -49,6 +52,26 @@ struct ModernParseItem {
     model_output: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AsyncTaskSubmission {
+    #[serde(default)]
+    status_url: Option<String>,
+    #[serde(default)]
+    result_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AsyncTaskStatusResponse {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    detail: Option<serde_json::Value>,
+}
+
 pub struct MinerUClient {
     base_url: String,
     client: Client,
@@ -81,7 +104,7 @@ impl MinerUClient {
 
     pub async fn parse_pdf(&self, file_path: &Path) -> Result<ParseExecution, String> {
         match self
-            .try_parse_with_file_parse_endpoint(file_path, self.preferred_backend.as_deref())
+            .try_parse_with_modern_endpoint(file_path, self.preferred_backend.as_deref())
             .await
         {
             Ok(Some(result)) => return Ok(result),
@@ -89,11 +112,11 @@ impl MinerUClient {
             Err(err) => {
                 if self.preferred_backend.as_deref() == Some("hybrid-auto-engine") {
                     log::warn!(
-                        "MinerU file_parse failed with hybrid-auto-engine, retrying with pipeline: {}",
+                        "MinerU modern parse flow failed with hybrid-auto-engine, retrying with pipeline: {}",
                         err
                     );
                     match self
-                        .try_parse_with_file_parse_endpoint(file_path, Some("pipeline"))
+                        .try_parse_with_modern_endpoint(file_path, Some("pipeline"))
                         .await
                     {
                         Ok(Some(result)) => return Ok(result),
@@ -109,23 +132,101 @@ impl MinerUClient {
         self.try_parse_with_legacy_endpoint(file_path).await
     }
 
+    async fn try_parse_with_modern_endpoint(
+        &self,
+        file_path: &Path,
+        backend: Option<&str>,
+    ) -> Result<Option<ParseExecution>, String> {
+        match self.try_parse_with_tasks_endpoint(file_path, backend).await {
+            Ok(Some(result)) => return Ok(Some(result)),
+            Ok(None) => {}
+            Err(err) => return Err(err),
+        }
+
+        self.try_parse_with_file_parse_endpoint(file_path, backend)
+            .await
+    }
+
+    async fn try_parse_with_tasks_endpoint(
+        &self,
+        file_path: &Path,
+        backend: Option<&str>,
+    ) -> Result<Option<ParseExecution>, String> {
+        let url = format!("{}/tasks", self.base_url.trim_end_matches('/'));
+        let form = build_modern_parse_form(file_path, backend).await?;
+        let response = self
+            .client
+            .post(&url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| format!("Request to MinerU /tasks failed: {}", e))?;
+
+        if matches!(
+            response.status(),
+            StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+        ) {
+            return Ok(None);
+        }
+
+        if response.status() != StatusCode::ACCEPTED && !response.status().is_success() {
+            return Err(read_error_response(response).await);
+        }
+
+        let payload = response
+            .json::<AsyncTaskSubmission>()
+            .await
+            .map_err(|e| format!("Failed to parse MinerU /tasks response: {}", e))?;
+
+        let status_url = self.resolve_task_url(
+            payload
+                .status_url
+                .as_deref()
+                .ok_or("MinerU /tasks response did not include status_url")?,
+        )?;
+        let result_url = self.resolve_task_url(
+            payload
+                .result_url
+                .as_deref()
+                .ok_or("MinerU /tasks response did not include result_url")?,
+        )?;
+
+        self.wait_for_task_completion(&status_url).await?;
+        let result_response = self
+            .client
+            .get(&result_url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to download MinerU task result: {}", e))?;
+
+        if !result_response.status().is_success() {
+            return Err(read_error_response(result_response).await);
+        }
+
+        let content_type = result_response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let bytes = result_response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read MinerU task result: {}", e))?;
+
+        Ok(Some(parse_file_parse_response_bytes(
+            &bytes,
+            &content_type,
+        )?))
+    }
+
     async fn try_parse_with_file_parse_endpoint(
         &self,
         file_path: &Path,
         backend: Option<&str>,
     ) -> Result<Option<ParseExecution>, String> {
         let url = format!("{}/file_parse", self.base_url.trim_end_matches('/'));
-        let part = build_pdf_part(file_path).await?;
-        let mut form = Form::new()
-            .part("files", part)
-            .text("return_md", "true")
-            .text("return_middle_json", "true")
-            // Best-effort: newer mineru-api builds can return the full parse archive,
-            // which includes extracted images and other assets we need for layout replay.
-            .text("response_format_zip", "true");
-        if let Some(backend) = backend {
-            form = form.text("backend", backend.to_string());
-        }
+        let form = build_modern_parse_form(file_path, backend).await?;
 
         let response = self
             .client
@@ -203,6 +304,72 @@ impl MinerUClient {
             Err(_) => Ok(false),
         }
     }
+
+    fn resolve_task_url(&self, raw_url: &str) -> Result<String, String> {
+        let raw_url = raw_url.trim();
+        if raw_url.is_empty() {
+            return Err("MinerU task response returned an empty URL".to_string());
+        }
+
+        if let Ok(url) = Url::parse(raw_url) {
+            return Ok(url.to_string());
+        }
+
+        let mut base_url = self.base_url.trim_end_matches('/').to_string();
+        base_url.push('/');
+        let base = Url::parse(&base_url)
+            .map_err(|e| format!("Invalid MinerU base URL '{}': {}", self.base_url, e))?;
+        base.join(raw_url)
+            .map(|url| url.to_string())
+            .map_err(|e| format!("Failed to resolve MinerU task URL '{}': {}", raw_url, e))
+    }
+
+    async fn wait_for_task_completion(&self, status_url: &str) -> Result<(), String> {
+        let deadline = Instant::now() + TASK_RESULT_TIMEOUT;
+
+        loop {
+            let response = self
+                .client
+                .get(status_url)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to query MinerU task status: {}", e))?;
+
+            if !response.status().is_success() {
+                return Err(read_error_response(response).await);
+            }
+
+            let payload = response
+                .json::<AsyncTaskStatusResponse>()
+                .await
+                .map_err(|e| format!("Failed to parse MinerU task status response: {}", e))?;
+            let status = payload.status.as_deref().map(str::trim).unwrap_or_default();
+
+            match status {
+                "completed" | "done" => return Ok(()),
+                "failed" => return Err(describe_task_status_failure(&payload)),
+                "pending" | "processing" | "running" | "converting" | "waiting-file" => {}
+                "" => {
+                    return Err(
+                        "MinerU task status response did not include a recognizable status."
+                            .to_string(),
+                    )
+                }
+                other => {
+                    return Err(format!(
+                        "MinerU task entered unexpected status '{}'.",
+                        other
+                    ))
+                }
+            }
+
+            if Instant::now() >= deadline {
+                return Err("Timed out waiting for MinerU task completion.".to_string());
+            }
+
+            tokio::time::sleep(TASK_STATUS_POLL_INTERVAL).await;
+        }
+    }
 }
 
 async fn build_pdf_part(file_path: &Path) -> Result<Part, String> {
@@ -220,6 +387,24 @@ async fn build_pdf_part(file_path: &Path) -> Result<Part, String> {
         .file_name(file_name)
         .mime_str("application/pdf")
         .map_err(|e| format!("Failed to set MIME type: {}", e))
+}
+
+async fn build_modern_parse_form(file_path: &Path, backend: Option<&str>) -> Result<Form, String> {
+    let part = build_pdf_part(file_path).await?;
+    let mut form = Form::new()
+        .part("files", part)
+        .text("return_md", "true")
+        .text("return_middle_json", "true")
+        .text("return_model_output", "true")
+        .text("return_content_list", "true")
+        .text("return_images", "true")
+        // Ask mineru-api for the full parse archive so image assets and sidecar files
+        // come from MinerU's own output tree instead of being reconstructed client-side.
+        .text("response_format_zip", "true");
+    if let Some(backend) = backend {
+        form = form.text("backend", backend.to_string());
+    }
+    Ok(form)
 }
 
 async fn read_error_response(response: Response) -> String {
@@ -247,6 +432,39 @@ async fn read_error_response(response: Response) -> String {
     }
 
     base
+}
+
+fn describe_task_status_failure(payload: &AsyncTaskStatusResponse) -> String {
+    if let Some(message) = payload
+        .error
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return message.to_string();
+    }
+
+    if let Some(message) = payload
+        .message
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return message.to_string();
+    }
+
+    if let Some(detail) = payload.detail.as_ref() {
+        if let Some(message) = detail
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return message.to_string();
+        }
+        return detail.to_string();
+    }
+
+    "MinerU task failed.".to_string()
 }
 
 fn truncate_message(message: &str, max_chars: usize) -> String {

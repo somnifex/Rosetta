@@ -354,7 +354,7 @@ impl MinerUProcessManager {
         let mut command = Command::new(&cmd);
         command
             .args(&args)
-            .stdin(std::process::Stdio::null())
+            .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(false);
@@ -376,6 +376,7 @@ impl MinerUProcessManager {
                 command.env("MINERU_MODEL_DIR", models_dir);
             }
         }
+        command.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
         apply_managed_cache_env(&mut command, app_dir)?;
 
         // Spawn, with fallback for non-venv case
@@ -395,7 +396,7 @@ impl MinerUProcessManager {
                             "--port",
                             &port_str,
                         ])
-                        .stdin(std::process::Stdio::null())
+                        .stdin(std::process::Stdio::piped())
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::piped())
                         .kill_on_drop(false);
@@ -413,6 +414,7 @@ impl MinerUProcessManager {
                             fallback.env("MINERU_MODEL_DIR", models_dir);
                         }
                     }
+                    fallback.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
                     apply_managed_cache_env(&mut fallback, app_dir)?;
                     fallback.spawn().map_err(|e2| {
                         let err_msg = format!("Failed to start MinerU: {}", e2);

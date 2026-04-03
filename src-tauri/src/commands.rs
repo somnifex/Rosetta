@@ -1324,7 +1324,9 @@ pub(crate) fn migrate_legacy_mineru_processed_storage(
         .prepare("SELECT id, file_path FROM mineru_processed_files")
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -1674,9 +1676,7 @@ pub(crate) fn restore_missing_mineru_processed_files(
     let mut restored = 0usize;
     for document_id in document_ids {
         let parsed = load_latest_parsed_content_internal(conn, &document_id)?;
-        let structure_json = parsed
-            .structure_tree
-            .unwrap_or_else(|| "null".to_string());
+        let structure_json = parsed.structure_tree.unwrap_or_else(|| "null".to_string());
 
         persist_mineru_processed_files(
             conn,
@@ -4424,14 +4424,7 @@ async fn execute_translation_job(
     source_language: &str,
     target_language: &str,
 ) -> Result<(), String> {
-    let (
-        provider_record,
-        translate_model,
-        chat_model,
-        sampling,
-        runtime_settings,
-        parsed_content,
-    ) = {
+    let (provider_record, translate_model, chat_model, sampling, runtime_settings, parsed_content) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let now = Utc::now().to_rfc3339();
