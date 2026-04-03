@@ -10,6 +10,7 @@ interface ReaderModeSwitcherProps {
   onModeChange: (mode: ReaderBaseMode) => void
   onAskToggle: () => void
   disabled?: Partial<Record<ReaderBaseMode | "ask", boolean>>
+  className?: string
 }
 
 export function ReaderModeSwitcher({
@@ -18,6 +19,7 @@ export function ReaderModeSwitcher({
   onModeChange,
   onAskToggle,
   disabled,
+  className,
 }: ReaderModeSwitcherProps) {
   const { t } = useTranslation("document")
   const MODE_ITEMS: Array<{
@@ -32,7 +34,7 @@ export function ReaderModeSwitcher({
   ]
 
   return (
-    <div className="desktop-panel flex flex-wrap items-center gap-1 rounded-2xl border border-border/70 p-1.5">
+    <div className={cn("desktop-panel grid grid-cols-4 items-center gap-1 rounded-2xl border border-border/70 p-1.5", className)}>
       {MODE_ITEMS.map((item) => {
         const Icon = item.icon
         const active = mode === item.key
@@ -42,14 +44,16 @@ export function ReaderModeSwitcher({
             variant="ghost"
             size="sm"
             className={cn(
-              "rounded-xl px-3 text-xs sm:text-sm",
+              "min-w-0 w-full justify-center rounded-xl px-3 text-xs sm:text-sm",
               active && "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
             )}
             onClick={() => onModeChange(item.key)}
             disabled={disabled?.[item.key]}
           >
-            <Icon className="mr-1.5 h-4 w-4" />
-            {item.label}
+            <span className="flex min-w-0 items-center justify-center">
+              <Icon className="mr-1.5 h-4 w-4 shrink-0" />
+              <span className="truncate">{item.label}</span>
+            </span>
             <span className={cn(
               "ml-2 rounded-md border px-1.5 py-0.5 text-[10px] leading-none",
               active
@@ -65,14 +69,16 @@ export function ReaderModeSwitcher({
         variant="ghost"
         size="sm"
         className={cn(
-          "rounded-xl px-3 text-xs sm:text-sm",
+          "min-w-0 w-full justify-center rounded-xl px-3 text-xs sm:text-sm",
           askOpen && "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
         )}
         onClick={onAskToggle}
         disabled={disabled?.ask}
       >
-        <MessageSquareMore className="mr-1.5 h-4 w-4" />
-        {t("reader.modes.ask")}
+        <span className="flex min-w-0 items-center justify-center">
+          <MessageSquareMore className="mr-1.5 h-4 w-4 shrink-0" />
+          <span className="truncate">{t("reader.modes.ask")}</span>
+        </span>
         <span className={cn(
           "ml-2 rounded-md border px-1.5 py-0.5 text-[10px] leading-none",
           askOpen

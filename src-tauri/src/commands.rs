@@ -1644,6 +1644,55 @@ fn persist_mineru_processed_archive(
     Ok(())
 }
 
+pub(crate) fn restore_missing_mineru_processed_files(
+    conn: &rusqlite::Connection,
+    app_dir: &Path,
+) -> Result<usize, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT d.id
+             FROM documents d
+             WHERE d.deleted_at IS NULL
+               AND EXISTS (
+                   SELECT 1 FROM parse_jobs pj WHERE pj.document_id = d.id
+               )
+               AND EXISTS (
+                   SELECT 1 FROM parsed_contents pc WHERE pc.document_id = d.id
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM mineru_processed_files mpf WHERE mpf.document_id = d.id
+               )",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let document_ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut restored = 0usize;
+    for document_id in document_ids {
+        let parsed = load_latest_parsed_content_internal(conn, &document_id)?;
+        let structure_json = parsed
+            .structure_tree
+            .unwrap_or_else(|| "null".to_string());
+
+        persist_mineru_processed_files(
+            conn,
+            app_dir,
+            &document_id,
+            &parsed.markdown_content,
+            &parsed.json_content,
+            &structure_json,
+            &Utc::now().to_rfc3339(),
+        )?;
+        restored += 1;
+    }
+
+    Ok(restored)
+}
+
 fn delete_document_output_record_and_file(
     conn: &rusqlite::Connection,
     output_type: &str,
@@ -1681,6 +1730,26 @@ fn clear_document_derived_data(
 ) -> Result<(), String> {
     delete_mineru_processed_records_and_files(conn, app_dir, document_id)?;
 
+    if remove_parsed_content {
+        clear_document_parsed_history(conn, app_dir, document_id)?;
+    }
+
+    clear_document_translation_and_index_data(
+        conn,
+        app_dir,
+        document_id,
+        remove_parsed_content,
+        now,
+    )
+}
+
+fn clear_document_translation_and_index_data(
+    conn: &rusqlite::Connection,
+    app_dir: Option<&Path>,
+    document_id: &str,
+    remove_parsed_content: bool,
+    now: &str,
+) -> Result<(), String> {
     if let Some(app_dir) = app_dir {
         remove_document_from_vector_store(conn, app_dir, document_id)?;
     } else {
@@ -1700,7 +1769,6 @@ fn clear_document_derived_data(
         .map_err(|e| e.to_string())?;
 
     if remove_parsed_content {
-        clear_document_parsed_history(conn, app_dir, document_id)?;
         conn.execute(
             "UPDATE documents
              SET parse_status = 'pending', translation_status = 'pending', index_status = 'pending', updated_at = ?1
@@ -2478,6 +2546,159 @@ fn move_documents_to_trash_internal(
         failed: failures.len(),
         failures,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn test_connection() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(include_str!("../migrations/001_initial_schema.sql"))
+            .expect("apply initial schema");
+        conn.execute_batch(include_str!("../migrations/002_vector_indexes.sql"))
+            .expect("apply vector index schema");
+        conn.execute_batch(include_str!("../migrations/004_document_outputs.sql"))
+            .expect("apply document outputs schema");
+        conn.execute_batch(include_str!("../migrations/006_mineru_processed_files.sql"))
+            .expect("apply mineru processed files schema");
+        conn
+    }
+
+    #[test]
+    fn translation_cleanup_keeps_mineru_processed_files() {
+        let conn = test_connection();
+        let now = "2026-04-03T12:00:00Z";
+        let document_id = "doc-1";
+
+        conn.execute(
+            "INSERT INTO documents (
+                id, title, filename, file_path, file_size,
+                parse_status, translation_status, index_status,
+                created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 'completed', 'completed', 'completed', ?6, ?6)",
+            (
+                document_id,
+                "Sample",
+                "sample.pdf",
+                "C:\\sample.pdf",
+                100_i64,
+                now,
+            ),
+        )
+        .expect("insert document");
+
+        conn.execute(
+            "INSERT INTO mineru_processed_files (
+                id, document_id, artifact_type, file_path, created_at, updated_at
+             ) VALUES (?1, ?2, 'markdown', ?3, ?4, ?4)",
+            ("artifact-1", document_id, "C:\\mineru\\parsed.md", now),
+        )
+        .expect("insert mineru artifact");
+
+        conn.execute(
+            "INSERT INTO translated_contents (id, document_id, version, content, created_at)
+             VALUES (?1, ?2, 1, ?3, ?4)",
+            ("translated-1", document_id, "C:\\translated.md", now),
+        )
+        .expect("insert translated content");
+
+        conn.execute(
+            "INSERT INTO chunks (id, document_id, content, chunk_index, created_at)
+             VALUES (?1, ?2, ?3, 0, ?4)",
+            ("chunk-1", document_id, "chunk text", now),
+        )
+        .expect("insert chunk");
+
+        conn.execute(
+            "INSERT INTO embeddings (id, chunk_id, vector, model, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("embedding-1", "chunk-1", vec![0_u8], "test-model", now),
+        )
+        .expect("insert embedding");
+
+        conn.execute(
+            "INSERT INTO document_vector_indexes (
+                document_id, backend, collection_key, embedding_model, vector_dimension, created_at, updated_at
+             ) VALUES (?1, 'sqlite', 'collection', 'test-model', 1, ?2, ?2)",
+            (document_id, now),
+        )
+        .expect("insert vector index");
+
+        conn.execute(
+            "INSERT INTO document_outputs (
+                id, document_id, output_type, file_path, created_at, updated_at
+             ) VALUES (?1, ?2, 'translated_pdf', ?3, ?4, ?4)",
+            ("output-1", document_id, "C:\\translated.pdf", now),
+        )
+        .expect("insert translated pdf output");
+
+        clear_document_translation_and_index_data(&conn, None, document_id, false, now)
+            .expect("clear translation/index data");
+
+        let artifact_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM mineru_processed_files WHERE document_id = ?1",
+                [document_id],
+                |row| row.get(0),
+            )
+            .expect("count mineru artifacts");
+        assert_eq!(artifact_count, 1);
+
+        let translated_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM translated_contents WHERE document_id = ?1",
+                [document_id],
+                |row| row.get(0),
+            )
+            .expect("count translated contents");
+        assert_eq!(translated_count, 0);
+
+        let chunk_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chunks WHERE document_id = ?1",
+                [document_id],
+                |row| row.get(0),
+            )
+            .expect("count chunks");
+        assert_eq!(chunk_count, 0);
+
+        let embedding_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))
+            .expect("count embeddings");
+        assert_eq!(embedding_count, 0);
+
+        let vector_index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM document_vector_indexes WHERE document_id = ?1",
+                [document_id],
+                |row| row.get(0),
+            )
+            .expect("count vector indexes");
+        assert_eq!(vector_index_count, 0);
+
+        let translated_output_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM document_outputs WHERE document_id = ?1",
+                [document_id],
+                |row| row.get(0),
+            )
+            .expect("count document outputs");
+        assert_eq!(translated_output_count, 0);
+
+        let statuses: (String, String, String) = conn
+            .query_row(
+                "SELECT parse_status, translation_status, index_status
+                 FROM documents WHERE id = ?1",
+                [document_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load document statuses");
+        assert_eq!(statuses.0, "completed");
+        assert_eq!(statuses.1, "pending");
+        assert_eq!(statuses.2, "pending");
+    }
 }
 
 fn restore_documents_internal(
@@ -4555,7 +4776,7 @@ fn finalize_translation_job(
 
             let content_id = Uuid::new_v4().to_string();
             let version = next_content_version(conn, "translated_contents", document_id)?;
-            clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
+            clear_document_translation_and_index_data(conn, app_dir, document_id, false, &now)?;
 
             let translated_path = crate::content_store::write_translated_version(
                 app_dir.ok_or("App dir is required for translated content storage")?,

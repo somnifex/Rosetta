@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
@@ -11,6 +11,8 @@ import { ReaderComparePane } from "@/components/document-reader/ReaderComparePan
 import { ReaderAskPanel } from "@/components/document-reader/ReaderAskPanel"
 import { Button } from "@/components/ui/button"
 import { Loader2 } from "lucide-react"
+import { parseMineruLayout } from "@/lib/mineru-layout"
+import { buildTranslatedLayoutPages } from "@/lib/reader-layout"
 
 function toModeQuery(baseMode: "original" | "translated" | "compare", askOpen: boolean) {
   if (baseMode === "compare" && askOpen) return "compare-ask"
@@ -30,6 +32,7 @@ export default function DocumentDetail() {
     setBaseMode,
     setAskOpen,
     setTextScale,
+    setTextView,
     setOriginalScale,
     setTranslatedScale,
     setCompareRatio,
@@ -96,6 +99,25 @@ export default function DocumentDetail() {
   const compareContentLoading = parseReady && translationReady && (isParsedContentFetching || isTranslatedContentFetching)
   const prefersPlainTextLayout = !!document?.filename.toLowerCase().endsWith(".txt")
   const fallbackContentFormat = prefersPlainTextLayout ? "plain" : "markdown"
+  const originalLayoutPages = useMemo(
+    () => parseMineruLayout(parsedContent?.json_content),
+    [parsedContent?.json_content]
+  )
+  const translatedLayoutPages = useMemo(
+    () => buildTranslatedLayoutPages(originalLayoutPages, translatedContent?.content),
+    [originalLayoutPages, translatedContent?.content]
+  )
+  const layoutTextViewAvailable =
+    readerState.baseMode === "translated"
+      ? !!translatedLayoutPages?.length
+      : readerState.baseMode === "compare"
+      ? !!originalLayoutPages?.length && !!translatedLayoutPages?.length
+      : false
+  const effectiveTextView =
+    readerState.textView === "layout" && layoutTextViewAvailable ? "layout" : "markdown"
+  const showTextViewToggle =
+    (readerState.baseMode === "translated" && !translatedPdf && !!translatedContent?.content) ||
+    (readerState.baseMode === "compare" && compareReady)
   const usesIntegratedPdfControls =
     (readerState.baseMode === "original" && originalPaneUsesPdf) ||
     (readerState.baseMode === "translated" && !!translatedPdf)
@@ -254,6 +276,10 @@ export default function DocumentDetail() {
         originalView={originalPaneUsesParsedLayout ? "parsed" : "pdf"}
         onOriginalViewChange={handleOriginalViewChange}
         showOriginalViewToggle={readerState.baseMode === "original" && !!originalPdf && hasParsedMarkdown}
+        textView={effectiveTextView}
+        onTextViewChange={setTextView}
+        showTextViewToggle={showTextViewToggle}
+        layoutViewAvailable={layoutTextViewAvailable}
         modeDisabled={{
           translated: !translationReady && !translatedPdf,
           compare: !compareReady,
@@ -298,7 +324,10 @@ export default function DocumentDetail() {
                     pdfScale={readerState.translatedScale}
                     onPdfScaleChange={setTranslatedScale}
                     markdownContent={translatedContent?.content}
+                    layoutPages={translatedLayoutPages}
+                    layoutAssetBaseDir={parsedContent?.asset_base_dir}
                     contentFormat={fallbackContentFormat}
+                    textView={effectiveTextView}
                     textScale={readerState.textScale}
                     onAskAI={handleAsk}
                     onTranslateSelection={handleTranslateSelection}
@@ -315,9 +344,13 @@ export default function DocumentDetail() {
                   <ReaderComparePane
                     originalContent={parsedContent?.markdown_content || ""}
                     translatedContent={translatedContent?.content || ""}
+                    originalLayoutPages={originalLayoutPages}
+                    translatedLayoutPages={translatedLayoutPages}
                     originalFormat={fallbackContentFormat}
                     translatedFormat={fallbackContentFormat}
                     originalAssetBaseDir={parsedContent?.asset_base_dir}
+                    translatedAssetBaseDir={parsedContent?.asset_base_dir}
+                    textView={effectiveTextView}
                     textScale={readerState.textScale}
                     compareRatio={readerState.compareRatio}
                     compareOrder={readerState.compareOrder}

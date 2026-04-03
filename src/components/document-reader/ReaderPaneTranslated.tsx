@@ -1,10 +1,13 @@
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
+import { MineruLayoutViewer } from "@/components/viewer/MineruLayoutViewer"
 import { PdfViewer } from "@/components/viewer/PdfViewer"
 import { TextSelectionToolbar } from "@/components/viewer/TextSelectionToolbar"
 import { FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { MineruLayoutPage } from "@/lib/mineru-layout"
+import type { ReaderTextView } from "@/hooks/useReaderState"
 
 interface ReaderPaneTranslatedProps {
   pdfPath?: string | null
@@ -12,7 +15,10 @@ interface ReaderPaneTranslatedProps {
   pdfScale?: number
   onPdfScaleChange?: (scale: number) => void
   markdownContent?: string | null
+  layoutPages?: MineruLayoutPage[] | null
+  layoutAssetBaseDir?: string | null
   contentFormat?: "markdown" | "plain"
+  textView?: ReaderTextView
   textScale: number
   onAskAI: (text: string) => void
   onTranslateSelection: (text: string) => void
@@ -25,7 +31,10 @@ export function ReaderPaneTranslated({
   pdfScale,
   onPdfScaleChange,
   markdownContent,
+  layoutPages,
+  layoutAssetBaseDir,
   contentFormat = "markdown",
+  textView = "layout",
   textScale,
   onAskAI,
   onTranslateSelection,
@@ -33,6 +42,7 @@ export function ReaderPaneTranslated({
 }: ReaderPaneTranslatedProps) {
   const { t } = useTranslation("document")
   const viewerContainerRef = useRef<HTMLDivElement>(null)
+  const showLayout = textView === "layout" && !!layoutPages?.length
 
   return (
     <section className={cn("relative flex h-full min-w-0 flex-col overflow-hidden", className)}>
@@ -56,13 +66,23 @@ export function ReaderPaneTranslated({
           />
 
           <div ref={viewerContainerRef} className="flex-1 min-h-0 overflow-hidden">
-            <MarkdownViewer
-              content={markdownContent}
-              contentFormat={contentFormat}
-              textScale={textScale}
-              className="h-full"
-              contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"
-            />
+            {showLayout ? (
+              <MineruLayoutViewer
+                pages={layoutPages}
+                assetBaseDir={layoutAssetBaseDir}
+                textScale={textScale}
+                className="h-full"
+              />
+            ) : (
+              <MarkdownViewer
+                content={markdownContent}
+                contentFormat={contentFormat}
+                assetBaseDir={layoutAssetBaseDir}
+                textScale={textScale}
+                className="h-full"
+                contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"
+              />
+            )}
           </div>
         </>
       ) : (

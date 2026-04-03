@@ -170,6 +170,19 @@ pub fn run() {
                     }
                 }
 
+                match commands::restore_missing_mineru_processed_files(conn, &app_dir) {
+                    Ok(restored) if restored > 0 => {
+                        log::info!(
+                            "Restored missing MinerU processed file records for {} documents.",
+                            restored
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::warn!("Failed to restore missing MinerU processed files: {}", e);
+                    }
+                }
+
                 let log_dir = app_dirs::ensure_logs_dir(&app_dir).map_err(|e| {
                     log::error!("Failed to prepare log directory: {}", e);
                     e

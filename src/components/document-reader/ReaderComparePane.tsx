@@ -6,16 +6,22 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { MarkdownViewer } from "@/components/viewer/MarkdownViewer"
+import { MineruLayoutViewer } from "@/components/viewer/MineruLayoutViewer"
 import { TextSelectionToolbar } from "@/components/viewer/TextSelectionToolbar"
 import { ArrowLeftRight, GripVertical } from "lucide-react"
+import type { MineruLayoutPage } from "@/lib/mineru-layout"
+import type { ReaderTextView } from "@/hooks/useReaderState"
 
 interface ReaderComparePaneProps {
   originalContent: string
   translatedContent: string
+  originalLayoutPages?: MineruLayoutPage[] | null
+  translatedLayoutPages?: MineruLayoutPage[] | null
   originalFormat?: "markdown" | "plain"
   translatedFormat?: "markdown" | "plain"
   originalAssetBaseDir?: string | null
   translatedAssetBaseDir?: string | null
+  textView?: ReaderTextView
   textScale: number
   compareRatio: number
   compareOrder: CompareOrder
@@ -35,10 +41,13 @@ function proportion(source: HTMLDivElement, target: HTMLDivElement) {
 export function ReaderComparePane({
   originalContent,
   translatedContent,
+  originalLayoutPages,
+  translatedLayoutPages,
   originalFormat = "markdown",
   translatedFormat = "markdown",
   originalAssetBaseDir,
   translatedAssetBaseDir,
+  textView = "layout",
   textScale,
   compareRatio,
   compareOrder,
@@ -55,6 +64,10 @@ export function ReaderComparePane({
   const translatedScrollRef = useRef<HTMLDivElement>(null)
   const syncLockRef = useRef(false)
   const [dragging, setDragging] = useState(false)
+  const showLayout =
+    textView === "layout" &&
+    !!originalLayoutPages?.length &&
+    !!translatedLayoutPages?.length
 
   useEffect(() => {
     if (!dragging) return
@@ -99,6 +112,7 @@ export function ReaderComparePane({
           title: t("reader.compare.original"),
           variant: "outline" as const,
           content: originalContent,
+          layoutPages: originalLayoutPages,
           format: originalFormat,
           assetBaseDir: originalAssetBaseDir,
           wrapperRef: originalWrapperRef,
@@ -109,6 +123,7 @@ export function ReaderComparePane({
           title: t("reader.compare.translated"),
           variant: "default" as const,
           content: translatedContent,
+          layoutPages: translatedLayoutPages,
           format: translatedFormat,
           assetBaseDir: translatedAssetBaseDir,
           wrapperRef: translatedWrapperRef,
@@ -122,6 +137,7 @@ export function ReaderComparePane({
           title: t("reader.compare.translated"),
           variant: "default" as const,
           content: translatedContent,
+          layoutPages: translatedLayoutPages,
           format: translatedFormat,
           assetBaseDir: translatedAssetBaseDir,
           wrapperRef: translatedWrapperRef,
@@ -132,6 +148,7 @@ export function ReaderComparePane({
           title: t("reader.compare.original"),
           variant: "outline" as const,
           content: originalContent,
+          layoutPages: originalLayoutPages,
           format: originalFormat,
           assetBaseDir: originalAssetBaseDir,
           wrapperRef: originalWrapperRef,
@@ -201,15 +218,26 @@ export function ReaderComparePane({
             <div className="glass-surface border-b px-4 py-2">
               <Badge variant={leftPane.variant}>{leftPane.title}</Badge>
             </div>
-            <MarkdownViewer
-              content={leftPane.content}
-              contentFormat={leftPane.format}
-              assetBaseDir={leftPane.assetBaseDir}
-              textScale={textScale}
-              containerRef={leftPane.scrollRef}
-              onScroll={leftPane.onScroll}
-              className="min-h-0"
-            />
+            {showLayout && leftPane.layoutPages?.length ? (
+              <MineruLayoutViewer
+                pages={leftPane.layoutPages}
+                assetBaseDir={leftPane.assetBaseDir}
+                textScale={textScale}
+                containerRef={leftPane.scrollRef}
+                onScroll={leftPane.onScroll}
+                className="min-h-0"
+              />
+            ) : (
+              <MarkdownViewer
+                content={leftPane.content}
+                contentFormat={leftPane.format}
+                assetBaseDir={leftPane.assetBaseDir}
+                textScale={textScale}
+                containerRef={leftPane.scrollRef}
+                onScroll={leftPane.onScroll}
+                className="min-h-0"
+              />
+            )}
           </div>
         </div>
 
@@ -246,15 +274,26 @@ export function ReaderComparePane({
             <div className="glass-surface border-b px-4 py-2">
               <Badge variant={rightPane.variant}>{rightPane.title}</Badge>
             </div>
-            <MarkdownViewer
-              content={rightPane.content}
-              contentFormat={rightPane.format}
-              assetBaseDir={rightPane.assetBaseDir}
-              textScale={textScale}
-              containerRef={rightPane.scrollRef}
-              onScroll={rightPane.onScroll}
-              className="min-h-0"
-            />
+            {showLayout && rightPane.layoutPages?.length ? (
+              <MineruLayoutViewer
+                pages={rightPane.layoutPages}
+                assetBaseDir={rightPane.assetBaseDir}
+                textScale={textScale}
+                containerRef={rightPane.scrollRef}
+                onScroll={rightPane.onScroll}
+                className="min-h-0"
+              />
+            ) : (
+              <MarkdownViewer
+                content={rightPane.content}
+                contentFormat={rightPane.format}
+                assetBaseDir={rightPane.assetBaseDir}
+                textScale={textScale}
+                containerRef={rightPane.scrollRef}
+                onScroll={rightPane.onScroll}
+                className="min-h-0"
+              />
+            )}
           </div>
         </div>
       </div>

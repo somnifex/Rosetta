@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 export type ReaderBaseMode = "original" | "translated" | "compare"
 export type ReaderMode = ReaderBaseMode | "ask" | "compare-ask"
 export type CompareOrder = "original-left" | "translated-left"
+export type ReaderTextView = "layout" | "markdown"
 
 export interface ReaderPersistedState {
   baseMode: ReaderBaseMode
@@ -12,6 +13,7 @@ export interface ReaderPersistedState {
   originalScale: number
   translatedScale: number
   textScale: number
+  textView: ReaderTextView
   compareRatio: number
   compareOrder: CompareOrder
 }
@@ -24,6 +26,7 @@ const DEFAULT_STATE: ReaderPersistedState = {
   originalScale: 1,
   translatedScale: 1,
   textScale: 1,
+  textView: "layout",
   compareRatio: 0.5,
   compareOrder: "original-left",
 }
@@ -88,6 +91,7 @@ function readInitialState(documentId: string): ReaderPersistedState {
       originalScale: clampScale(parsed.originalScale ?? 1),
       translatedScale: clampScale(parsed.translatedScale ?? 1),
       textScale: clampTextScale(parsed.textScale ?? 1),
+      textView: parsed.textView === "markdown" ? "markdown" : "layout",
       compareRatio: clampRatio(parsed.compareRatio ?? 0.5),
       compareOrder: parsed.compareOrder === "translated-left" ? "translated-left" : "original-left",
     }
@@ -153,6 +157,7 @@ export function useReaderState(documentId: string, requestedMode?: string | null
     setOriginalScale: (originalScale: number) => setState((current) => ({ ...current, originalScale: clampScale(originalScale) })),
     setTranslatedScale: (translatedScale: number) => setState((current) => ({ ...current, translatedScale: clampScale(translatedScale) })),
     setTextScale: (textScale: number) => setState((current) => ({ ...current, textScale: clampTextScale(textScale) })),
+    setTextView: (textView: ReaderTextView) => setState((current) => ({ ...current, textView })),
     setCompareRatio: (compareRatio: number) => setState((current) => ({ ...current, compareRatio: clampRatio(compareRatio) })),
     setCompareOrder: (compareOrder: CompareOrder) => setState((current) => ({ ...current, compareOrder })),
     reset: () => setState(DEFAULT_STATE),

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import type { ReaderBaseMode } from "@/hooks/useReaderState"
+import type { ReaderBaseMode, ReaderTextView } from "@/hooks/useReaderState"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ReaderModeSwitcher } from "@/components/document-reader/ReaderModeSwitcher"
@@ -11,7 +11,6 @@ import {
   ChevronRight,
   Expand,
   Minimize,
-  PanelRightOpen,
   ZoomIn,
   ZoomOut,
 } from "lucide-react"
@@ -35,6 +34,10 @@ interface ReaderToolbarProps {
   originalView?: "pdf" | "parsed"
   onOriginalViewChange?: (view: "pdf" | "parsed") => void
   showOriginalViewToggle?: boolean
+  textView?: ReaderTextView
+  onTextViewChange?: (view: ReaderTextView) => void
+  showTextViewToggle?: boolean
+  layoutViewAvailable?: boolean
   modeDisabled?: Partial<Record<ReaderBaseMode | "ask", boolean>>
 }
 
@@ -57,6 +60,10 @@ export function ReaderToolbar({
   originalView = "pdf",
   onOriginalViewChange,
   showOriginalViewToggle = false,
+  textView = "layout",
+  onTextViewChange,
+  showTextViewToggle = false,
+  layoutViewAvailable = true,
   modeDisabled,
 }: ReaderToolbarProps) {
   const { t } = useTranslation("document")
@@ -82,10 +89,11 @@ export function ReaderToolbar({
   }
 
   const canPage = !pageControlsDisabled && !!onPageChange && !!pageNumber && !!totalPages
+  const showViewToggle = showOriginalViewToggle || showTextViewToggle
 
   return (
     <header className="glass-surface border-b border-border/70 px-4 py-2 shrink-0 relative z-20">
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" className="shrink-0 rounded-xl bg-background/70" onClick={onBackToLibrary}>
           <ArrowLeft className="mr-1.5 h-4 w-4" />
           {t("reader.toolbar.back")}
@@ -128,36 +136,69 @@ export function ReaderToolbar({
           onModeChange={onModeChange}
           onAskToggle={onAskToggle}
           disabled={modeDisabled}
+          className="w-full sm:w-[420px]"
         />
 
-        {showOriginalViewToggle ? (
-          <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 p-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "rounded-xl px-3 text-xs sm:text-sm",
-                originalView === "pdf" &&
-                  "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
-              )}
-              onClick={() => onOriginalViewChange?.("pdf")}
-            >
-              PDF
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "rounded-xl px-3 text-xs sm:text-sm",
-                originalView === "parsed" &&
-                  "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
-              )}
-              onClick={() => onOriginalViewChange?.("parsed")}
-            >
-              Layout
-            </Button>
-          </div>
-        ) : null}
+        <div className="w-full sm:w-[220px]">
+          {showOriginalViewToggle ? (
+            <div className="desktop-panel grid grid-cols-2 items-center gap-1 rounded-2xl border border-border/70 p-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "w-full rounded-xl px-3 text-xs sm:text-sm",
+                  originalView === "pdf" &&
+                    "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+                )}
+                onClick={() => onOriginalViewChange?.("pdf")}
+              >
+                PDF
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "w-full rounded-xl px-3 text-xs sm:text-sm",
+                  originalView === "parsed" &&
+                    "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+                )}
+                onClick={() => onOriginalViewChange?.("parsed")}
+              >
+                Layout
+              </Button>
+            </div>
+          ) : showTextViewToggle ? (
+            <div className="desktop-panel grid grid-cols-2 items-center gap-1 rounded-2xl border border-border/70 p-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "w-full rounded-xl px-3 text-xs sm:text-sm",
+                  textView === "layout" &&
+                    "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+                )}
+                onClick={() => onTextViewChange?.("layout")}
+                disabled={!layoutViewAvailable}
+              >
+                Layout
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "w-full rounded-xl px-3 text-xs sm:text-sm",
+                  textView === "markdown" &&
+                    "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
+                )}
+                onClick={() => onTextViewChange?.("markdown")}
+              >
+                Markdown
+              </Button>
+            </div>
+          ) : (
+            <div className={cn("hidden h-11 sm:block", !showViewToggle && "invisible")} />
+          )}
+        </div>
 
         {showPageControls ? (
           <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 px-1 py-1">
@@ -194,11 +235,6 @@ export function ReaderToolbar({
             </Button>
           </div>
         ) : null}
-
-        <Button variant="outline" size="sm" className="shrink-0 rounded-xl bg-background/70" onClick={onAskToggle}>
-          <PanelRightOpen className="mr-1.5 h-4 w-4" />
-          {askOpen ? t("reader.toolbar.ask_close") : t("reader.toolbar.ask_open")}
-        </Button>
 
         <Button variant="outline" size="icon" className="shrink-0 rounded-xl bg-background/70" onClick={toggleFullscreen}>
           {fullScreen ? <Minimize className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
