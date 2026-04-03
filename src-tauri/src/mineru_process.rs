@@ -267,6 +267,7 @@ impl MinerUProcessManager {
 
     pub async fn start(
         &self,
+        app_dir: &Path,
         python_path: &str,
         requested_port: u16,
         use_venv: bool,
@@ -375,6 +376,7 @@ impl MinerUProcessManager {
                 command.env("MINERU_MODEL_DIR", models_dir);
             }
         }
+        apply_managed_cache_env(&mut command, app_dir)?;
 
         // Spawn, with fallback for non-venv case
         let child = match command.spawn() {
@@ -411,6 +413,7 @@ impl MinerUProcessManager {
                             fallback.env("MINERU_MODEL_DIR", models_dir);
                         }
                     }
+                    apply_managed_cache_env(&mut fallback, app_dir)?;
                     fallback.spawn().map_err(|e2| {
                         let err_msg = format!("Failed to start MinerU: {}", e2);
                         if let Ok(mut status) = self.status.lock() {
@@ -924,7 +927,19 @@ fn disabled_pip_config_path() -> &'static str {
     }
 }
 
-fn configure_pip_command(command: &mut Command) {
+fn apply_managed_cache_env(command: &mut Command, app_dir: &Path) -> Result<(), String> {
+    let dirs = crate::app_dirs::ensure_managed_cache_dirs(app_dir)?;
+    command
+        .env("XDG_CACHE_HOME", &dirs.root)
+        .env("PIP_CACHE_DIR", &dirs.pip)
+        .env("TMPDIR", &dirs.temp)
+        .env("TMP", &dirs.temp)
+        .env("TEMP", &dirs.temp)
+        .env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
+    Ok(())
+}
+
+fn configure_pip_command(command: &mut Command, app_dir: &Path) -> Result<(), String> {
     command
         .env("PIP_CONFIG_FILE", disabled_pip_config_path())
         .env_remove("PIP_INDEX_URL")
@@ -932,6 +947,7 @@ fn configure_pip_command(command: &mut Command) {
         .env_remove("PIP_NO_INDEX")
         .env_remove("PIP_FIND_LINKS")
         .env_remove("PIP_TRUSTED_HOST");
+    apply_managed_cache_env(command, app_dir)
 }
 
 #[cfg(target_os = "windows")]
@@ -1025,41 +1041,22 @@ fn with_pip_index_hint(message: String, pip_index_url: &str) -> String {
 }
 
 fn default_models_dir(app_dir: &Path) -> PathBuf {
-    app_dir.join("mineru_models")
+    crate::app_dirs::mineru_models_dir(app_dir)
 }
 
-fn resolve_models_dir(app_dir: &Path, configured_dir: &str) -> PathBuf {
-    if configured_dir.trim().is_empty() {
-        default_models_dir(app_dir)
-    } else {
+fn resolve_models_dir(app_dir: &Path, model_source: &str, configured_dir: &str) -> PathBuf {
+    if model_source.eq_ignore_ascii_case("local") && !configured_dir.trim().is_empty() {
         PathBuf::from(configured_dir.trim())
+    } else {
+        default_models_dir(app_dir)
     }
 }
 
-fn user_home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-}
-
-fn candidate_model_dirs(app_dir: &Path, configured_dir: &str) -> Vec<PathBuf> {
+fn candidate_model_dirs(app_dir: &Path, model_source: &str, configured_dir: &str) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    let resolved = resolve_models_dir(app_dir, configured_dir);
+    let resolved = resolve_models_dir(app_dir, model_source, configured_dir);
     dirs.push(resolved.clone());
     dirs.push(resolved.join("hub"));
-
-    let default_dir = default_models_dir(app_dir);
-    if default_dir != resolved {
-        dirs.push(default_dir.clone());
-        dirs.push(default_dir.join("hub"));
-    }
-
-    if let Some(home) = user_home_dir() {
-        dirs.push(home.join(".cache").join("huggingface"));
-        dirs.push(home.join(".cache").join("huggingface").join("hub"));
-        dirs.push(home.join(".cache").join("modelscope"));
-        dirs.push(home.join(".cache").join("modelscope").join("hub"));
-    }
 
     let mut seen = std::collections::HashSet::new();
     dirs.into_iter()
@@ -1139,8 +1136,10 @@ pub(crate) fn refresh_model_download_status(
     }
 
     let configured_dir = get_setting_value(settings, "mineru.models_dir").unwrap_or_default();
+    let model_source =
+        get_setting_value(settings, "mineru.model_source").unwrap_or_else(|| "huggingface".to_string());
 
-    for candidate_dir in candidate_model_dirs(app_dir, &configured_dir) {
+    for candidate_dir in candidate_model_dirs(app_dir, &model_source, &configured_dir) {
         if let Some(found_path) = find_known_model_file(&candidate_dir) {
             let message = format!(
                 "Detected existing model files in '{}'",
@@ -1195,6 +1194,7 @@ fn required_mineru_modules_ready(python_cmd: &str) -> Result<(), String> {
 }
 
 async fn install_missing_mineru_modules_in_venv(
+    app_dir: &Path,
     python_cmd: &str,
     pip_index_url: &str,
     missing_modules: &[String],
@@ -1217,7 +1217,7 @@ async fn install_missing_mineru_modules_in_venv(
 
     let mut install_command = Command::new(python_cmd);
     install_command.args(&install_args);
-    configure_pip_command(&mut install_command);
+    configure_pip_command(&mut install_command, app_dir)?;
     hide_console_window!(install_command);
     let output = install_command
         .output()
@@ -1240,7 +1240,11 @@ async fn install_missing_mineru_modules_in_venv(
 /// If an NVIDIA GPU is present but the venv has CPU-only PyTorch, reinstall
 /// the CUDA build.  Returns `true` when an upgrade was attempted (regardless
 /// of success).  This is intentionally non-fatal — MinerU still works on CPU.
-async fn upgrade_to_cuda_torch_if_needed(python_cmd: &str, pip_index_url: &str) -> bool {
+async fn upgrade_to_cuda_torch_if_needed(
+    app_dir: &Path,
+    python_cmd: &str,
+    pip_index_url: &str,
+) -> bool {
     if !has_nvidia_gpu() || !torch_is_cpu_only(python_cmd) {
         return false;
     }
@@ -1262,7 +1266,13 @@ async fn upgrade_to_cuda_torch_if_needed(python_cmd: &str, pip_index_url: &str) 
 
     let mut cmd = Command::new(python_cmd);
     cmd.args(&cuda_args);
-    configure_pip_command(&mut cmd);
+    if let Err(error) = configure_pip_command(&mut cmd, app_dir) {
+        log::warn!(
+            "Could not configure managed cache directories for CUDA PyTorch install: {}",
+            error
+        );
+        return true;
+    }
     hide_console_window!(cmd);
 
     match cmd.output().await {
@@ -1358,7 +1368,7 @@ pub fn get_all_app_settings(state: State<AppState>) -> Result<Vec<AppSettingRow>
 #[tauri::command]
 pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
-    let venv_dir = app_dir.join("mineru_venv");
+    let venv_dir = crate::app_dirs::mineru_venv_dir(&app_dir);
 
     let (python_path, port_str, use_venv, model_source, models_dir_raw, pip_index_url) = {
         let settings = &state.settings;
@@ -1407,15 +1417,10 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
         )
     };
 
-    // Default models dir to app_data_dir/mineru_models for clean uninstall
-    let models_dir = if models_dir_raw.trim().is_empty() {
-        default_models_dir(&app_dir)
-            .to_str()
-            .unwrap_or_default()
-            .to_string()
-    } else {
-        models_dir_raw
-    };
+    let models_dir = resolve_models_dir(&app_dir, &model_source, &models_dir_raw)
+        .to_str()
+        .unwrap_or_default()
+        .to_string();
 
     let port: u16 = port_str
         .parse()
@@ -1442,7 +1447,12 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
                 "MinerU virtual environment is missing runtime modules: {}. Attempting auto-repair.",
                 missing_modules.join(", ")
             );
-            install_missing_mineru_modules_in_venv(&python_path, &pip_index_url, &missing_modules)
+            install_missing_mineru_modules_in_venv(
+                &app_dir,
+                &python_path,
+                &pip_index_url,
+                &missing_modules,
+            )
                 .await
                 .map_err(|error| {
                     format!(
@@ -1465,7 +1475,7 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
     }
 
     if use_venv {
-        upgrade_to_cuda_torch_if_needed(&python_path, &pip_index_url).await;
+        upgrade_to_cuda_torch_if_needed(&app_dir, &python_path, &pip_index_url).await;
     }
 
     let venv_path = if use_venv {
@@ -1476,6 +1486,7 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
     let actual_port = state
         .mineru_manager
         .start(
+            &app_dir,
             &python_path,
             port,
             use_venv,
@@ -1524,8 +1535,8 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
     }
 
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
-    let venv_dir = app_dir.join("mineru_venv");
-    let repo_dir = app_dir.join("MinerU");
+    let venv_dir = crate::app_dirs::mineru_venv_dir(&app_dir);
+    let repo_dir = crate::app_dirs::mineru_repo_dir(&app_dir);
 
     let (system_python, clone_url, pip_index_url, install_method) = {
         let settings = &state.settings;
@@ -1588,6 +1599,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
         let mut venv_cmd = Command::new(&system_python);
         venv_cmd.args(["-m", "venv", &venv_dir_str]);
+        if let Err(e) = apply_managed_cache_env(&mut venv_cmd, &app_dir) {
+            venv_manager.set_status("failed", &e);
+            return;
+        }
         hide_console_window!(venv_cmd);
         let output = venv_cmd.output().await;
 
@@ -1671,7 +1686,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
 
         let mut build_tool_command = Command::new(&venv_python_str);
         build_tool_command.args(&build_tool_args);
-        configure_pip_command(&mut build_tool_command);
+        if let Err(e) = configure_pip_command(&mut build_tool_command, &app_dir) {
+            venv_manager.set_status("failed", &e);
+            return;
+        }
         hide_console_window!(build_tool_command);
         let output = build_tool_command.output().await;
 
@@ -1725,7 +1743,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
 
             let mut install_command = Command::new(&venv_python_str);
             install_command.args(&install_args).current_dir(&repo_dir);
-            configure_pip_command(&mut install_command);
+            if let Err(e) = configure_pip_command(&mut install_command, &app_dir) {
+                venv_manager.set_status("failed", &e);
+                return;
+            }
             hide_console_window!(install_command);
             let output = install_command.output().await;
 
@@ -1751,7 +1772,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
 
             let mut install_command = Command::new(&venv_python_str);
             install_command.args(&install_args);
-            configure_pip_command(&mut install_command);
+            if let Err(e) = configure_pip_command(&mut install_command, &app_dir) {
+                venv_manager.set_status("failed", &e);
+                return;
+            }
             hide_console_window!(install_command);
             let output = install_command.output().await;
 
@@ -1778,7 +1802,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
                 "creating",
                 "Detected NVIDIA GPU. Installing CUDA-enabled PyTorch (this may take several minutes)...",
             );
-            upgrade_to_cuda_torch_if_needed(&venv_python_str, &pip_index_url).await;
+            upgrade_to_cuda_torch_if_needed(&app_dir, &venv_python_str, &pip_index_url).await;
         }
 
         let missing_modules = missing_python_modules(&venv_python_str, REQUIRED_MINERU_MODULES);
@@ -1800,7 +1824,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
 
             let mut repair_command = Command::new(&venv_python_str);
             repair_command.args(&repair_args);
-            configure_pip_command(&mut repair_command);
+            if let Err(e) = configure_pip_command(&mut repair_command, &app_dir) {
+                venv_manager.set_status("failed", &e);
+                return;
+            }
             hide_console_window!(repair_command);
             let output = repair_command.output().await;
 
@@ -1856,7 +1883,7 @@ pub fn get_venv_status(state: State<AppState>) -> Result<VenvStatusResponse, Str
 #[tauri::command]
 pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool, String> {
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
-    let venv_dir = app_dir.join("mineru_venv");
+    let venv_dir = crate::app_dirs::mineru_venv_dir(&app_dir);
     let python_exe = venv_python_path(&venv_dir);
     let exists = python_exe.exists();
     if exists {
@@ -2046,7 +2073,7 @@ pub async fn download_mineru_models(
     }
 
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
-    let venv_dir = app_dir.join("mineru_venv");
+    let venv_dir = crate::app_dirs::mineru_venv_dir(&app_dir);
 
     let (use_venv, model_source) = {
         let use_venv = get_setting_value(&state.settings, "mineru.use_venv")
@@ -2059,7 +2086,7 @@ pub async fn download_mineru_models(
     // Default models dir to app_data_dir/mineru_models for clean uninstall
     let models_dir = {
         let dir = get_setting_value(&state.settings, "mineru.models_dir").unwrap_or_default();
-        resolve_models_dir(&app_dir, &dir)
+        resolve_models_dir(&app_dir, &model_source, &dir)
             .to_str()
             .unwrap_or_default()
             .to_string()
@@ -2127,6 +2154,10 @@ pub async fn download_mineru_models(
         command.env("MODELSCOPE_CACHE", &models_dir);
         // Suppress noisy Windows symlink warning from huggingface_hub
         command.env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
+        if let Err(error) = apply_managed_cache_env(&mut command, &app_dir) {
+            model_manager.set_status("failed", &error);
+            return;
+        }
 
         // Prevent the process from blocking on stdin prompts (e.g. HuggingFace token)
         command.stdin(std::process::Stdio::null());

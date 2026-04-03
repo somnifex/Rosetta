@@ -11,7 +11,7 @@ pub struct SettingsManager {
 
 impl SettingsManager {
     pub fn new(app_dir: &Path) -> Self {
-        let path = app_dir.join("settings.json");
+        let path = crate::app_dirs::settings_path(app_dir);
         let manager = Self {
             path,
             settings: Arc::new(RwLock::new(HashMap::new())),

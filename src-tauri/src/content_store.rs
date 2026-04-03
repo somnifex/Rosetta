@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn content_root(app_dir: &Path) -> PathBuf {
-    app_dir.join("document_contents")
+    crate::app_dirs::document_contents_dir(app_dir)
 }
 
 fn parsed_dir(app_dir: &Path, document_id: &str) -> PathBuf {

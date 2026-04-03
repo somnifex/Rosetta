@@ -309,9 +309,9 @@ fn ensure_mineru_processed_file_artifact_types(conn: &Connection) -> Result<()> 
     };
 
     let normalized = schema_sql.to_ascii_lowercase();
-    let has_all_artifacts = MINERU_PROCESSED_FILE_ARTIFACTS.iter().all(|artifact| {
-        normalized.contains(&format!("'{}'", artifact.to_ascii_lowercase()))
-    });
+    let has_all_artifacts = MINERU_PROCESSED_FILE_ARTIFACTS
+        .iter()
+        .all(|artifact| normalized.contains(&format!("'{}'", artifact.to_ascii_lowercase())));
 
     if has_all_artifacts {
         return Ok(());

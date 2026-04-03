@@ -13,8 +13,8 @@ export default {
   logs: {
     title: "Logs & Cleanup",
     description: "Configure log level and retention, inspect live logs, and export diagnostics.",
-    storage_dir: "MinerU Processed Files Directory",
-    storage_dir_hint: "MinerU parsing outputs are explicitly persisted in this user-visible folder.",
+    storage_dir: "Managed User Data Directory",
+    storage_dir_hint: "Logs, parsed artifacts, vector indexes, and other managed intermediate files are consolidated here.",
     level: "Log Level",
     level_hint: "Controls how much runtime information is persisted and displayed.",
     retention_days: "Retention Days",
@@ -365,7 +365,7 @@ export default {
     zvec_python_path: "ZVEC Python Executable",
     zvec_python_path_hint: "Set this to a Python environment where the `zvec` package is installed.",
     zvec_collections_dir: "ZVEC Collection Directory",
-    zvec_collections_dir_hint: "Leave empty to use the app data directory.",
+    zvec_collections_dir_hint: "This directory is managed automatically inside the app's user data directory.",
     zvec_venv: {
       title: "Python Environment Setup",
       description: "Create an isolated Python environment with zvec and sentence-transformers installed. Recommended if zvec is not installed in your system Python.",

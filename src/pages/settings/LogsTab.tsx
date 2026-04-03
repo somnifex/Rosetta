@@ -44,8 +44,8 @@ export default function LogsTab() {
     return Math.min(3650, Math.max(1, parsed))
   }, [retentionDays])
 
-  const { data: mineruStorageDir } = useQuery({
-    queryKey: ["mineruProcessedStorageDir"],
+  const { data: managedStorageDir } = useQuery({
+    queryKey: ["managedStorageDir"],
     queryFn: api.getMineruProcessedStorageDir,
   })
 
@@ -126,7 +126,7 @@ export default function LogsTab() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>{t("logs.storage_dir")}</Label>
-            <Input value={mineruStorageDir ?? ""} readOnly />
+            <Input value={managedStorageDir ?? ""} readOnly />
             <p className="text-xs text-muted-foreground">{t("logs.storage_dir_hint")}</p>
           </div>
 

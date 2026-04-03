@@ -9,12 +9,10 @@ pub struct FileHandler {
 
 impl FileHandler {
     pub fn new(app_dir: &Path) -> Result<Self, String> {
-        let storage_dir = app_dir.join("documents");
-        let output_dir = app_dir.join("outputs");
-        fs::create_dir_all(&storage_dir)
-            .map_err(|e| format!("Failed to create storage directory: {}", e))?;
-        fs::create_dir_all(&output_dir)
-            .map_err(|e| format!("Failed to create output directory: {}", e))?;
+        let storage_dir = crate::app_dirs::ensure_documents_dir(app_dir)
+            .map_err(|e| format!("Failed to create storage directory: {e}"))?;
+        let output_dir = crate::app_dirs::ensure_outputs_dir(app_dir)
+            .map_err(|e| format!("Failed to create output directory: {e}"))?;
         Ok(Self {
             storage_dir,
             output_dir,

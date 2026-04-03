@@ -91,7 +91,7 @@ pub fn run() {
                 e
             })?;
 
-            let db_path = app_dir.join("database.db");
+            let db_path = app_dirs::database_path(&app_dir);
             let db = Database::new(&db_path).map_err(|e| {
                 log::error!("Failed to open database: {}", e);
                 e
@@ -133,11 +133,33 @@ pub fn run() {
                 }
             }
 
+            match zvec::migrate_legacy_collections_dir(settings_manager.as_ref(), &app_dir) {
+                Ok(true) => {
+                    log::info!("Migrated legacy ZVEC collection storage into the managed app directory.");
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    log::warn!("Failed to migrate legacy ZVEC collection storage: {}", e);
+                }
+            }
+
             let mut needs_vacuum = false;
 
             // Migrate legacy parsed/translated large TEXT blobs into file storage once.
             {
                 let conn = db.get_connection();
+                match commands::migrate_legacy_mineru_processed_storage(conn, &app_dir) {
+                    Ok(true) => {
+                        log::info!(
+                            "Migrated legacy MinerU processed storage into the managed app directory."
+                        );
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        log::warn!("Failed to migrate legacy MinerU processed storage: {}", e);
+                    }
+                }
+
                 match content_store::migrate_legacy_contents(conn, &app_dir) {
                     Ok(true) => {
                         needs_vacuum = true;
@@ -148,7 +170,11 @@ pub fn run() {
                     }
                 }
 
-                match runtime_logs::migrate_legacy_logs(conn, &app_dir.join("logs")) {
+                let log_dir = app_dirs::ensure_logs_dir(&app_dir).map_err(|e| {
+                    log::error!("Failed to prepare log directory: {}", e);
+                    e
+                })?;
+                match runtime_logs::migrate_legacy_logs(conn, &log_dir) {
                     Ok(true) => {
                         needs_vacuum = true;
                     }
@@ -186,7 +212,11 @@ pub fn run() {
             }
 
             let logger_level = settings_manager.get_with_default("logs.level", "info");
-            runtime_logs::configure_runtime_logger(app_dir.join("logs"), &logger_level);
+            let log_dir = app_dirs::ensure_logs_dir(&app_dir).map_err(|e| {
+                log::error!("Failed to prepare runtime logger directory: {}", e);
+                e
+            })?;
+            runtime_logs::configure_runtime_logger(log_dir, &logger_level);
 
             if let Err(e) = db.recover_incomplete_tasks() {
                 log::error!("Failed to recover incomplete tasks: {}", e);
@@ -259,7 +289,7 @@ pub fn run() {
                     let use_venv_str = settings_for_autostart.get_with_default("mineru.use_venv", "false");
                     let use_venv = use_venv_str == "true";
                     let python_path = if use_venv {
-                        let venv_dir = app_dir_for_autostart.join("mineru_venv");
+                        let venv_dir = app_dirs::mineru_venv_dir(&app_dir_for_autostart);
                         let venv_python = mineru_process::venv_python_path_pub(&venv_dir);
                         if venv_python.exists() {
                             venv_python.to_str().unwrap_or("python").to_string()
@@ -273,11 +303,10 @@ pub fn run() {
                     let port_str = settings_for_autostart.get_with_default("mineru.port", "8765");
                     let model_source = settings_for_autostart.get_with_default("mineru.model_source", "huggingface");
                     let models_dir = settings_for_autostart.get_with_default("mineru.models_dir", "");
-                    // Default models dir to app_data_dir/mineru_models
-                    let models_dir = if models_dir.trim().is_empty() {
-                        app_dir_for_autostart.join("mineru_models").to_str().unwrap_or_default().to_string()
-                    } else {
+                    let models_dir = if model_source == "local" && !models_dir.trim().is_empty() {
                         models_dir
+                    } else {
+                        app_dirs::mineru_models_dir(&app_dir_for_autostart).to_str().unwrap_or_default().to_string()
                     };
                     (mode, auto_start, python_path, port_str, use_venv, model_source, models_dir)
                 };
@@ -285,9 +314,9 @@ pub fn run() {
                 if mode == "builtin" && auto_start == "true" {
                     let port: u16 = port_str.parse().unwrap_or(8765);
                     log::info!("Auto-starting MinerU on port {}...", port);
-                    let venv_dir = app_dir_for_autostart.join("mineru_venv");
+                    let venv_dir = app_dirs::mineru_venv_dir(&app_dir_for_autostart);
                     let venv_path = if use_venv { Some(venv_dir.as_path()) } else { None };
-                    match manager_for_autostart.start(&python_path, port, use_venv, venv_path, &model_source, &models_dir).await {
+                    match manager_for_autostart.start(&app_dir_for_autostart, &python_path, port, use_venv, venv_path, &model_source, &models_dir).await {
                         Ok(p) => log::info!("MinerU auto-started on port {}", p),
                         Err(e) => log::error!("Failed to auto-start MinerU: {}", e),
                     }

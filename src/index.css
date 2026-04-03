@@ -583,9 +583,21 @@
     overflow-wrap: anywhere;
   }
 
+  .mineru-layout-text-block {
+    isolation: isolate;
+  }
+
+  .mineru-layout-text-inner {
+    width: 100%;
+    min-height: 100%;
+    white-space: pre-wrap;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+
   .mineru-layout-line {
     margin: 0;
-    white-space: pre-wrap;
+    white-space: inherit;
   }
 
   .mineru-layout-title {
@@ -625,11 +637,51 @@
     background: hsl(var(--muted) / 0.4);
   }
 
+  .mineru-layout-media-shell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid hsl(var(--border) / 0.55);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(226, 232, 240, 0.3));
+  }
+
   .mineru-layout-media {
     display: block;
     width: 100%;
     height: 100%;
     object-fit: contain;
+  }
+
+  .mineru-layout-media-placeholder {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 1rem;
+    text-align: center;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .mineru-layout-media-badge {
+    border-radius: 999px;
+    border: 1px solid hsl(var(--border) / 0.75);
+    background: hsl(var(--background) / 0.88);
+    padding: 0.28rem 0.65rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .mineru-layout-media-path {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: 0.72rem;
+    line-height: 1.35;
   }
 
   .mineru-layout-caption-copy {
@@ -747,6 +799,12 @@
   .dark .mineru-layout-media-shell,
   .dark .mineru-layout-html {
     background: rgba(148, 163, 184, 0.09);
+  }
+
+  .dark .mineru-layout-media-shell {
+    border-color: hsl(var(--border) / 0.8);
+    background:
+      linear-gradient(180deg, rgba(51, 65, 85, 0.28), rgba(15, 23, 42, 0.24));
   }
 
   .dark .rosetta-pdf-shell .react-pdf__Page {

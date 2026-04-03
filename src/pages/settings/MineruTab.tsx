@@ -143,7 +143,7 @@ export default function MineruTab() {
       await api.setAppSetting("mineru.pip_index_url", mineruPipIndexUrl.trim() || defaultMineruPipIndexUrl)
       await api.setAppSetting("mineru.install_method", mineruInstallMethod)
       await api.setAppSetting("mineru.model_source", mineruModelSource)
-      await api.setAppSetting("mineru.models_dir", mineruModelsDir.trim())
+      await api.setAppSetting("mineru.models_dir", mineruModelSource === "local" ? mineruModelsDir.trim() : "")
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appSettings"] })

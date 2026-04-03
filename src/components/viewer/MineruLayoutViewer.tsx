@@ -1,6 +1,9 @@
-import { useCallback } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, Ref, UIEventHandler } from "react"
-import { resolveMarkdownAssetUrl } from "@/lib/markdown-assets"
+import {
+  resolveMarkdownAssetPath,
+  resolveMarkdownAssetUrl,
+} from "@/lib/markdown-assets"
 import type {
   MineruLayoutBlock,
   MineruLayoutPage,
@@ -21,23 +24,47 @@ interface MineruLayoutViewerProps {
   className?: string
 }
 
-function resolveMineruAssetUrl(rawPath: string | undefined, assetBaseDir?: string | null) {
-  if (!rawPath) return null
+function uniqueStrings(values: Array<string | null | undefined>) {
+  const seen = new Set<string>()
+  const result: string[] = []
 
-  const normalized = rawPath.trim()
-  if (!normalized) return null
-
-  const candidates =
-    normalized.includes("/") || normalized.includes("\\")
-      ? [normalized]
-      : [`images/${normalized}`, normalized]
-
-  for (const candidate of candidates) {
-    const resolved = resolveMarkdownAssetUrl(candidate, assetBaseDir)
-    if (resolved) return resolved
+  for (const value of values) {
+    const normalized = value?.trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
   }
 
-  return null
+  return result
+}
+
+function getMediaAssetCandidates(rawPath: string | undefined) {
+  if (!rawPath) return []
+
+  const normalized = rawPath.trim().replace(/\\/g, "/")
+  if (!normalized) return []
+
+  const stripped = normalized.replace(/^\.?\//, "")
+  const withoutImagesPrefix = stripped.replace(/^images\//, "")
+  const basename = stripped.split("/").pop() ?? stripped
+
+  return uniqueStrings([
+    normalized,
+    stripped,
+    stripped.startsWith("images/") ? withoutImagesPrefix : `images/${stripped}`,
+    basename ? `images/${basename}` : null,
+    basename,
+  ])
+}
+
+function resolveMineruAssetUrls(rawPath: string | undefined, assetBaseDir?: string | null) {
+  return uniqueStrings(
+    getMediaAssetCandidates(rawPath).flatMap((candidate) => {
+      const url = resolveMarkdownAssetUrl(candidate, assetBaseDir)
+      const absolutePath = resolveMarkdownAssetPath(candidate, assetBaseDir)
+      return [url, absolutePath ? resolveMarkdownAssetUrl(absolutePath, assetBaseDir) : null]
+    })
+  )
 }
 
 function normalizeMineruText(text: string) {
@@ -99,20 +126,20 @@ function renderLines(lines: MineruLayoutTextLine[]) {
   ))
 }
 
-function getBlockFontStyle(block: MineruLayoutBlock): CSSProperties {
+function getBaseTextStyle(block: MineruLayoutBlock): CSSProperties {
   if (block.type === "title") {
-    return { fontSize: "17px", lineHeight: 1.18, fontWeight: 600 }
+    return { fontSize: "17px", lineHeight: 1.16, fontWeight: 600, letterSpacing: "-0.03em" }
   }
 
   if (block.type === "header" || block.type === "footer") {
-    return { fontSize: "8.7px", lineHeight: 1.2 }
+    return { fontSize: "8.7px", lineHeight: 1.18 }
   }
 
   if (block.type.endsWith("_caption") || block.type === "ref_text") {
-    return { fontSize: "9.7px", lineHeight: 1.28 }
+    return { fontSize: "9.8px", lineHeight: 1.24 }
   }
 
-  return { fontSize: "11.1px", lineHeight: 1.3 }
+  return { fontSize: "11.1px", lineHeight: 1.22 }
 }
 
 function getBlockZIndex(block: MineruLayoutBlock) {
@@ -123,12 +150,125 @@ function getBlockZIndex(block: MineruLayoutBlock) {
   return 4
 }
 
+function MineruImage({
+  imagePath,
+  assetBaseDir,
+}: {
+  imagePath?: string
+  assetBaseDir?: string | null
+}) {
+  const urls = useMemo(() => resolveMineruAssetUrls(imagePath, assetBaseDir), [imagePath, assetBaseDir])
+  const urlsKey = urls.join("\n")
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [hasFailed, setHasFailed] = useState(false)
+
+  useEffect(() => {
+    setCurrentIndex(0)
+    setHasFailed(false)
+  }, [urlsKey])
+
+  const currentUrl = urls[currentIndex]
+
+  if (!currentUrl || hasFailed) {
+    return (
+      <div className="mineru-layout-media-placeholder">
+        <span className="mineru-layout-media-badge">Image unavailable</span>
+        {imagePath ? <span className="mineru-layout-media-path">{imagePath}</span> : null}
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={currentUrl}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className="mineru-layout-media"
+      onError={() => {
+        if (currentIndex < urls.length - 1) {
+          setCurrentIndex((value) => value + 1)
+          return
+        }
+        setHasFailed(true)
+      }}
+    />
+  )
+}
+
+function FittedTextBlock({
+  block,
+  width,
+  height,
+  style,
+}: {
+  block: MineruLayoutBlock
+  width: number
+  height: number
+  style: CSSProperties
+}) {
+  const innerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const element = innerRef.current
+    if (!element) return
+
+    const nextFrame = window.requestAnimationFrame(() => {
+      const naturalWidth = element.scrollWidth
+      const naturalHeight = element.scrollHeight
+
+      if (!naturalWidth || !naturalHeight) {
+        if (scale !== 1) setScale(1)
+        return
+      }
+
+      const widthRatio = width / naturalWidth
+      const heightRatio = height / naturalHeight
+      const nextScale = Math.min(1, widthRatio, heightRatio)
+      const clamped = Number.isFinite(nextScale) ? Math.max(0.48, nextScale) : 1
+
+      if (Math.abs(clamped - scale) > 0.01) {
+        setScale(clamped)
+      }
+    })
+
+    return () => window.cancelAnimationFrame(nextFrame)
+  }, [block.id, block.lines, width, height, scale])
+
+  return (
+    <div
+      className={cn(
+        "mineru-layout-block mineru-layout-text-block absolute overflow-hidden",
+        block.type === "title" ? "mineru-layout-title" : undefined,
+        block.type === "header" || block.type === "footer" ? "mineru-layout-chrome" : undefined,
+        block.type.endsWith("_caption") || block.type === "ref_text"
+          ? "mineru-layout-caption"
+          : undefined,
+        block.discarded ? "mineru-layout-discarded" : undefined
+      )}
+      style={style}
+    >
+      <div
+        ref={innerRef}
+        className="mineru-layout-text-inner"
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          ...getBaseTextStyle(block),
+        }}
+      >
+        {renderLines(block.lines)}
+      </div>
+    </div>
+  )
+}
+
 function renderBlock(block: MineruLayoutBlock, assetBaseDir?: string | null) {
   const [x0, y0, x1, y1] = block.bbox
   const width = Math.max(1, x1 - x0)
   const height = Math.max(1, y1 - y0)
-  const imageUrl = resolveMineruAssetUrl(block.imagePath, assetBaseDir)
-  const hasMedia = Boolean(imageUrl || block.html)
+  const hasMedia = Boolean(block.imagePath || block.html)
   const isMediaBlock = hasMedia && (block.type.includes("image") || block.type.includes("table"))
 
   const style: CSSProperties = {
@@ -137,7 +277,6 @@ function renderBlock(block: MineruLayoutBlock, assetBaseDir?: string | null) {
     width: `${width}px`,
     height: `${height}px`,
     zIndex: getBlockZIndex(block),
-    ...getBlockFontStyle(block),
   }
 
   if (isMediaBlock) {
@@ -150,13 +289,13 @@ function renderBlock(block: MineruLayoutBlock, assetBaseDir?: string | null) {
         )}
         style={style}
       >
-        {imageUrl ? (
-          <div className="mineru-layout-media-shell">
-            <img src={imageUrl} alt="" loading="lazy" className="mineru-layout-media" />
-          </div>
-        ) : block.html ? (
+        {block.html ? (
           <div className="mineru-layout-html" dangerouslySetInnerHTML={{ __html: block.html }} />
-        ) : null}
+        ) : (
+          <div className="mineru-layout-media-shell">
+            <MineruImage imagePath={block.imagePath} assetBaseDir={assetBaseDir} />
+          </div>
+        )}
 
         {block.lines.length > 0 ? (
           <div className="mineru-layout-caption-copy">{renderLines(block.lines)}</div>
@@ -166,21 +305,13 @@ function renderBlock(block: MineruLayoutBlock, assetBaseDir?: string | null) {
   }
 
   return (
-    <div
+    <FittedTextBlock
       key={block.id}
-      className={cn(
-        "mineru-layout-block absolute overflow-hidden",
-        block.type === "title" ? "mineru-layout-title" : undefined,
-        block.type === "header" || block.type === "footer" ? "mineru-layout-chrome" : undefined,
-        block.type.endsWith("_caption") || block.type === "ref_text"
-          ? "mineru-layout-caption"
-          : undefined,
-        block.discarded ? "mineru-layout-discarded" : undefined
-      )}
+      block={block}
+      width={width}
+      height={height}
       style={style}
-    >
-      {renderLines(block.lines)}
-    </div>
+    />
   )
 }
 

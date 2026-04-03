@@ -1192,8 +1192,8 @@ fn load_latest_parsed_content_internal(
         Some(raw) => Some(crate::content_store::read_content_blob(&raw)?),
         None => None,
     };
-    let markdown_file_path = load_mineru_processed_file_path_internal(conn, document_id, "markdown")?
-        .or_else(|| {
+    let markdown_file_path =
+        load_mineru_processed_file_path_internal(conn, document_id, "markdown")?.or_else(|| {
             if Path::new(&markdown_ref).is_absolute() {
                 Some(markdown_ref.clone())
             } else {
@@ -1289,8 +1289,59 @@ struct ExtractedMineruArtifacts {
     latex_path: Option<PathBuf>,
 }
 
-fn mineru_processed_document_dir(document_id: &str) -> Result<PathBuf, String> {
-    Ok(crate::app_dirs::mineru_processed_dir()?.join(document_id))
+fn mineru_processed_document_dir(app_dir: &Path, document_id: &str) -> PathBuf {
+    crate::app_dirs::mineru_processed_dir(app_dir).join(document_id)
+}
+
+pub(crate) fn migrate_legacy_mineru_processed_storage(
+    conn: &rusqlite::Connection,
+    app_dir: &Path,
+) -> Result<bool, String> {
+    let Some(legacy_dir) = crate::app_dirs::legacy_mineru_processed_dir() else {
+        return Ok(false);
+    };
+    if !legacy_dir.exists() {
+        return Ok(false);
+    }
+
+    let managed_dir = crate::app_dirs::mineru_processed_dir(app_dir);
+    if legacy_dir == managed_dir {
+        return Ok(false);
+    }
+
+    let moved = crate::app_dirs::move_dir_contents(&legacy_dir, &managed_dir)?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, file_path FROM mineru_processed_files")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut updated_rows = false;
+    for (id, file_path) in rows {
+        let path = PathBuf::from(&file_path);
+        let Ok(relative) = path.strip_prefix(&legacy_dir) else {
+            continue;
+        };
+
+        let managed_path = managed_dir.join(relative);
+        let managed_path_str = managed_path.to_string_lossy().to_string();
+        if managed_path_str == file_path {
+            continue;
+        }
+
+        conn.execute(
+            "UPDATE mineru_processed_files SET file_path = ?1 WHERE id = ?2",
+            (&managed_path_str, &id),
+        )
+        .map_err(|e| e.to_string())?;
+        updated_rows = true;
+    }
+
+    Ok(moved || updated_rows)
 }
 
 fn upsert_mineru_processed_file_record(
@@ -1456,6 +1507,7 @@ fn extract_mineru_archive(
 
 fn delete_mineru_processed_records_and_files(
     conn: &rusqlite::Connection,
+    app_dir: Option<&Path>,
     document_id: &str,
 ) -> Result<(), String> {
     let mut stmt = conn
@@ -1478,7 +1530,8 @@ fn delete_mineru_processed_records_and_files(
         }
     }
 
-    if let Ok(document_dir) = mineru_processed_document_dir(document_id) {
+    if let Some(app_dir) = app_dir {
+        let document_dir = mineru_processed_document_dir(app_dir, document_id);
         if document_dir.exists() {
             let _ = fs::remove_dir_all(document_dir);
         }
@@ -1495,13 +1548,14 @@ fn delete_mineru_processed_records_and_files(
 
 fn persist_mineru_processed_files(
     conn: &rusqlite::Connection,
+    app_dir: &Path,
     document_id: &str,
     markdown: &str,
     json_content: &str,
     structure_json: &str,
     now: &str,
 ) -> Result<(), String> {
-    let document_dir = mineru_processed_document_dir(document_id)?;
+    let document_dir = mineru_processed_document_dir(app_dir, document_id);
     fs::create_dir_all(&document_dir).map_err(|e| e.to_string())?;
 
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -1528,11 +1582,12 @@ fn persist_mineru_processed_files(
 
 fn persist_mineru_processed_archive(
     conn: &rusqlite::Connection,
+    app_dir: &Path,
     document_id: &str,
     archive_bytes: &[u8],
     now: &str,
 ) -> Result<(), String> {
-    let document_dir = mineru_processed_document_dir(document_id)?;
+    let document_dir = mineru_processed_document_dir(app_dir, document_id);
     fs::create_dir_all(&document_dir).map_err(|e| e.to_string())?;
 
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -1600,7 +1655,7 @@ fn clear_document_derived_data(
     remove_parsed_content: bool,
     now: &str,
 ) -> Result<(), String> {
-    delete_mineru_processed_records_and_files(conn, document_id)?;
+    delete_mineru_processed_records_and_files(conn, app_dir, document_id)?;
 
     if let Some(app_dir) = app_dir {
         remove_document_from_vector_store(conn, app_dir, document_id)?;
@@ -1621,14 +1676,7 @@ fn clear_document_derived_data(
         .map_err(|e| e.to_string())?;
 
     if remove_parsed_content {
-        conn.execute(
-            "DELETE FROM parsed_contents WHERE document_id = ?1",
-            [document_id],
-        )
-        .map_err(|e| e.to_string())?;
-        if let Some(app_dir) = app_dir {
-            let _ = crate::content_store::remove_parsed_dir(app_dir, document_id);
-        }
+        clear_document_parsed_history(conn, app_dir, document_id)?;
         conn.execute(
             "UPDATE documents
              SET parse_status = 'pending', translation_status = 'pending', index_status = 'pending', updated_at = ?1
@@ -1655,6 +1703,24 @@ fn clear_document_derived_data(
         let _ = crate::content_store::remove_translated_dir(app_dir, document_id);
     }
     delete_document_output_record_and_file(conn, "translated_pdf", document_id)?;
+
+    Ok(())
+}
+
+fn clear_document_parsed_history(
+    conn: &rusqlite::Connection,
+    app_dir: Option<&Path>,
+    document_id: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM parsed_contents WHERE document_id = ?1",
+        [document_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    if let Some(app_dir) = app_dir {
+        let _ = crate::content_store::remove_parsed_dir(app_dir, document_id);
+    }
 
     Ok(())
 }
@@ -1920,7 +1986,7 @@ pub(crate) fn remove_document_from_vector_store(
 }
 
 fn cleanup_document_records(conn: &rusqlite::Connection, document_id: &str) -> Result<(), String> {
-    delete_mineru_processed_records_and_files(conn, document_id)?;
+    delete_mineru_processed_records_and_files(conn, None, document_id)?;
 
     conn.execute(
         "DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?1)",
@@ -3349,6 +3415,135 @@ struct MinerUParseExecution {
     archive_bytes: Option<Vec<u8>>,
 }
 
+fn mark_parse_job_failed(
+    conn: &rusqlite::Connection,
+    job_id: &str,
+    document_id: &str,
+    now: &str,
+    error_message: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE parse_jobs SET status = 'failed', error_message = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+        (error_message, now, now, job_id),
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE documents
+         SET parse_status = 'failed', updated_at = ?1
+         WHERE id = ?2 AND deleted_at IS NULL",
+        (now, document_id),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn persist_parse_job_success(
+    conn: &rusqlite::Connection,
+    app_dir: Option<&Path>,
+    job_id: &str,
+    document_id: &str,
+    execution: MinerUParseExecution,
+    now: &str,
+) -> Result<(), String> {
+    let app_dir = app_dir.ok_or("App dir is required for parsed content storage")?;
+    let MinerUParseExecution {
+        parse_result,
+        archive_bytes,
+    } = execution;
+    let content_id = Uuid::new_v4().to_string();
+    let version = next_content_version(conn, "parsed_contents", document_id)?;
+    let structure_json = parse_result.structure.to_string();
+
+    let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
+        app_dir,
+        document_id,
+        version,
+        &parse_result.markdown,
+        &parse_result.json,
+        Some(&structure_json),
+    )?;
+
+    let persist_result = (|| -> Result<(), String> {
+        clear_document_derived_data(conn, Some(app_dir), document_id, false, now)?;
+
+        if let Err(error) = persist_mineru_processed_files(
+            conn,
+            app_dir,
+            document_id,
+            &parse_result.markdown,
+            &parse_result.json,
+            &structure_json,
+            now,
+        ) {
+            log::warn!(
+                "Failed to persist MinerU processed files for document {}: {}",
+                document_id,
+                error
+            );
+        }
+
+        if let Some(ref archive_bytes) = archive_bytes {
+            if let Err(error) =
+                persist_mineru_processed_archive(conn, app_dir, document_id, archive_bytes, now)
+            {
+                log::warn!(
+                    "Failed to persist MinerU parse archive for document {}: {}",
+                    document_id,
+                    error
+                );
+            }
+        }
+
+        conn.execute(
+            "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (&content_id, document_id, &version, &markdown_path, &json_path, &structure_path, now),
+        )
+        .map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "UPDATE parse_jobs SET status = 'completed', progress = 100, completed_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, job_id),
+        )
+        .map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "UPDATE documents
+             SET parse_status = 'completed', translation_status = 'pending', index_status = 'pending', updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
+            (now, document_id),
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })();
+
+    if let Err(error) = persist_result {
+        cleanup_written_parsed_version(&markdown_path, &json_path, structure_path.as_deref());
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn cleanup_written_parsed_version(
+    markdown_path: &str,
+    json_path: &str,
+    structure_path: Option<&str>,
+) {
+    for path in [Some(markdown_path), Some(json_path), structure_path] {
+        let Some(path) = path else {
+            continue;
+        };
+
+        let path_ref = Path::new(path);
+        if path_ref.exists() {
+            let _ = fs::remove_file(path_ref);
+        }
+    }
+}
+
 fn update_parse_job_runtime_progress(
     state: &AppState,
     job_id: &str,
@@ -3544,10 +3739,13 @@ async fn execute_parse_job_with_selected_backend(
         crate::mineru::MinerUClient::new(mineru_url)
     };
 
-    let parse_result = client.parse_pdf(file_path).await?;
+    let crate::mineru::ParseExecution {
+        parse_result,
+        archive_bytes,
+    } = client.parse_pdf(file_path).await?;
     Ok(MinerUParseExecution {
         parse_result,
-        archive_bytes: None,
+        archive_bytes,
     })
 }
 
@@ -3591,73 +3789,26 @@ async fn execute_parse_job(
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
 
-    match result {
+    let result = match result {
         Ok(execution) => {
-            let MinerUParseExecution {
-                parse_result,
-                archive_bytes,
-            } = execution;
-            let content_id = Uuid::new_v4().to_string();
-            let version = next_content_version(conn, "parsed_contents", document_id)?;
-            clear_document_derived_data(conn, app_dir, document_id, false, &now)?;
+            persist_parse_job_success(conn, app_dir, job_id, document_id, execution, &now)
+        }
+        Err(error) => Err(error),
+    };
 
-            let (markdown_path, json_path, structure_path) =
-                crate::content_store::write_parsed_version(
-                    app_dir.ok_or("App dir is required for parsed content storage")?,
-                    document_id,
-                    version,
-                    &parse_result.markdown,
-                    &parse_result.json,
-                    Some(&parse_result.structure.to_string()),
-                )?;
-
-            persist_mineru_processed_files(
-                conn,
-                document_id,
-                &parse_result.markdown,
-                &parse_result.json,
-                &parse_result.structure.to_string(),
-                &now,
-            )?;
-            if let Some(ref archive_bytes) = archive_bytes {
-                persist_mineru_processed_archive(conn, document_id, archive_bytes, &now)?;
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if let Err(status_error) =
+                mark_parse_job_failed(conn, job_id, document_id, &now, &error)
+            {
+                return Err(format!(
+                    "{}; additionally failed to update parse job status: {}",
+                    error, status_error
+                ));
             }
 
-            conn.execute(
-                "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                (&content_id, document_id, &version, &markdown_path, &json_path, &structure_path, &now),
-            ).map_err(|e| e.to_string())?;
-
-            conn.execute(
-                "UPDATE parse_jobs SET status = 'completed', progress = 100, completed_at = ?, updated_at = ? WHERE id = ?",
-                (&now, &now, job_id),
-            ).map_err(|e| e.to_string())?;
-
-            conn.execute(
-                "UPDATE documents
-                 SET parse_status = 'completed', translation_status = 'pending', index_status = 'pending', updated_at = ?1
-                 WHERE id = ?2 AND deleted_at IS NULL",
-                (&now, document_id),
-            )
-            .map_err(|e| e.to_string())?;
-
-            Ok(())
-        }
-        Err(e) => {
-            conn.execute(
-                "UPDATE parse_jobs SET status = 'failed', error_message = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-                (&e, &now, &now, job_id),
-            ).map_err(|e| e.to_string())?;
-
-            conn.execute(
-                "UPDATE documents
-                 SET parse_status = 'failed', updated_at = ?1
-                 WHERE id = ?2 AND deleted_at IS NULL",
-                (&now, document_id),
-            )
-            .map_err(|e| e.to_string())?;
-
-            Err(e)
+            Err(error)
         }
     }
 }
@@ -5010,8 +5161,6 @@ pub async fn replace_parsed_markdown(
     )
     .map_err(|e| e.to_string())?;
 
-    clear_document_derived_data(conn, Some(&app_dir), &document_id, false, &now)?;
-    persist_mineru_processed_files(conn, &document_id, &markdown_content, "{}", "null", &now)?;
     let version = next_content_version(conn, "parsed_contents", &document_id)?;
     let (markdown_path, json_path, structure_path) = crate::content_store::write_parsed_version(
         &app_dir,
@@ -5022,20 +5171,55 @@ pub async fn replace_parsed_markdown(
         None,
     )?;
 
-    conn.execute(
-        "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        (&content_id, &document_id, &version, &markdown_path, &json_path, &structure_path, &now),
-    )
-    .map_err(|e| e.to_string())?;
+    let persist_result = (|| -> Result<(), String> {
+        clear_document_derived_data(conn, Some(&app_dir), &document_id, false, &now)?;
 
-    conn.execute(
-        "UPDATE documents
-         SET parse_status = 'completed', translation_status = 'pending', index_status = 'pending', updated_at = ?1
-         WHERE id = ?2 AND deleted_at IS NULL",
-        (&now, &document_id),
-    )
-    .map_err(|e| e.to_string())?;
+        if let Err(error) = persist_mineru_processed_files(
+            conn,
+            &app_dir,
+            &document_id,
+            &markdown_content,
+            "{}",
+            "null",
+            &now,
+        ) {
+            log::warn!(
+                "Failed to persist replacement parsed assets for document {}: {}",
+                document_id,
+                error
+            );
+        }
+
+        conn.execute(
+            "INSERT INTO parsed_contents (id, document_id, version, markdown_content, json_content, structure_tree, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (
+                &content_id,
+                &document_id,
+                &version,
+                &markdown_path,
+                &json_path,
+                &structure_path,
+                &now,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "UPDATE documents
+             SET parse_status = 'completed', translation_status = 'pending', index_status = 'pending', updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
+            (&now, &document_id),
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })();
+
+    if let Err(error) = persist_result {
+        cleanup_written_parsed_version(&markdown_path, &json_path, structure_path.as_deref());
+        return Err(error);
+    }
 
     load_latest_parsed_content_internal(conn, &document_id)
 }
@@ -6373,8 +6557,8 @@ pub fn run_cleanup_now(app: AppHandle, state: State<AppState>) -> Result<String,
 }
 
 #[tauri::command]
-pub fn get_mineru_processed_storage_dir() -> Result<String, String> {
-    let path = crate::app_dirs::mineru_processed_dir()?;
+pub fn get_mineru_processed_storage_dir(app: AppHandle) -> Result<String, String> {
+    let path = crate::app_dirs::runtime_app_dir(&app)?;
     path.to_str()
         .map(|value| value.to_string())
         .ok_or_else(|| "Storage path contains invalid characters".to_string())

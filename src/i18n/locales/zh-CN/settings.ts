@@ -13,8 +13,8 @@ export default {
   logs: {
     title: "日志与清理",
     description: "配置日志等级与保留天数，查看实时日志并导出诊断信息。",
-    storage_dir: "MinerU 处理文件目录",
-    storage_dir_hint: "MinerU 的解析产物会显式持久化到该用户可见目录。",
+    storage_dir: "应用用户数据目录",
+    storage_dir_hint: "日志、解析产物、向量索引和其他受管中间文件都会统一收敛到这里。",
     level: "日志等级",
     level_hint: "控制运行日志的记录粒度和展示内容。",
     retention_days: "保留天数",
@@ -356,7 +356,7 @@ export default {
     zvec_python_path: "ZVEC Python 可执行文件",
     zvec_python_path_hint: "请填写已安装 `zvec` 包的 Python 环境路径。",
     zvec_collections_dir: "ZVEC Collection 目录",
-    zvec_collections_dir_hint: "留空时默认使用应用数据目录。",
+    zvec_collections_dir_hint: "该目录由应用统一管理，向量集合会持久化到应用用户数据目录内。",
     zvec_venv: {
       title: "Python 环境设置",
       description: "创建独立的 Python 虚拟环境并安装 zvec 和 sentence-transformers。如果系统 Python 未安装 zvec，推荐使用此方式。",

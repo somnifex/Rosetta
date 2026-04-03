@@ -24,7 +24,6 @@ export default function RagTab() {
   const [ragChunkOverlap, setRagChunkOverlap] = useState("50")
   const [ragVectorBackend, setRagVectorBackend] = useState("zvec")
   const [zvecPythonPath, setZvecPythonPath] = useState(defaultPythonPath)
-  const [zvecCollectionsDir, setZvecCollectionsDir] = useState("")
   const [zvecUseVenv, setZvecUseVenv] = useState(false)
   const [zvecSystemPython, setZvecSystemPython] = useState(defaultPythonPath)
   const [zvecPipIndexUrl, setZvecPipIndexUrl] = useState("https://pypi.org/simple")
@@ -43,7 +42,6 @@ export default function RagTab() {
       setRagChunkOverlap(settingsMap.get("rag.chunk_overlap") || "50")
       setRagVectorBackend(settingsMap.get("rag.vector_backend") || "zvec")
       setZvecPythonPath(settingsMap.get("rag.zvec_python_path") || defaultPythonPath)
-      setZvecCollectionsDir(settingsMap.get("rag.zvec_collections_dir") || "")
       setZvecUseVenv((settingsMap.get("rag.zvec_use_venv") || "false") === "true")
       setZvecSystemPython(settingsMap.get("rag.zvec_system_python") || defaultPythonPath)
       setZvecPipIndexUrl(settingsMap.get("rag.zvec_pip_index_url") || "https://pypi.org/simple")
@@ -88,7 +86,7 @@ export default function RagTab() {
       await api.setAppSetting("rag.chunk_overlap", ragChunkOverlap.trim() || "50")
       await api.setAppSetting("rag.vector_backend", ragVectorBackend)
       await api.setAppSetting("rag.zvec_python_path", zvecPythonPath.trim() || defaultPythonPath)
-      await api.setAppSetting("rag.zvec_collections_dir", zvecCollectionsDir.trim())
+      await api.setAppSetting("rag.zvec_collections_dir", "")
       await api.setAppSetting("rag.zvec_use_venv", zvecUseVenv ? "true" : "false")
       await api.setAppSetting("rag.zvec_system_python", zvecSystemPython.trim() || defaultPythonPath)
       await api.setAppSetting("rag.zvec_pip_index_url", zvecPipIndexUrl.trim() || "https://pypi.org/simple")
@@ -342,10 +340,8 @@ export default function RagTab() {
           <div className="space-y-2">
             <Label>{t("rag.zvec_collections_dir")}</Label>
             <Input
-              data-setting-key="rag.zvec_collections_dir"
-              placeholder={t("rag.zvec_collections_dir_hint")}
-              value={zvecCollectionsDir}
-              onChange={(e) => setZvecCollectionsDir(e.target.value)}
+              value={zvecStatus?.collections_dir ?? ""}
+              readOnly
             />
             <p className="text-xs text-muted-foreground">{t("rag.zvec_collections_dir_hint")}</p>
           </div>

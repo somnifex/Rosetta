@@ -116,7 +116,7 @@ pub fn default_python_path() -> String {
 }
 
 pub fn default_collections_dir(app_dir: &Path) -> PathBuf {
-    app_dir.join("zvec").join("collections")
+    crate::app_dirs::zvec_collections_dir(app_dir)
 }
 
 pub fn platform_supported() -> bool {
@@ -253,15 +253,38 @@ pub fn load_zvec_settings(_conn: &Connection, app_dir: &Path) -> Result<ZvecSett
         get_setting(app_dir, "rag.zvec_python_path").unwrap_or_else(default_python_path)
     };
 
-    let collections_dir = get_setting(app_dir, "rag.zvec_collections_dir")
-        .map(PathBuf::from)
-        .filter(|value| !value.as_os_str().is_empty())
-        .unwrap_or_else(|| default_collections_dir(app_dir));
+    let collections_dir = default_collections_dir(app_dir);
 
     Ok(ZvecSettings {
         python_path,
         collections_dir,
     })
+}
+
+pub(crate) fn migrate_legacy_collections_dir(
+    settings: &crate::settings::SettingsManager,
+    app_dir: &Path,
+) -> Result<bool, String> {
+    let configured = settings.get("rag.zvec_collections_dir").unwrap_or_default();
+    let trimmed = configured.trim();
+    if trimmed.is_empty() {
+        return Ok(false);
+    }
+
+    let legacy_dir = PathBuf::from(trimmed);
+    let managed_dir = default_collections_dir(app_dir);
+    let mut changed = false;
+
+    if legacy_dir != managed_dir && legacy_dir.exists() {
+        crate::app_dirs::move_dir_contents(&legacy_dir, &managed_dir)?;
+        if legacy_dir.exists() {
+            let _ = fs::remove_dir_all(&legacy_dir);
+        }
+        changed = true;
+    }
+
+    settings.set("rag.zvec_collections_dir".to_string(), String::new())?;
+    Ok(changed || legacy_dir != managed_dir)
 }
 
 pub fn vector_backend_is_zvec(rag_settings: &RagSettings) -> bool {
@@ -464,8 +487,7 @@ pub fn load_document_chunk_ids(
 }
 
 fn ensure_bridge_script(app_dir: &Path) -> Result<PathBuf, String> {
-    let script_dir = app_dir.join("scripts");
-    fs::create_dir_all(&script_dir).map_err(|e| e.to_string())?;
+    let script_dir = crate::app_dirs::ensure_scripts_dir(app_dir)?;
     let script_path = script_dir.join(ZVEC_BRIDGE_FILENAME);
 
     let should_write = match fs::read_to_string(&script_path) {
@@ -478,6 +500,45 @@ fn ensure_bridge_script(app_dir: &Path) -> Result<PathBuf, String> {
     }
 
     Ok(script_path)
+}
+
+fn managed_cache_env_pairs(app_dir: &Path) -> Result<Vec<(&'static str, String)>, String> {
+    let dirs = crate::app_dirs::ensure_managed_cache_dirs(app_dir)?;
+    Ok(vec![
+        ("XDG_CACHE_HOME", dirs.root.to_string_lossy().to_string()),
+        ("PIP_CACHE_DIR", dirs.pip.to_string_lossy().to_string()),
+        ("TMPDIR", dirs.temp.to_string_lossy().to_string()),
+        ("TMP", dirs.temp.to_string_lossy().to_string()),
+        ("TEMP", dirs.temp.to_string_lossy().to_string()),
+        ("HF_HOME", dirs.huggingface.to_string_lossy().to_string()),
+        ("MODELSCOPE_CACHE", dirs.modelscope.to_string_lossy().to_string()),
+        (
+            "TRANSFORMERS_CACHE",
+            dirs.transformers.to_string_lossy().to_string(),
+        ),
+        (
+            "SENTENCE_TRANSFORMERS_HOME",
+            dirs.sentence_transformers.to_string_lossy().to_string(),
+        ),
+        ("HF_HUB_DISABLE_SYMLINKS_WARNING", "1".to_string()),
+    ])
+}
+
+fn apply_managed_cache_env(command: &mut Command, app_dir: &Path) -> Result<(), String> {
+    for (key, value) in managed_cache_env_pairs(app_dir)? {
+        command.env(key, value);
+    }
+    Ok(())
+}
+
+fn apply_managed_cache_env_tokio(
+    command: &mut tokio::process::Command,
+    app_dir: &Path,
+) -> Result<(), String> {
+    for (key, value) in managed_cache_env_pairs(app_dir)? {
+        command.env(key, value);
+    }
+    Ok(())
 }
 
 fn run_bridge<T: for<'de> Deserialize<'de>>(
@@ -495,6 +556,7 @@ fn run_bridge<T: for<'de> Deserialize<'de>>(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    apply_managed_cache_env(&mut child, app_dir)?;
 
     hide_console_window!(child);
 
@@ -735,6 +797,7 @@ pub async fn install_reranker_deps(
 
     let mut pip_cmd = tokio::process::Command::new(&python_path);
     pip_cmd.args(["-m", "pip", "install", "sentence-transformers"]);
+    apply_managed_cache_env_tokio(&mut pip_cmd, &app_dir)?;
     hide_console_window!(pip_cmd);
     let output = pip_cmd
         .output()
@@ -840,6 +903,10 @@ pub async fn download_reranker_model(
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        if let Err(error) = apply_managed_cache_env_tokio(&mut child, &app_dir_clone) {
+            manager.set_status("failed", &error);
+            return;
+        }
 
         hide_console_window!(child);
 
@@ -959,11 +1026,16 @@ fn zvec_venv_python_path(venv_dir: &Path) -> PathBuf {
 }
 
 fn zvec_venv_dir(app_dir: &Path) -> PathBuf {
-    app_dir.join("zvec_venv")
+    crate::app_dirs::zvec_venv_dir(app_dir)
 }
 
 /// Run a pip command in the zvec venv. Returns Ok on success, Err with message on failure.
-async fn run_venv_pip(python: &str, args: &[&str], pip_index_url: &str) -> Result<(), String> {
+async fn run_venv_pip(
+    app_dir: &Path,
+    python: &str,
+    args: &[&str],
+    pip_index_url: &str,
+) -> Result<(), String> {
     let mut cmd_args = vec!["-m", "pip", "install"];
     cmd_args.extend_from_slice(args);
     if !pip_index_url.is_empty() {
@@ -980,6 +1052,7 @@ async fn run_venv_pip(python: &str, args: &[&str], pip_index_url: &str) -> Resul
     );
     command.env_remove("PIP_INDEX_URL");
     command.env_remove("PIP_EXTRA_INDEX_URL");
+    apply_managed_cache_env_tokio(&mut command, app_dir)?;
     hide_console_window!(command);
 
     let output = command
@@ -1046,6 +1119,10 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
         manager.set_status("creating", "Checking Python version...");
         let mut py_cmd = tokio::process::Command::new(&system_python);
         py_cmd.args(["--version"]);
+        if let Err(e) = apply_managed_cache_env_tokio(&mut py_cmd, &app_dir) {
+            manager.set_status("failed", &e);
+            return;
+        }
         hide_console_window!(py_cmd);
         let output = py_cmd.output().await;
         match output {
@@ -1078,6 +1155,10 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
         let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
         let mut venv_cmd = tokio::process::Command::new(&system_python);
         venv_cmd.args(["-m", "venv", &venv_dir_str]);
+        if let Err(e) = apply_managed_cache_env_tokio(&mut venv_cmd, &app_dir) {
+            manager.set_status("failed", &e);
+            return;
+        }
         hide_console_window!(venv_cmd);
         let output = venv_cmd.output().await;
 
@@ -1100,6 +1181,7 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
         // Step 2: Upgrade pip
         manager.set_status("creating", "Upgrading pip...");
         if let Err(e) = run_venv_pip(
+            &app_dir,
             &venv_python_str,
             &["--upgrade", "pip", "setuptools", "wheel"],
             &pip_index_url,
@@ -1111,15 +1193,21 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
 
         // Step 3: Install zvec
         manager.set_status("creating", "Installing zvec...");
-        if let Err(e) = run_venv_pip(&venv_python_str, &["zvec"], &pip_index_url).await {
+        if let Err(e) = run_venv_pip(&app_dir, &venv_python_str, &["zvec"], &pip_index_url).await
+        {
             manager.set_status("failed", &format!("Failed to install zvec: {e}"));
             return;
         }
 
         // Step 4: Install sentence-transformers (for local reranker)
         manager.set_status("creating", "Installing sentence-transformers...");
-        if let Err(e) =
-            run_venv_pip(&venv_python_str, &["sentence-transformers"], &pip_index_url).await
+        if let Err(e) = run_venv_pip(
+            &app_dir,
+            &venv_python_str,
+            &["sentence-transformers"],
+            &pip_index_url,
+        )
+        .await
         {
             manager.set_status(
                 "failed",
@@ -1131,6 +1219,10 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
         // Verify
         let mut verify_cmd = tokio::process::Command::new(&venv_python_str);
         verify_cmd.args(["-c", "import zvec; print(zvec.__version__)"]);
+        if let Err(e) = apply_managed_cache_env_tokio(&mut verify_cmd, &app_dir) {
+            manager.set_status("failed", &e);
+            return;
+        }
         hide_console_window!(verify_cmd);
         let verify = verify_cmd.output().await;
 
@@ -1170,6 +1262,7 @@ pub fn check_zvec_venv_exists(app: AppHandle, state: State<'_, AppState>) -> Res
         let mut cmd = std::process::Command::new(&python_cmd);
         cmd.args(["-c", "import zvec"])
             .stderr(std::process::Stdio::null());
+        let _ = apply_managed_cache_env(&mut cmd, &app_dir);
         hide_console_window!(cmd);
         let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
 
