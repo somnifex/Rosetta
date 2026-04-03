@@ -1,4 +1,8 @@
-use crate::mineru::ParseResult;
+use crate::mineru::{
+    is_mineru_content_list_json_file_name, is_mineru_layout_json_file_name,
+    is_mineru_markdown_file_name, is_mineru_model_json_file_name, mineru_archive_file_name,
+    normalize_mineru_archive_entry_name, should_prefer_mineru_markdown_entry, ParseResult,
+};
 use reqwest::header::ACCEPT;
 use reqwest::{Client, Response, StatusCode};
 use serde::de::DeserializeOwned;
@@ -356,6 +360,7 @@ impl OfficialArchive {
             .map_err(|e| format!("Failed to open MinerU official parse archive: {}", e))?;
 
         let mut markdown = None;
+        let mut markdown_entry_name = None;
         let mut layout_json = None;
         let mut content_list_json = None;
         let mut model_json = None;
@@ -368,38 +373,38 @@ impl OfficialArchive {
                 continue;
             }
 
-            let entry_name = file.name().replace('\\', "/");
-            let file_name = entry_name
-                .rsplit('/')
-                .next()
-                .unwrap_or(entry_name.as_str())
-                .to_ascii_lowercase();
+            let entry_name = normalize_mineru_archive_entry_name(file.name());
+            let file_name = mineru_archive_file_name(&entry_name);
 
             let mut bytes = Vec::new();
             file.read_to_end(&mut bytes)
                 .map_err(|e| format!("Failed to read archive entry '{}': {}", entry_name, e))?;
             let text = String::from_utf8_lossy(&bytes).to_string();
 
-            if file_name == "full.md" {
-                markdown = Some(text);
+            if is_mineru_markdown_file_name(&file_name) {
+                if should_prefer_mineru_markdown_entry(markdown_entry_name.as_deref(), &entry_name)
+                {
+                    markdown = Some(text);
+                    markdown_entry_name = Some(entry_name);
+                }
                 continue;
             }
 
-            if file_name == "layout.json" || file_name == "middle.json" {
+            if is_mineru_layout_json_file_name(&file_name) {
                 if layout_json.is_none() {
                     layout_json = Some(text);
                 }
                 continue;
             }
 
-            if file_name == "content_list.json" || file_name.ends_with("_content_list.json") {
+            if is_mineru_content_list_json_file_name(&file_name) {
                 if content_list_json.is_none() {
                     content_list_json = Some(text);
                 }
                 continue;
             }
 
-            if file_name == "model.json" || file_name.ends_with("_model.json") {
+            if is_mineru_model_json_file_name(&file_name) {
                 if model_json.is_none() {
                     model_json = Some(text);
                 }
@@ -407,7 +412,7 @@ impl OfficialArchive {
         }
 
         let markdown = markdown.ok_or_else(|| {
-            "MinerU official parse archive did not contain the expected full.md file".to_string()
+            "MinerU official parse archive did not contain a Markdown result file".to_string()
         })?;
 
         let json_content = layout_json

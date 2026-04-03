@@ -511,7 +511,10 @@ fn managed_cache_env_pairs(app_dir: &Path) -> Result<Vec<(&'static str, String)>
         ("TMP", dirs.temp.to_string_lossy().to_string()),
         ("TEMP", dirs.temp.to_string_lossy().to_string()),
         ("HF_HOME", dirs.huggingface.to_string_lossy().to_string()),
-        ("MODELSCOPE_CACHE", dirs.modelscope.to_string_lossy().to_string()),
+        (
+            "MODELSCOPE_CACHE",
+            dirs.modelscope.to_string_lossy().to_string(),
+        ),
         (
             "TRANSFORMERS_CACHE",
             dirs.transformers.to_string_lossy().to_string(),
@@ -1193,8 +1196,7 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
 
         // Step 3: Install zvec
         manager.set_status("creating", "Installing zvec...");
-        if let Err(e) = run_venv_pip(&app_dir, &venv_python_str, &["zvec"], &pip_index_url).await
-        {
+        if let Err(e) = run_venv_pip(&app_dir, &venv_python_str, &["zvec"], &pip_index_url).await {
             manager.set_status("failed", &format!("Failed to install zvec: {e}"));
             return;
         }

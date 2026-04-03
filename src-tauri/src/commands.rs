@@ -1428,6 +1428,21 @@ fn select_preferred_path(current: &mut Option<PathBuf>, candidate: &Path) {
     }
 }
 
+fn select_preferred_mineru_markdown_path(current: &mut Option<PathBuf>, candidate: &Path) {
+    let current_entry_name = current
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned());
+    let candidate_entry_name = candidate.to_string_lossy().into_owned();
+    let should_replace = crate::mineru::should_prefer_mineru_markdown_entry(
+        current_entry_name.as_deref(),
+        &candidate_entry_name,
+    );
+
+    if should_replace {
+        *current = Some(candidate.to_path_buf());
+    }
+}
+
 fn extract_mineru_archive(
     archive_bytes: &[u8],
     target_dir: &Path,
@@ -1469,29 +1484,29 @@ fn extract_mineru_archive(
             .map(|ext| ext.to_ascii_lowercase())
             .unwrap_or_default();
 
-        if file_name == "full.md" {
-            artifacts.markdown_path = Some(output_path.clone());
+        if crate::mineru::is_mineru_markdown_file_name(&file_name) {
+            select_preferred_mineru_markdown_path(&mut artifacts.markdown_path, &output_path);
             continue;
         }
 
-        if file_name == "layout.json" || file_name == "middle.json" {
+        if crate::mineru::is_mineru_layout_json_file_name(&file_name) {
             if artifacts.json_path.is_none() {
                 artifacts.json_path = Some(output_path.clone());
             }
             continue;
         }
 
-        if file_name == "content_list.json" || file_name.ends_with("_content_list.json") {
+        if crate::mineru::is_mineru_content_list_json_file_name(&file_name) {
             if artifacts.structure_path.is_none() {
                 artifacts.structure_path = Some(output_path.clone());
             }
             continue;
         }
 
-        if (file_name == "model.json" || file_name.ends_with("_model.json"))
-            && artifacts.structure_path.is_none()
-        {
-            artifacts.structure_path = Some(output_path.clone());
+        if crate::mineru::is_mineru_model_json_file_name(&file_name) {
+            if artifacts.structure_path.is_none() {
+                artifacts.structure_path = Some(output_path.clone());
+            }
             continue;
         }
 

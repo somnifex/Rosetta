@@ -1136,8 +1136,8 @@ pub(crate) fn refresh_model_download_status(
     }
 
     let configured_dir = get_setting_value(settings, "mineru.models_dir").unwrap_or_default();
-    let model_source =
-        get_setting_value(settings, "mineru.model_source").unwrap_or_else(|| "huggingface".to_string());
+    let model_source = get_setting_value(settings, "mineru.model_source")
+        .unwrap_or_else(|| "huggingface".to_string());
 
     for candidate_dir in candidate_model_dirs(app_dir, &model_source, &configured_dir) {
         if let Some(found_path) = find_known_model_file(&candidate_dir) {

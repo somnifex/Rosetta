@@ -259,6 +259,83 @@ fn truncate_message(message: &str, max_chars: usize) -> String {
     format!("{}...", truncated)
 }
 
+pub(crate) fn normalize_mineru_archive_entry_name(entry_name: &str) -> String {
+    entry_name.replace('\\', "/")
+}
+
+pub(crate) fn mineru_archive_file_name(entry_name: &str) -> String {
+    normalize_mineru_archive_entry_name(entry_name)
+        .rsplit('/')
+        .next()
+        .unwrap_or(entry_name)
+        .to_ascii_lowercase()
+}
+
+pub(crate) fn is_mineru_markdown_file_name(file_name: &str) -> bool {
+    file_name == "full.md"
+        || file_name == "index.md"
+        || file_name.ends_with(".md")
+        || file_name.ends_with(".markdown")
+}
+
+pub(crate) fn should_prefer_mineru_markdown_entry(
+    current_entry_name: Option<&str>,
+    candidate_entry_name: &str,
+) -> bool {
+    let Some(candidate_score) = mineru_markdown_entry_score(candidate_entry_name) else {
+        return false;
+    };
+
+    let candidate_entry_name = normalize_mineru_archive_entry_name(candidate_entry_name);
+    match current_entry_name {
+        None => true,
+        Some(current_entry_name) => {
+            let current_entry_name = normalize_mineru_archive_entry_name(current_entry_name);
+            mineru_markdown_entry_score(&current_entry_name).map_or(true, |current_score| {
+                candidate_score < current_score
+                    || (candidate_score == current_score
+                        && candidate_entry_name < current_entry_name)
+            })
+        }
+    }
+}
+
+pub(crate) fn is_mineru_layout_json_file_name(file_name: &str) -> bool {
+    file_name == "layout.json"
+        || file_name == "middle.json"
+        || file_name.ends_with("_layout.json")
+        || file_name.ends_with("_middle.json")
+}
+
+pub(crate) fn is_mineru_content_list_json_file_name(file_name: &str) -> bool {
+    file_name == "content_list.json" || file_name.ends_with("_content_list.json")
+}
+
+pub(crate) fn is_mineru_model_json_file_name(file_name: &str) -> bool {
+    file_name == "model.json" || file_name.ends_with("_model.json")
+}
+
+fn mineru_markdown_entry_score(entry_name: &str) -> Option<(u8, usize, usize)> {
+    let normalized_entry_name = normalize_mineru_archive_entry_name(entry_name);
+    let file_name = mineru_archive_file_name(&normalized_entry_name);
+    if !is_mineru_markdown_file_name(&file_name) {
+        return None;
+    }
+
+    let name_rank = match file_name.as_str() {
+        "full.md" => 0,
+        "index.md" => 1,
+        _ if file_name.ends_with(".md") => 2,
+        _ => 3,
+    };
+
+    Some((
+        name_rank,
+        normalized_entry_name.matches('/').count(),
+        normalized_entry_name.len(),
+    ))
+}
+
 fn looks_like_zip_response(bytes: &[u8], content_type: &str) -> bool {
     content_type.contains("zip") || bytes.starts_with(b"PK\x03\x04")
 }
@@ -330,6 +407,7 @@ fn parse_result_from_zip_bytes(archive_bytes: &[u8]) -> Result<ParseResult, Stri
         .map_err(|e| format!("Failed to open MinerU parse archive: {}", e))?;
 
     let mut markdown = None;
+    let mut markdown_entry_name = None;
     let mut layout_json = None;
     let mut content_list_json = None;
     let mut model_json = None;
@@ -342,47 +420,45 @@ fn parse_result_from_zip_bytes(archive_bytes: &[u8]) -> Result<ParseResult, Stri
             continue;
         }
 
-        let entry_name = file.name().replace('\\', "/");
-        let file_name = entry_name
-            .rsplit('/')
-            .next()
-            .unwrap_or(entry_name.as_str())
-            .to_ascii_lowercase();
+        let entry_name = normalize_mineru_archive_entry_name(file.name());
+        let file_name = mineru_archive_file_name(&entry_name);
 
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
             .map_err(|e| format!("Failed to read archive entry '{}': {}", entry_name, e))?;
         let text = String::from_utf8_lossy(&bytes).to_string();
 
-        if file_name == "full.md" {
-            markdown = Some(text);
+        if is_mineru_markdown_file_name(&file_name) {
+            if should_prefer_mineru_markdown_entry(markdown_entry_name.as_deref(), &entry_name) {
+                markdown = Some(text);
+                markdown_entry_name = Some(entry_name);
+            }
             continue;
         }
 
-        if file_name == "layout.json" || file_name == "middle.json" {
+        if is_mineru_layout_json_file_name(&file_name) {
             if layout_json.is_none() {
                 layout_json = Some(text);
             }
             continue;
         }
 
-        if file_name == "content_list.json" || file_name.ends_with("_content_list.json") {
+        if is_mineru_content_list_json_file_name(&file_name) {
             if content_list_json.is_none() {
                 content_list_json = Some(text);
             }
             continue;
         }
 
-        if file_name == "model.json" || file_name.ends_with("_model.json") {
+        if is_mineru_model_json_file_name(&file_name) {
             if model_json.is_none() {
                 model_json = Some(text);
             }
         }
     }
 
-    let markdown = markdown.ok_or_else(|| {
-        "MinerU parse archive did not contain the expected full.md file".to_string()
-    })?;
+    let markdown = markdown
+        .ok_or_else(|| "MinerU parse archive did not contain a Markdown result file".to_string())?;
     let json_content = layout_json
         .clone()
         .or_else(|| content_list_json.clone())
@@ -404,7 +480,10 @@ fn parse_result_from_zip_bytes(archive_bytes: &[u8]) -> Result<ParseResult, Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{looks_like_zip_response, parse_file_parse_response_bytes, ParseExecution};
+    use super::{
+        looks_like_zip_response, parse_file_parse_response_bytes,
+        should_prefer_mineru_markdown_entry, ParseExecution,
+    };
     use serde_json::json;
     use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
@@ -431,6 +510,40 @@ mod tests {
             writer.start_file("full.md", options).unwrap();
             writer.write_all(b"# Title").unwrap();
             writer.start_file("layout.json", options).unwrap();
+            writer.write_all(br#"{"pdf_info":[]}"#).unwrap();
+            writer.finish().unwrap();
+        }
+        buffer.into_inner()
+    }
+
+    fn sample_zip_payload_with_named_outputs() -> Vec<u8> {
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let mut writer = ZipWriter::new(&mut buffer);
+            let options = SimpleFileOptions::default();
+            writer
+                .start_file("document-assets/document.md", options)
+                .unwrap();
+            writer.write_all(b"# Nested Title").unwrap();
+            writer
+                .start_file("document-assets/document_middle.json", options)
+                .unwrap();
+            writer.write_all(br#"{"pdf_info":[{"page":1}]}"#).unwrap();
+            writer.finish().unwrap();
+        }
+        buffer.into_inner()
+    }
+
+    fn sample_zip_payload_prefers_full_md() -> Vec<u8> {
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let mut writer = ZipWriter::new(&mut buffer);
+            let options = SimpleFileOptions::default();
+            writer.start_file("nested/document.md", options).unwrap();
+            writer.write_all(b"# Generic Title").unwrap();
+            writer.start_file("nested/full.md", options).unwrap();
+            writer.write_all(b"# Preferred Title").unwrap();
+            writer.start_file("nested/layout.json", options).unwrap();
             writer.write_all(br#"{"pdf_info":[]}"#).unwrap();
             writer.finish().unwrap();
         }
@@ -474,6 +587,28 @@ mod tests {
     }
 
     #[test]
+    fn zip_archive_accepts_named_markdown_and_middle_json_outputs() {
+        let execution = parse_file_parse_response_bytes(
+            &sample_zip_payload_with_named_outputs(),
+            "application/octet-stream",
+        )
+        .expect("named zip response should parse successfully");
+        assert!(execution.archive_bytes.is_some());
+        assert_eq!(execution.parse_result.markdown, "# Nested Title");
+        assert_eq!(execution.parse_result.json, "{\"pdf_info\":[{\"page\":1}]}");
+    }
+
+    #[test]
+    fn zip_archive_prefers_full_md_when_multiple_markdown_files_exist() {
+        let execution = parse_file_parse_response_bytes(
+            &sample_zip_payload_prefers_full_md(),
+            "application/octet-stream",
+        )
+        .expect("zip response should parse successfully");
+        assert_eq!(execution.parse_result.markdown, "# Preferred Title");
+    }
+
+    #[test]
     fn zip_detection_requires_zip_signal_or_magic_header() {
         assert!(looks_like_zip_response(
             b"PK\x03\x04rest",
@@ -483,6 +618,26 @@ mod tests {
         assert!(!looks_like_zip_response(
             br#"{"results":{}}"#,
             "application/octet-stream"
+        ));
+    }
+
+    #[test]
+    fn markdown_entry_preference_keeps_best_candidate() {
+        assert!(should_prefer_mineru_markdown_entry(
+            None,
+            "nested/document.md"
+        ));
+        assert!(should_prefer_mineru_markdown_entry(
+            Some("nested/document.md"),
+            "nested/full.md"
+        ));
+        assert!(should_prefer_mineru_markdown_entry(
+            Some("deeply/nested/document.md"),
+            "document.md"
+        ));
+        assert!(!should_prefer_mineru_markdown_entry(
+            Some("nested/full.md"),
+            "document.md"
         ));
     }
 }

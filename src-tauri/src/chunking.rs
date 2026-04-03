@@ -104,7 +104,8 @@ pub fn prepare_translation_chunks(
     strategy: TranslationChunkStrategy,
 ) -> PreparedTranslationChunks {
     if strategy == TranslationChunkStrategy::ParsedContent {
-        if let Some(chunks) = prepare_chunks_from_parsed_sources(parsed_json, structure_json, config)
+        if let Some(chunks) =
+            prepare_chunks_from_parsed_sources(parsed_json, structure_json, config)
         {
             if !chunks.is_empty() {
                 return PreparedTranslationChunks {
