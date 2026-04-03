@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   channelStore,
   type TranslatePromptConfig,
+  type TranslationChunkStrategy,
   DEFAULT_SYSTEM_PROMPT,
   DEFAULT_USER_PROMPT,
   DEFAULT_TRANSLATION_RUNTIME_SETTINGS,
@@ -15,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RotateCw } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -28,6 +30,9 @@ export default function TranslationTab() {
     () => channelStore.getTranslatePrompt()
   )
   const [loadedRuntimeSettings, setLoadedRuntimeSettings] = useState(false)
+  const [chunkStrategy, setChunkStrategy] = useState<TranslationChunkStrategy>(
+    DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkStrategy
+  )
   const [chunkSize, setChunkSize] = useState(String(DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkSize))
   const [chunkOverlap, setChunkOverlap] = useState(String(DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkOverlap))
   const [maxConcurrentRequests, setMaxConcurrentRequests] = useState(
@@ -55,6 +60,7 @@ export default function TranslationTab() {
 
   useEffect(() => {
     if (!appSettings || loadedRuntimeSettings) return
+    setChunkStrategy(appSettings.chunkStrategy)
     setChunkSize(String(appSettings.chunkSize))
     setChunkOverlap(String(appSettings.chunkOverlap))
     setMaxConcurrentRequests(String(appSettings.maxConcurrentRequests))
@@ -84,6 +90,8 @@ export default function TranslationTab() {
 
   const saveRuntimeSettingsMutation = useMutation({
     mutationFn: async () => {
+      const normalizedChunkStrategy: TranslationChunkStrategy =
+        chunkStrategy === "parsed_content" ? "parsed_content" : "token"
       const parsedChunkSize = Number.parseInt(chunkSize, 10)
       const normalizedChunkSize = Number.isFinite(parsedChunkSize)
         ? Math.min(Math.max(parsedChunkSize, 256), 32000)
@@ -104,12 +112,14 @@ export default function TranslationTab() {
         ? Math.min(Math.max(parsedRate, 1), 600)
         : DEFAULT_TRANSLATION_RUNTIME_SETTINGS.maxRequestsPerMinute
 
+      setChunkStrategy(normalizedChunkStrategy)
       setChunkSize(String(normalizedChunkSize))
       setChunkOverlap(String(normalizedChunkOverlap))
       setMaxConcurrentRequests(String(normalizedConcurrent))
       setMaxRequestsPerMinute(String(normalizedRate))
 
       await saveTranslationRuntimeSettings({
+        chunkStrategy: normalizedChunkStrategy,
         chunkSize: normalizedChunkSize,
         chunkOverlap: normalizedChunkOverlap,
         maxConcurrentRequests: normalizedConcurrent,
@@ -138,6 +148,20 @@ export default function TranslationTab() {
           <CardDescription>{t("prompt.runtime.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>{t("prompt.runtime.chunk_strategy")}</Label>
+            <Select value={chunkStrategy} onValueChange={(value) => setChunkStrategy(value as TranslationChunkStrategy)}>
+              <SelectTrigger data-setting-key="translation.chunk_strategy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="token">{t("prompt.runtime.chunk_strategy_token")}</SelectItem>
+                <SelectItem value="parsed_content">{t("prompt.runtime.chunk_strategy_parsed")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("prompt.runtime.chunk_strategy_desc")}</p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>{t("prompt.runtime.chunk_size")}</Label>

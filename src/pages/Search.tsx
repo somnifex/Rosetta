@@ -65,6 +65,7 @@ const SETTING_LABEL_BY_KEY: Record<string, string> = {
   "chat.default_always_include_full_document": "general.default_full_document",
   "chat.prompt.document_append": "general.document_append_prompt",
   "chat.prompt.long_text_rag": "general.long_text_rag_prompt",
+  "translation.chunk_strategy": "prompt.runtime.chunk_strategy",
   "translation.chunk_size": "prompt.runtime.chunk_size",
   "translation.chunk_overlap": "prompt.runtime.chunk_overlap",
   "translation.max_concurrent_requests": "prompt.runtime.max_concurrent_requests",

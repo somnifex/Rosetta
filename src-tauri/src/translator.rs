@@ -300,12 +300,13 @@ impl Translator {
     }
 
     /// 智能翻译（增量版）：自动分片长文本，在每个分片完成时回调结果以支持持久化
+    #[allow(dead_code)]
     pub async fn translate_with_chunks_incremental<F>(
         &self,
         text: &str,
         source_lang: &str,
         target_lang: &str,
-        mut on_chunk_result: F,
+        on_chunk_result: F,
     ) -> Result<Vec<TranslationResult>, String>
     where
         F: FnMut(usize, usize, &TranslationResult),
@@ -321,29 +322,55 @@ impl Translator {
             return Err("Failed to chunk text".to_string());
         }
 
+        self.translate_prepared_chunks_incremental(
+            chunks,
+            text.len(),
+            source_lang,
+            target_lang,
+            on_chunk_result,
+        )
+        .await
+    }
+
+    pub async fn translate_prepared_chunks_incremental<F>(
+        &self,
+        chunks: Vec<Chunk>,
+        total_chars: usize,
+        source_lang: &str,
+        target_lang: &str,
+        mut on_chunk_result: F,
+    ) -> Result<Vec<TranslationResult>, String>
+    where
+        F: FnMut(usize, usize, &TranslationResult),
+    {
+        if chunks.is_empty() {
+            return Ok(Vec::new());
+        }
+
         log::info!(
             "Text split into {} chunks for incremental translation (total chars: {}), using concurrency={}, rate_limit={}/min",
             chunks.len(),
-            text.len(),
+            total_chars,
             self.rate_limit_config.max_concurrent_requests,
             self.rate_limit_config.max_requests_per_minute
         );
 
         if chunks.len() == 1 {
-            let result = match self.translate(text, source_lang, target_lang).await {
+            let chunk = &chunks[0];
+            let result = match self.translate_chunk(chunk, source_lang, target_lang).await {
                 Ok(translated_text) => TranslationResult {
-                    chunk_index: 0,
+                    chunk_index: chunk.index,
                     translated_text,
-                    start_pos: 0,
-                    end_pos: text.len(),
+                    start_pos: chunk.start_pos,
+                    end_pos: chunk.end_pos,
                     success: true,
                     error: None,
                 },
                 Err(e) => TranslationResult {
-                    chunk_index: 0,
+                    chunk_index: chunk.index,
                     translated_text: String::new(),
-                    start_pos: 0,
-                    end_pos: text.len(),
+                    start_pos: chunk.start_pos,
+                    end_pos: chunk.end_pos,
                     success: false,
                     error: Some(e),
                 },

@@ -41,7 +41,10 @@ export interface TranslatePromptConfig {
   userPrompt: string
 }
 
+export type TranslationChunkStrategy = "token" | "parsed_content"
+
 export interface TranslationRuntimeSettings {
+  chunkStrategy: TranslationChunkStrategy
   chunkSize: number
   chunkOverlap: number
   maxConcurrentRequests: number
@@ -58,6 +61,7 @@ export interface RuntimeLogEntry {
 }
 
 export const DEFAULT_TRANSLATION_RUNTIME_SETTINGS: TranslationRuntimeSettings = {
+  chunkStrategy: "token",
   chunkSize: 4000,
   chunkOverlap: 0,
   maxConcurrentRequests: 3,
@@ -283,7 +287,13 @@ export async function loadTranslationRuntimeSettings(): Promise<TranslationRunti
     return fallback
   }
 
+  const chunkStrategy =
+    map.get("translation.chunk_strategy")?.trim() === "parsed_content"
+      ? "parsed_content"
+      : DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkStrategy
+
   return {
+    chunkStrategy,
     chunkSize: numberOrDefault(
       "translation.chunk_size",
       DEFAULT_TRANSLATION_RUNTIME_SETTINGS.chunkSize
@@ -308,6 +318,7 @@ export async function loadTranslationRuntimeSettings(): Promise<TranslationRunti
 }
 
 export async function saveTranslationRuntimeSettings(settings: TranslationRuntimeSettings) {
+  await api.setAppSetting("translation.chunk_strategy", settings.chunkStrategy)
   await api.setAppSetting("translation.chunk_size", String(settings.chunkSize))
   await api.setAppSetting("translation.chunk_overlap", String(settings.chunkOverlap))
   await api.setAppSetting(

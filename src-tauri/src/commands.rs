@@ -25,6 +25,7 @@ const DEFAULT_TRANSLATION_CHUNK_SIZE: usize = 4000;
 const DEFAULT_TRANSLATION_CHUNK_OVERLAP: usize = 0;
 const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 3;
 const DEFAULT_TRANSLATION_MAX_REQUESTS_PER_MINUTE: u32 = 60;
+const DEFAULT_TRANSLATION_CHUNK_STRATEGY: &str = "token";
 const DEFAULT_LOG_RETENTION_DAYS: i64 = 30;
 
 #[derive(Debug, Clone, Serialize)]
@@ -354,6 +355,7 @@ pub(crate) fn run_periodic_cleanup(
 
 #[derive(Debug, Clone)]
 struct TranslationRuntimeSettings {
+    chunk_strategy: crate::chunking::TranslationChunkStrategy,
     chunk_size: usize,
     chunk_overlap: usize,
     max_concurrent_requests: usize,
@@ -501,6 +503,12 @@ fn get_setting_value(
 fn load_translation_runtime_settings(
     settings: &crate::settings::SettingsManager,
 ) -> Result<TranslationRuntimeSettings, String> {
+    let chunk_strategy = crate::chunking::TranslationChunkStrategy::from_value(
+        get_setting_value(settings, "translation.chunk_strategy")?
+            .as_deref()
+            .or(Some(DEFAULT_TRANSLATION_CHUNK_STRATEGY)),
+    );
+
     let chunk_size = parse_bounded_usize(
         get_setting_value(settings, "translation.chunk_size")?,
         DEFAULT_TRANSLATION_CHUNK_SIZE,
@@ -535,6 +543,7 @@ fn load_translation_runtime_settings(
     );
 
     Ok(TranslationRuntimeSettings {
+        chunk_strategy,
         chunk_size,
         chunk_overlap,
         max_concurrent_requests,
@@ -4077,6 +4086,7 @@ pub async fn start_translation_job(
             "max_tokens": sampling.max_tokens,
         },
         "runtime": {
+            "chunk_strategy": runtime_settings.chunk_strategy.as_str(),
             "chunk_size": runtime_settings.chunk_size,
             "chunk_overlap": runtime_settings.chunk_overlap,
             "max_concurrent_requests": runtime_settings.max_concurrent_requests,
@@ -4184,7 +4194,7 @@ async fn execute_translation_job(
         chat_model,
         sampling,
         runtime_settings,
-        markdown_content,
+        parsed_content,
     ) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -4223,7 +4233,7 @@ async fn execute_translation_job(
         }
         let runtime_settings = load_translation_runtime_settings(&state.settings)?;
 
-        let markdown_content = load_latest_parsed_markdown_internal(conn, document_id)?;
+        let parsed_content = load_latest_parsed_content_internal(conn, document_id)?;
 
         (
             provider_record,
@@ -4231,7 +4241,7 @@ async fn execute_translation_job(
             chat_model,
             sampling,
             runtime_settings,
-            markdown_content,
+            parsed_content,
         )
     };
 
@@ -4258,8 +4268,28 @@ async fn execute_translation_job(
 
     let mut translator = translator
         .with_retry_config(retry_config)
-        .with_chunking_config(chunking_config)
+        .with_chunking_config(chunking_config.clone())
         .with_rate_limit_config(rate_limit_config);
+
+    let prepared_chunks = crate::chunking::prepare_translation_chunks(
+        &parsed_content.markdown_content,
+        Some(parsed_content.json_content.as_str()),
+        parsed_content.structure_tree.as_deref(),
+        &chunking_config,
+        runtime_settings.chunk_strategy,
+    );
+
+    if prepared_chunks.chunks.is_empty() {
+        return Err("Failed to build translation chunks from parsed content".to_string());
+    }
+
+    log::info!(
+        "Prepared {} translation chunks using strategy={} (requested={}) for document {}",
+        prepared_chunks.chunks.len(),
+        prepared_chunks.strategy_used.as_str(),
+        runtime_settings.chunk_strategy.as_str(),
+        document_id
+    );
 
     let limiter_status = translator.limiter_status();
     let limiter_cfg = translator.rate_limit_config();
@@ -4277,7 +4307,7 @@ async fn execute_translation_job(
             match translator
                 .build_consistency_context(
                     &chat_model.model_name,
-                    &markdown_content,
+                    &parsed_content.markdown_content,
                     source_language,
                     target_language,
                 )
@@ -4313,23 +4343,15 @@ async fn execute_translation_job(
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
-        let content_hash = compute_content_hash(&markdown_content);
-
-        let chunker = crate::chunking::TextChunker::new(crate::chunking::ChunkingConfig {
-            max_tokens_per_chunk: runtime_settings.chunk_size,
-            overlap_tokens: runtime_settings.chunk_overlap,
-            preserve_sentences: true,
-            tokens_per_char_estimate: 0.25,
-        });
-        let chunks = chunker.chunk(&markdown_content);
+        let content_hash = compute_content_hash(&parsed_content.markdown_content);
         let now = Utc::now().to_rfc3339();
 
         conn.execute(
             "UPDATE translation_jobs SET content_hash = ?1, total_chunks = ?2, updated_at = ?3 WHERE id = ?4",
-            (&content_hash, chunks.len() as i32, &now, job_id),
+            (&content_hash, prepared_chunks.chunks.len() as i32, &now, job_id),
         ).map_err(|e| e.to_string())?;
 
-        for chunk in &chunks {
+        for chunk in &prepared_chunks.chunks {
             conn.execute(
                 "INSERT OR IGNORE INTO translation_chunks
                  (id, job_id, document_id, chunk_index, source_text, start_pos, end_pos, status, created_at, updated_at)
@@ -4349,8 +4371,9 @@ async fn execute_translation_job(
     }
 
     let result = translator
-        .translate_with_chunks_incremental(
-            &markdown_content,
+        .translate_prepared_chunks_incremental(
+            prepared_chunks.chunks,
+            parsed_content.markdown_content.len(),
             source_language,
             target_language,
             |completed, total, chunk_result| {
@@ -6913,6 +6936,7 @@ fn enqueue_translation_job_internal(
             "max_tokens": sampling.max_tokens,
         },
         "runtime": {
+            "chunk_strategy": runtime_settings.chunk_strategy.as_str(),
             "chunk_size": runtime_settings.chunk_size,
             "chunk_overlap": runtime_settings.chunk_overlap,
             "max_concurrent_requests": runtime_settings.max_concurrent_requests,
