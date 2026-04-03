@@ -6,10 +6,11 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
+use zip::ZipArchive;
 
 const TASK_CANCELLED_BY_USER: &str = "Cancelled by user";
 const TASK_REMOVED_BY_USER: &str = "Removed by user";
@@ -1088,6 +1089,61 @@ fn load_document_outputs_internal(
     Ok(outputs)
 }
 
+fn map_mineru_processed_file_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<MineruProcessedFile, rusqlite::Error> {
+    Ok(MineruProcessedFile {
+        id: row.get(0)?,
+        document_id: row.get(1)?,
+        artifact_type: row.get(2)?,
+        file_path: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+        is_file_missing: None,
+    })
+}
+
+fn load_mineru_processed_files_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+) -> Result<Vec<MineruProcessedFile>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, document_id, artifact_type, file_path, created_at, updated_at
+             FROM mineru_processed_files
+             WHERE document_id = ?1
+             ORDER BY artifact_type",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut files = stmt
+        .query_map([document_id], map_mineru_processed_file_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for file in files.iter_mut() {
+        file.is_file_missing = Some(!Path::new(&file.file_path).exists());
+    }
+
+    Ok(files)
+}
+
+fn load_mineru_processed_file_path_internal(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    artifact_type: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT file_path FROM mineru_processed_files
+         WHERE document_id = ?1 AND artifact_type = ?2",
+        (document_id, artifact_type),
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
 fn compute_content_hash(content: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -1136,6 +1192,19 @@ fn load_latest_parsed_content_internal(
         Some(raw) => Some(crate::content_store::read_content_blob(&raw)?),
         None => None,
     };
+    let markdown_file_path = load_mineru_processed_file_path_internal(conn, document_id, "markdown")?
+        .or_else(|| {
+            if Path::new(&markdown_ref).is_absolute() {
+                Some(markdown_ref.clone())
+            } else {
+                None
+            }
+        });
+    let asset_base_dir = markdown_file_path.as_deref().and_then(|path| {
+        Path::new(path)
+            .parent()
+            .map(|dir| dir.to_string_lossy().to_string())
+    });
 
     Ok(ParsedContent {
         id,
@@ -1144,6 +1213,8 @@ fn load_latest_parsed_content_internal(
         markdown_content,
         json_content,
         structure_tree,
+        markdown_file_path,
+        asset_base_dir,
         created_at,
     })
 }
@@ -1208,6 +1279,181 @@ fn next_content_version(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Default)]
+struct ExtractedMineruArtifacts {
+    markdown_path: Option<PathBuf>,
+    json_path: Option<PathBuf>,
+    structure_path: Option<PathBuf>,
+    html_path: Option<PathBuf>,
+    docx_path: Option<PathBuf>,
+    latex_path: Option<PathBuf>,
+}
+
+fn mineru_processed_document_dir(document_id: &str) -> Result<PathBuf, String> {
+    Ok(crate::app_dirs::mineru_processed_dir()?.join(document_id))
+}
+
+fn upsert_mineru_processed_file_record(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    artifact_type: &str,
+    path: &Path,
+    now: &str,
+) -> Result<(), String> {
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO mineru_processed_files (id, document_id, artifact_type, file_path, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+         ON CONFLICT(document_id, artifact_type)
+         DO UPDATE SET
+           file_path = excluded.file_path,
+           updated_at = excluded.updated_at",
+        (
+            &id,
+            document_id,
+            artifact_type,
+            path.to_str().ok_or("File path contains invalid characters")?,
+            now,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn safe_mineru_archive_relative_path(raw_name: &str) -> Option<PathBuf> {
+    let normalized = raw_name.replace('\\', "/");
+    let mut relative = PathBuf::new();
+
+    for component in Path::new(&normalized).components() {
+        match component {
+            std::path::Component::Normal(segment) => relative.push(segment),
+            std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+
+    if relative.as_os_str().is_empty() {
+        None
+    } else {
+        Some(relative)
+    }
+}
+
+fn select_preferred_path(current: &mut Option<PathBuf>, candidate: &Path) {
+    let should_replace = match current.as_ref() {
+        None => true,
+        Some(existing) => {
+            let existing_name = existing
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_ascii_lowercase())
+                .unwrap_or_default();
+            let candidate_name = candidate
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_ascii_lowercase())
+                .unwrap_or_default();
+
+            candidate_name == "index.html"
+                || candidate_name == "full.html"
+                || (existing_name != "index.html"
+                    && existing_name != "full.html"
+                    && candidate.components().count() < existing.components().count())
+        }
+    };
+
+    if should_replace {
+        *current = Some(candidate.to_path_buf());
+    }
+}
+
+fn extract_mineru_archive(
+    archive_bytes: &[u8],
+    target_dir: &Path,
+) -> Result<ExtractedMineruArtifacts, String> {
+    let reader = Cursor::new(archive_bytes);
+    let mut archive = ZipArchive::new(reader)
+        .map_err(|e| format!("Failed to open MinerU parse archive: {}", e))?;
+    let mut artifacts = ExtractedMineruArtifacts::default();
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| format!("Failed to read archive entry #{index}: {}", e))?;
+        let Some(relative_path) = safe_mineru_archive_relative_path(entry.name()) else {
+            continue;
+        };
+
+        let output_path = target_dir.join(&relative_path);
+        if entry.is_dir() {
+            fs::create_dir_all(&output_path).map_err(|e| e.to_string())?;
+            continue;
+        }
+
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+
+        let mut file = fs::File::create(&output_path).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
+
+        let file_name = output_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_ascii_lowercase())
+            .unwrap_or_default();
+        let extension = output_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .unwrap_or_default();
+
+        if file_name == "full.md" {
+            artifacts.markdown_path = Some(output_path.clone());
+            continue;
+        }
+
+        if file_name == "layout.json" || file_name == "middle.json" {
+            if artifacts.json_path.is_none() {
+                artifacts.json_path = Some(output_path.clone());
+            }
+            continue;
+        }
+
+        if file_name == "content_list.json" || file_name.ends_with("_content_list.json") {
+            if artifacts.structure_path.is_none() {
+                artifacts.structure_path = Some(output_path.clone());
+            }
+            continue;
+        }
+
+        if (file_name == "model.json" || file_name.ends_with("_model.json"))
+            && artifacts.structure_path.is_none()
+        {
+            artifacts.structure_path = Some(output_path.clone());
+            continue;
+        }
+
+        match extension.as_str() {
+            "html" | "htm" => select_preferred_path(&mut artifacts.html_path, &output_path),
+            "docx" => {
+                if artifacts.docx_path.is_none() {
+                    artifacts.docx_path = Some(output_path.clone());
+                }
+            }
+            "tex" | "latex" => {
+                if artifacts.latex_path.is_none() {
+                    artifacts.latex_path = Some(output_path.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(artifacts)
+}
+
 fn delete_mineru_processed_records_and_files(
     conn: &rusqlite::Connection,
     document_id: &str,
@@ -1224,7 +1470,17 @@ fn delete_mineru_processed_records_and_files(
     for path in paths {
         let path_ref = Path::new(&path);
         if path_ref.exists() {
-            let _ = fs::remove_file(path_ref);
+            if path_ref.is_dir() {
+                let _ = fs::remove_dir_all(path_ref);
+            } else {
+                let _ = fs::remove_file(path_ref);
+            }
+        }
+    }
+
+    if let Ok(document_dir) = mineru_processed_document_dir(document_id) {
+        if document_dir.exists() {
+            let _ = fs::remove_dir_all(document_dir);
         }
     }
 
@@ -1245,8 +1501,7 @@ fn persist_mineru_processed_files(
     structure_json: &str,
     now: &str,
 ) -> Result<(), String> {
-    let base_dir = crate::app_dirs::mineru_processed_dir()?;
-    let document_dir = base_dir.join(document_id);
+    let document_dir = mineru_processed_document_dir(document_id)?;
     fs::create_dir_all(&document_dir).map_err(|e| e.to_string())?;
 
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -1265,23 +1520,7 @@ fn persist_mineru_processed_files(
     ];
 
     for (artifact_type, path) in records {
-        let id = Uuid::new_v4().to_string();
-        conn.execute(
-            "INSERT INTO mineru_processed_files (id, document_id, artifact_type, file_path, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-             ON CONFLICT(document_id, artifact_type)
-             DO UPDATE SET
-               file_path = excluded.file_path,
-               updated_at = excluded.updated_at",
-            (
-                &id,
-                document_id,
-                artifact_type,
-                path.to_str().ok_or("File path contains invalid characters")?,
-                now,
-            ),
-        )
-        .map_err(|e| e.to_string())?;
+        upsert_mineru_processed_file_record(conn, document_id, artifact_type, &path, now)?;
     }
 
     Ok(())
@@ -1293,32 +1532,35 @@ fn persist_mineru_processed_archive(
     archive_bytes: &[u8],
     now: &str,
 ) -> Result<(), String> {
-    let base_dir = crate::app_dirs::mineru_processed_dir()?;
-    let document_dir = base_dir.join(document_id);
+    let document_dir = mineru_processed_document_dir(document_id)?;
     fs::create_dir_all(&document_dir).map_err(|e| e.to_string())?;
 
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let archive_path = document_dir.join(format!("parsed-{timestamp}.zip"));
     fs::write(&archive_path, archive_bytes).map_err(|e| e.to_string())?;
+    upsert_mineru_processed_file_record(conn, document_id, "archive", &archive_path, now)?;
 
-    let id = Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO mineru_processed_files (id, document_id, artifact_type, file_path, created_at, updated_at)
-         VALUES (?1, ?2, 'archive', ?3, ?4, ?4)
-         ON CONFLICT(document_id, artifact_type)
-         DO UPDATE SET
-           file_path = excluded.file_path,
-           updated_at = excluded.updated_at",
-        (
-            &id,
-            document_id,
-            archive_path
-                .to_str()
-                .ok_or("Archive path contains invalid characters")?,
-            now,
-        ),
-    )
-    .map_err(|e| e.to_string())?;
+    let extracted_dir = document_dir.join(format!("archive-{timestamp}"));
+    let extracted = extract_mineru_archive(archive_bytes, &extracted_dir)?;
+
+    if let Some(markdown_path) = extracted.markdown_path.as_deref() {
+        upsert_mineru_processed_file_record(conn, document_id, "markdown", markdown_path, now)?;
+    }
+    if let Some(json_path) = extracted.json_path.as_deref() {
+        upsert_mineru_processed_file_record(conn, document_id, "json", json_path, now)?;
+    }
+    if let Some(structure_path) = extracted.structure_path.as_deref() {
+        upsert_mineru_processed_file_record(conn, document_id, "structure", structure_path, now)?;
+    }
+    if let Some(html_path) = extracted.html_path.as_deref() {
+        upsert_mineru_processed_file_record(conn, document_id, "html", html_path, now)?;
+    }
+    if let Some(docx_path) = extracted.docx_path.as_deref() {
+        upsert_mineru_processed_file_record(conn, document_id, "docx", docx_path, now)?;
+    }
+    if let Some(latex_path) = extracted.latex_path.as_deref() {
+        upsert_mineru_processed_file_record(conn, document_id, "latex", latex_path, now)?;
+    }
 
     Ok(())
 }
@@ -3574,6 +3816,24 @@ pub fn get_parsed_content(
     .map_err(|e| e.to_string())?;
 
     load_latest_parsed_content_internal(conn, &document_id)
+}
+
+#[tauri::command]
+pub fn get_mineru_processed_files(
+    state: State<AppState>,
+    document_id: String,
+) -> Result<Vec<MineruProcessedFile>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.get_connection();
+
+    conn.query_row(
+        "SELECT id FROM documents WHERE id = ?1 AND deleted_at IS NULL",
+        [&document_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| e.to_string())?;
+
+    load_mineru_processed_files_internal(conn, &document_id)
 }
 
 #[tauri::command]

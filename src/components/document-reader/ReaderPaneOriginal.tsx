@@ -11,6 +11,7 @@ interface ReaderPaneOriginalProps {
   pdfScale?: number
   onPdfScaleChange?: (scale: number) => void
   markdownContent?: string | null
+  markdownBaseDir?: string | null
   contentFormat?: "markdown" | "plain"
   textScale: number
   onAskAI: (text: string) => void
@@ -24,6 +25,7 @@ export function ReaderPaneOriginal({
   pdfScale,
   onPdfScaleChange,
   markdownContent,
+  markdownBaseDir,
   contentFormat = "markdown",
   textScale,
   onAskAI,
@@ -57,6 +59,7 @@ export function ReaderPaneOriginal({
             <MarkdownViewer
               content={markdownContent}
               contentFormat={contentFormat}
+              assetBaseDir={markdownBaseDir}
               textScale={textScale}
               className="h-full"
               contentClassName="prose-headings:tracking-tight prose-p:text-[1.02em]"

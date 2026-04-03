@@ -13,6 +13,8 @@ interface ReaderComparePaneProps {
   translatedContent: string
   originalFormat?: "markdown" | "plain"
   translatedFormat?: "markdown" | "plain"
+  originalAssetBaseDir?: string | null
+  translatedAssetBaseDir?: string | null
   textScale: number
   compareRatio: number
   compareOrder: CompareOrder
@@ -34,6 +36,8 @@ export function ReaderComparePane({
   translatedContent,
   originalFormat = "markdown",
   translatedFormat = "markdown",
+  originalAssetBaseDir,
+  translatedAssetBaseDir,
   textScale,
   compareRatio,
   compareOrder,
@@ -70,7 +74,10 @@ export function ReaderComparePane({
     }
   }, [dragging, onCompareRatioChange])
 
-  const syncScroll = (sourceRef: RefObject<HTMLDivElement | null>, targetRef: RefObject<HTMLDivElement | null>) => {
+  const syncScroll = (
+    sourceRef: RefObject<HTMLDivElement | null>,
+    targetRef: RefObject<HTMLDivElement | null>
+  ) => {
     if (syncLockRef.current) return
     const source = sourceRef.current
     const target = targetRef.current
@@ -84,52 +91,60 @@ export function ReaderComparePane({
     })
   }
 
-  const leftPane = compareOrder === "original-left"
-    ? {
-        title: "原文",
-        variant: "outline" as const,
-        content: originalContent,
-        format: originalFormat,
-        wrapperRef: originalWrapperRef,
-        scrollRef: originalScrollRef,
-        onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
-      }
-    : {
-        title: "译文",
-        variant: "default" as const,
-        content: translatedContent,
-        format: translatedFormat,
-        wrapperRef: translatedWrapperRef,
-        scrollRef: translatedScrollRef,
-        onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
-      }
+  const leftPane =
+    compareOrder === "original-left"
+      ? {
+          title: "原文",
+          variant: "outline" as const,
+          content: originalContent,
+          format: originalFormat,
+          assetBaseDir: originalAssetBaseDir,
+          wrapperRef: originalWrapperRef,
+          scrollRef: originalScrollRef,
+          onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
+        }
+      : {
+          title: "译文",
+          variant: "default" as const,
+          content: translatedContent,
+          format: translatedFormat,
+          assetBaseDir: translatedAssetBaseDir,
+          wrapperRef: translatedWrapperRef,
+          scrollRef: translatedScrollRef,
+          onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
+        }
 
-  const rightPane = compareOrder === "original-left"
-    ? {
-        title: "译文",
-        variant: "default" as const,
-        content: translatedContent,
-        format: translatedFormat,
-        wrapperRef: translatedWrapperRef,
-        scrollRef: translatedScrollRef,
-        onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
-      }
-    : {
-        title: "原文",
-        variant: "outline" as const,
-        content: originalContent,
-        format: originalFormat,
-        wrapperRef: originalWrapperRef,
-        scrollRef: originalScrollRef,
-        onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
-      }
+  const rightPane =
+    compareOrder === "original-left"
+      ? {
+          title: "译文",
+          variant: "default" as const,
+          content: translatedContent,
+          format: translatedFormat,
+          assetBaseDir: translatedAssetBaseDir,
+          wrapperRef: translatedWrapperRef,
+          scrollRef: translatedScrollRef,
+          onScroll: () => syncScroll(translatedScrollRef, originalScrollRef),
+        }
+      : {
+          title: "原文",
+          variant: "outline" as const,
+          content: originalContent,
+          format: originalFormat,
+          assetBaseDir: originalAssetBaseDir,
+          wrapperRef: originalWrapperRef,
+          scrollRef: originalScrollRef,
+          onScroll: () => syncScroll(originalScrollRef, translatedScrollRef),
+        }
 
   return (
     <section className="flex h-full min-w-0 flex-col overflow-hidden">
       <div className="glass-surface flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <Badge variant="outline">同步滚动</Badge>
-          <p className="text-xs text-muted-foreground">对照模式默认使用解析后的原文与翻译内容</p>
+          <p className="text-xs text-muted-foreground">
+            对照模式默认使用解析后的原文与翻译内容
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="desktop-panel flex items-center gap-1 rounded-2xl border border-border/70 p-1">
@@ -140,7 +155,8 @@ export function ReaderComparePane({
                 size="sm"
                 className={cn(
                   "rounded-xl px-2.5 text-xs",
-                  Math.abs(compareRatio - ratio) < 0.03 && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+                  Math.abs(compareRatio - ratio) < 0.03 &&
+                    "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
                 )}
                 onClick={() => onCompareRatioChange(ratio)}
               >
@@ -152,7 +168,13 @@ export function ReaderComparePane({
             variant="outline"
             size="sm"
             className="rounded-xl bg-background/70"
-            onClick={() => onCompareOrderChange(compareOrder === "original-left" ? "translated-left" : "original-left")}
+            onClick={() =>
+              onCompareOrderChange(
+                compareOrder === "original-left"
+                  ? "translated-left"
+                  : "original-left"
+              )
+            }
           >
             <ArrowLeftRight className="mr-1.5 h-4 w-4" />
             切换顺序
@@ -161,19 +183,26 @@ export function ReaderComparePane({
       </div>
 
       <div ref={rootRef} className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="relative min-w-0 border-r bg-background/40" style={{ width: `${compareRatio * 100}%` }}>
+        <div
+          className="relative min-w-0 border-r bg-background/40"
+          style={{ width: `${compareRatio * 100}%` }}
+        >
           <TextSelectionToolbar
             containerRef={leftPane.wrapperRef}
             onAskAI={onAskAI}
             onTranslate={onTranslateSelection}
           />
-          <div ref={leftPane.wrapperRef} className="flex h-full min-w-0 flex-col overflow-hidden">
+          <div
+            ref={leftPane.wrapperRef}
+            className="flex h-full min-w-0 flex-col overflow-hidden"
+          >
             <div className="glass-surface border-b px-4 py-2">
               <Badge variant={leftPane.variant}>{leftPane.title}</Badge>
             </div>
             <MarkdownViewer
               content={leftPane.content}
               contentFormat={leftPane.format}
+              assetBaseDir={leftPane.assetBaseDir}
               textScale={textScale}
               containerRef={leftPane.scrollRef}
               onScroll={leftPane.onScroll}
@@ -190,10 +219,14 @@ export function ReaderComparePane({
           )}
           onMouseDown={() => setDragging(true)}
         >
-          <div className={cn(
-            "rounded-full px-0.5 py-4 transition-colors",
-            dragging ? "bg-primary/15 text-primary" : "text-muted-foreground group-hover:bg-background/80"
-          )}>
+          <div
+            className={cn(
+              "rounded-full px-0.5 py-4 transition-colors",
+              dragging
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground group-hover:bg-background/80"
+            )}
+          >
             <GripVertical className="h-4 w-4" />
           </div>
         </button>
@@ -204,13 +237,17 @@ export function ReaderComparePane({
             onAskAI={onAskAI}
             onTranslate={onTranslateSelection}
           />
-          <div ref={rightPane.wrapperRef} className="flex h-full min-w-0 flex-col overflow-hidden">
+          <div
+            ref={rightPane.wrapperRef}
+            className="flex h-full min-w-0 flex-col overflow-hidden"
+          >
             <div className="glass-surface border-b px-4 py-2">
               <Badge variant={rightPane.variant}>{rightPane.title}</Badge>
             </div>
             <MarkdownViewer
               content={rightPane.content}
               contentFormat={rightPane.format}
+              assetBaseDir={rightPane.assetBaseDir}
               textScale={textScale}
               containerRef={rightPane.scrollRef}
               onScroll={rightPane.onScroll}

@@ -440,6 +440,7 @@ pub fn run() {
             commands::get_parse_job,
             commands::get_all_parse_jobs,
             commands::get_parsed_content,
+            commands::get_mineru_processed_files,
             commands::start_translation_job,
             commands::cancel_translation_job,
             commands::delete_translation_job,

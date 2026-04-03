@@ -10,6 +10,7 @@ interface MarkdownViewerProps {
   onTextSelect?: (text: string) => void
   textScale?: number
   contentFormat?: MarkdownContentFormat
+  assetBaseDir?: string | null
   containerRef?: Ref<HTMLDivElement>
   onScroll?: UIEventHandler<HTMLDivElement>
   className?: string
@@ -21,6 +22,7 @@ export function MarkdownViewer({
   onTextSelect,
   textScale = 1,
   contentFormat = "markdown",
+  assetBaseDir,
   containerRef,
   onScroll,
   className,
@@ -57,7 +59,7 @@ export function MarkdownViewer({
               )}
               style={{ fontSize: `${textScale}rem` }}
             >
-              <MarkdownRenderer content={content} />
+              <MarkdownRenderer content={content} assetBaseDir={assetBaseDir} />
             </div>
           )}
         </div>

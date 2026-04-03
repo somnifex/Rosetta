@@ -844,8 +844,9 @@ export default function Chat() {
       (output) => output.output_type === "translated_pdf" && !output.is_file_missing
     )?.file_path ?? null
   const previewRenderablePdf = previewOriginalPdf ?? previewTranslatedPdf
+  const previewParsedMarkdown = previewContent?.markdown_content?.trim() || ""
   const previewMarkdownContent =
-    previewContent?.markdown_content?.trim() ||
+    previewParsedMarkdown ||
     previewTranslatedContent?.content?.trim() ||
     ""
   const previewContentFormat = previewFilename.endsWith(".txt") ? "plain" : "markdown"
@@ -1483,6 +1484,17 @@ export default function Chat() {
                           </pre>
                         </div>
                       )
+                    ) : previewParsedMarkdown ? (
+                      <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
+                        <MarkdownViewer
+                          content={previewParsedMarkdown}
+                          contentFormat={previewContentFormat}
+                          assetBaseDir={previewContent?.asset_base_dir}
+                          textScale={0.92}
+                          className="h-full px-2 py-3"
+                          contentClassName="prose-headings:tracking-tight prose-p:text-[0.98em]"
+                        />
+                      </div>
                     ) : previewRenderablePdf ? (
                       <div className="h-full overflow-hidden rounded-2xl border border-border/70 bg-background">
                         <PdfViewer
@@ -1497,6 +1509,7 @@ export default function Chat() {
                         <MarkdownViewer
                           content={previewMarkdownContent}
                           contentFormat={previewContentFormat}
+                          assetBaseDir={previewContent?.asset_base_dir}
                           textScale={0.92}
                           className="h-full px-2 py-3"
                           contentClassName="prose-headings:tracking-tight prose-p:text-[0.98em]"

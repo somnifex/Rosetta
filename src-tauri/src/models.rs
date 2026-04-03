@@ -184,6 +184,8 @@ pub struct ParsedContent {
     pub markdown_content: String,
     pub json_content: String,
     pub structure_tree: Option<String>,
+    pub markdown_file_path: Option<String>,
+    pub asset_base_dir: Option<String>,
     pub created_at: String,
 }
 
@@ -201,6 +203,17 @@ pub struct DocumentOutput {
     pub id: String,
     pub document_id: String,
     pub output_type: String,
+    pub file_path: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub is_file_missing: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MineruProcessedFile {
+    pub id: String,
+    pub document_id: String,
+    pub artifact_type: String,
     pub file_path: String,
     pub created_at: String,
     pub updated_at: String,

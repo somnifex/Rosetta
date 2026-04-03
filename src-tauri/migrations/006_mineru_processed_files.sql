@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS mineru_processed_files (
     id TEXT PRIMARY KEY,
     document_id TEXT NOT NULL,
-    artifact_type TEXT NOT NULL CHECK(artifact_type IN ('markdown', 'json', 'structure')),
+    artifact_type TEXT NOT NULL CHECK(artifact_type IN ('markdown', 'json', 'structure', 'archive', 'html', 'docx', 'latex')),
     file_path TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),

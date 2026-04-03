@@ -81,29 +81,31 @@ export default function DocumentDetail() {
   }, [id])
 
   const translatedPdf = outputs.find((output) => output.output_type === "translated_pdf" && !output.is_file_missing)?.file_path
-  const originalPdf = document && document.filename.toLowerCase().endsWith(".pdf") && !document.is_file_missing ? document.file_path : null
   const parseReady = document?.parse_status === "completed"
+  const hasParsedMarkdown = !!parsedContent?.markdown_content?.trim()
+  const originalPdf = document && document.filename.toLowerCase().endsWith(".pdf") && !document.is_file_missing ? document.file_path : null
+  const originalPaneUsesPdf = !hasParsedMarkdown && !!originalPdf
   const translationReady = document?.translation_status === "completed"
-  const compareReady = !!parsedContent?.markdown_content && !!translatedContent?.content
-  const originalContentLoading = parseReady && !originalPdf && isParsedContentFetching
+  const compareReady = hasParsedMarkdown && !!translatedContent?.content
+  const originalContentLoading = parseReady && isParsedContentFetching
   const translatedContentLoading = translationReady && !translatedPdf && isTranslatedContentFetching
   const compareContentLoading = parseReady && translationReady && (isParsedContentFetching || isTranslatedContentFetching)
   const prefersPlainTextLayout = !!document?.filename.toLowerCase().endsWith(".txt")
   const fallbackContentFormat = prefersPlainTextLayout ? "plain" : "markdown"
   const usesIntegratedPdfControls =
-    (readerState.baseMode === "original" && !!originalPdf) ||
+    (readerState.baseMode === "original" && originalPaneUsesPdf) ||
     (readerState.baseMode === "translated" && !!translatedPdf)
   const translatedPdfName = translatedPdf?.split(/[\\/]/).pop()
 
   const toolbarScale =
-    readerState.baseMode === "original" && originalPdf
+    readerState.baseMode === "original" && originalPaneUsesPdf
       ? readerState.originalScale
       : readerState.baseMode === "translated" && translatedPdf
       ? readerState.translatedScale
       : readerState.textScale
 
   const handleToolbarScaleChange = useCallback((scale: number) => {
-    if (readerState.baseMode === "original" && originalPdf) {
+    if (readerState.baseMode === "original" && originalPaneUsesPdf) {
       setOriginalScale(scale)
       return
     }
@@ -112,7 +114,7 @@ export default function DocumentDetail() {
       return
     }
     setTextScale(scale)
-  }, [originalPdf, readerState.baseMode, setOriginalScale, setTextScale, setTranslatedScale, translatedPdf])
+  }, [originalPaneUsesPdf, readerState.baseMode, setOriginalScale, setTextScale, setTranslatedScale, translatedPdf])
 
   const handleAsk = useCallback((text: string) => {
     setPrefillText(`请结合当前文档解释这段内容：\n\n${text}`)
@@ -250,11 +252,12 @@ export default function DocumentDetail() {
                   </div>
                 ) : (
                   <ReaderPaneOriginal
-                    pdfPath={originalPdf}
+                    pdfPath={originalPaneUsesPdf ? originalPdf : null}
                     pdfFileName={document.filename}
                     pdfScale={readerState.originalScale}
                     onPdfScaleChange={setOriginalScale}
                     markdownContent={parsedContent?.markdown_content}
+                    markdownBaseDir={parsedContent?.asset_base_dir}
                     contentFormat={fallbackContentFormat}
                     textScale={readerState.textScale}
                     onAskAI={handleAsk}
@@ -294,6 +297,7 @@ export default function DocumentDetail() {
                     translatedContent={translatedContent?.content || ""}
                     originalFormat={fallbackContentFormat}
                     translatedFormat={fallbackContentFormat}
+                    originalAssetBaseDir={parsedContent?.asset_base_dir}
                     textScale={readerState.textScale}
                     compareRatio={readerState.compareRatio}
                     compareOrder={readerState.compareOrder}

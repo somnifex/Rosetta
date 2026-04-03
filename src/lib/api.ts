@@ -6,6 +6,7 @@ import type {
   DocumentOutput,
   Folder,
   LlmSamplingConfig,
+  MineruProcessedFile,
   ParseJob,
   ParsedContent,
   PermanentDeleteReport,
@@ -434,6 +435,8 @@ export const api = {
     created_at: string; updated_at: string;
   }>>("get_all_parse_jobs"),
   getParsedContent: (documentId: string) => safeInvoke<ParsedContent>("get_parsed_content", { documentId }),
+  getMineruProcessedFiles: (documentId: string) =>
+    safeInvoke<MineruProcessedFile[]>("get_mineru_processed_files", { documentId }),
 
   startTranslationJob: (data: {
     documentId: string

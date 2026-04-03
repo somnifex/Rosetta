@@ -124,6 +124,8 @@ export interface ParsedContent {
   markdown_content: string
   json_content: string
   structure_tree: any
+  markdown_file_path?: string | null
+  asset_base_dir?: string | null
   created_at: string
 }
 
@@ -141,6 +143,25 @@ export interface DocumentOutput {
   id: string
   document_id: string
   output_type: DocumentOutputType
+  file_path: string
+  created_at: string
+  updated_at: string
+  is_file_missing?: boolean
+}
+
+export type MineruProcessedFileType =
+  | "markdown"
+  | "json"
+  | "structure"
+  | "archive"
+  | "html"
+  | "docx"
+  | "latex"
+
+export interface MineruProcessedFile {
+  id: string
+  document_id: string
+  artifact_type: MineruProcessedFileType
   file_path: string
   created_at: string
   updated_at: string

@@ -1,8 +1,17 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 use std::path::Path;
 use std::sync::Once;
 
 static SQLITE_VEC_INIT: Once = Once::new();
+const MINERU_PROCESSED_FILE_ARTIFACTS: &[&str] = &[
+    "markdown",
+    "json",
+    "structure",
+    "archive",
+    "html",
+    "docx",
+    "latex",
+];
 
 pub struct Database {
     conn: Connection,
@@ -61,6 +70,7 @@ impl Database {
             "failed_chunks",
             "ALTER TABLE translation_jobs ADD COLUMN failed_chunks INTEGER DEFAULT 0",
         )?;
+        ensure_mineru_processed_file_artifact_types(&self.conn)?;
 
         Ok(())
     }
@@ -277,6 +287,56 @@ fn ensure_table_column(
     if !columns.iter().any(|existing| existing == column) {
         conn.execute_batch(alter_sql)?;
     }
+
+    Ok(())
+}
+
+fn ensure_mineru_processed_file_artifact_types(conn: &Connection) -> Result<()> {
+    if !table_exists(conn, "mineru_processed_files")? {
+        return Ok(());
+    }
+
+    let schema_sql = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name = ?1",
+            ["mineru_processed_files"],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    let Some(schema_sql) = schema_sql else {
+        return Ok(());
+    };
+
+    let normalized = schema_sql.to_ascii_lowercase();
+    let has_all_artifacts = MINERU_PROCESSED_FILE_ARTIFACTS.iter().all(|artifact| {
+        normalized.contains(&format!("'{}'", artifact.to_ascii_lowercase()))
+    });
+
+    if has_all_artifacts {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS mineru_processed_files_new;
+         CREATE TABLE mineru_processed_files_new (
+             id TEXT PRIMARY KEY,
+             document_id TEXT NOT NULL,
+             artifact_type TEXT NOT NULL CHECK(artifact_type IN ('markdown', 'json', 'structure', 'archive', 'html', 'docx', 'latex')),
+             file_path TEXT NOT NULL,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+             FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+             UNIQUE(document_id, artifact_type)
+         );
+         INSERT INTO mineru_processed_files_new (id, document_id, artifact_type, file_path, created_at, updated_at)
+         SELECT id, document_id, artifact_type, file_path, created_at, updated_at
+         FROM mineru_processed_files;
+         DROP TABLE mineru_processed_files;
+         ALTER TABLE mineru_processed_files_new RENAME TO mineru_processed_files;
+         CREATE INDEX IF NOT EXISTS idx_mineru_processed_files_document ON mineru_processed_files(document_id);
+         CREATE INDEX IF NOT EXISTS idx_mineru_processed_files_type ON mineru_processed_files(artifact_type);",
+    )?;
 
     Ok(())
 }

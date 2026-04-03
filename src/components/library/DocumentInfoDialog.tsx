@@ -8,7 +8,7 @@ import { convertFileSrc } from "@tauri-apps/api/core"
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog"
 import { api } from "@/lib/api"
 import { getActiveProviderForType } from "@/lib/providers"
-import type { DocumentOutput, Folder } from "../../../packages/types"
+import type { DocumentOutput, Folder, MineruProcessedFile } from "../../../packages/types"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -93,6 +93,26 @@ function findOutput(outputs: DocumentOutput[], outputType: DocumentOutput["outpu
   return outputs.find((output) => output.output_type === outputType) ?? null
 }
 
+const MINERU_ARTIFACT_ORDER: MineruProcessedFile["artifact_type"][] = [
+  "markdown",
+  "html",
+  "docx",
+  "latex",
+  "json",
+  "structure",
+  "archive",
+]
+
+const MINERU_ARTIFACT_LABELS: Record<MineruProcessedFile["artifact_type"], string> = {
+  markdown: "布局 Markdown",
+  html: "HTML 文档",
+  docx: "DOCX 文档",
+  latex: "LaTeX 文档",
+  json: "布局 JSON",
+  structure: "结构 JSON",
+  archive: "原始 ZIP",
+}
+
 function FolderSelect({
   folders,
   value,
@@ -161,6 +181,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
     queryClient.invalidateQueries({ queryKey: ["documents"] })
     queryClient.invalidateQueries({ queryKey: ["libraryDocuments"] })
     queryClient.invalidateQueries({ queryKey: ["documentOutputs", documentId] })
+    queryClient.invalidateQueries({ queryKey: ["mineruProcessedFiles", documentId] })
     queryClient.invalidateQueries({ queryKey: ["parsedContent", documentId] })
     queryClient.invalidateQueries({ queryKey: ["translatedContent", documentId] })
     queryClient.invalidateQueries({ queryKey: ["documentChunks", documentId] })
@@ -186,6 +207,12 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
     enabled: !!documentId && open,
   })
 
+  const { data: mineruProcessedFiles = [] } = useQuery({
+    queryKey: ["mineruProcessedFiles", documentId],
+    queryFn: () => api.getMineruProcessedFiles(documentId!),
+    enabled: !!documentId && open,
+  })
+
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: api.getCategories, enabled: open })
   const { data: folders = [] } = useQuery({ queryKey: ["folders"], queryFn: api.getFolders, enabled: open })
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: api.getProviders, enabled: open })
@@ -195,6 +222,18 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
   const activeTranslateProvider = getActiveProviderForType(providers, "translate")
   const activeEmbedProvider = getActiveProviderForType(providers, "embed")
   const translatedPdf = findOutput(outputs, "translated_pdf")
+  const sortedMineruArtifacts = useMemo(() => {
+    const orderMap = new Map(
+      MINERU_ARTIFACT_ORDER.map((artifactType, index) => [artifactType, index])
+    )
+
+    return [...mineruProcessedFiles].sort((left, right) => {
+      const leftIndex = orderMap.get(left.artifact_type) ?? Number.MAX_SAFE_INTEGER
+      const rightIndex = orderMap.get(right.artifact_type) ?? Number.MAX_SAFE_INTEGER
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex
+      return left.updated_at.localeCompare(right.updated_at)
+    })
+  }, [mineruProcessedFiles])
 
   const updateDocMutation = useMutation({
     mutationFn: api.updateDocument,
@@ -353,6 +392,23 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
       await shell.open(document.file_path)
     } catch (error: any) {
       toast({ title: "打开文件失败", description: error.message, variant: "destructive" })
+    }
+  }
+
+  const openPathInSystem = async (path: string) => {
+    try {
+      const shell = await import("@tauri-apps/plugin-shell")
+      await shell.open(path)
+    } catch (error: any) {
+      toast({ title: "打开文件失败", description: error.message, variant: "destructive" })
+    }
+  }
+
+  const revealPathInSystem = async (path: string) => {
+    try {
+      await api.revealInOs(path)
+    } catch (error: any) {
+      toast({ title: "定位文件失败", description: error.message, variant: "destructive" })
     }
   }
 
@@ -633,6 +689,72 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                           导出
                         </Button>
                       </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border p-3.5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">MinerU 解析文件</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              直接查看布局 Markdown、结构 JSON 以及 MinerU 返回的附带文件
+                            </p>
+                          </div>
+                        </div>
+                        <Badge
+                          variant={sortedMineruArtifacts.length > 0 ? "secondary" : "outline"}
+                          className="rounded-full shadow-none text-xs font-normal"
+                        >
+                          {sortedMineruArtifacts.length > 0
+                            ? `${sortedMineruArtifacts.length} 个文件`
+                            : "暂无文件"}
+                        </Badge>
+                      </div>
+
+                      {sortedMineruArtifacts.length > 0 ? (
+                        <div className="mt-3 space-y-2">
+                          {sortedMineruArtifacts.map((artifact) => (
+                            <div
+                              key={artifact.id}
+                              className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium">
+                                  {MINERU_ARTIFACT_LABELS[artifact.artifact_type] || artifact.artifact_type}
+                                </p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {artifact.file_path}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-lg"
+                                  disabled={!!artifact.is_file_missing}
+                                  onClick={() => revealPathInSystem(artifact.file_path)}
+                                >
+                                  查看位置
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-lg"
+                                  disabled={!!artifact.is_file_missing}
+                                  onClick={() => openPathInSystem(artifact.file_path)}
+                                >
+                                  打开
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          解析完成后，这里会显示 MinerU 返回的布局文档和附带产物。
+                        </p>
+                      )}
                     </div>
 
                     {/* Pipeline status row */}
