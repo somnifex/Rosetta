@@ -155,10 +155,6 @@ pub struct MinerURuntimeProfile {
 #[derive(Debug, Default, Deserialize)]
 struct MinerUPythonRuntimeProbe {
     #[serde(default)]
-    python_version: String,
-    #[serde(default)]
-    platform: String,
-    #[serde(default)]
     torch_present: bool,
     #[serde(default)]
     cuda_available: bool,
@@ -1000,9 +996,6 @@ print(json.dumps(result))
 }
 
 fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimeProfile {
-    let python_minor = parse_python_minor(&probe.python_version);
-    let windows_py313_plus =
-        probe.platform == "win32" && matches!(python_minor, Some(minor) if minor >= 13);
     let max_vram_gib = bytes_to_gib(probe.max_vram_bytes);
     let total_memory_gib = probe.total_memory_bytes.map(bytes_to_gib);
     let primary_device_name = probe
@@ -1020,19 +1013,6 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
     };
 
     if probe.cuda_available {
-        if windows_py313_plus {
-            return MinerURuntimeProfile {
-                backend: "pipeline".to_string(),
-                device_mode: Some("cuda".to_string()),
-                reason: format!(
-                    "Detected CUDA device {} with {:.1} GiB VRAM, but Python {} on Windows is not recommended for MinerU auto-engine; using pipeline with CUDA.",
-                    cuda_device_label,
-                    max_vram_gib,
-                    probe.python_version
-                ),
-            };
-        }
-
         if probe.max_vram_bytes >= AUTO_ENGINE_MIN_VRAM_BYTES {
             return MinerURuntimeProfile {
                 backend: "hybrid-auto-engine".to_string(),
@@ -1101,13 +1081,6 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
         device_mode: Some("cpu".to_string()),
         reason: format!("{no_accelerator_reason} Using pipeline on CPU."),
     }
-}
-
-fn parse_python_minor(version: &str) -> Option<u32> {
-    version
-        .split('.')
-        .nth(1)
-        .and_then(|minor| minor.parse::<u32>().ok())
 }
 
 fn has_nvidia_gpu() -> bool {
@@ -1254,6 +1227,20 @@ fn command_output_message(output: &std::process::Output, fallback: &str) -> Stri
     } else {
         truncate_tail(&combined, 1200)
     }
+}
+
+fn normalize_python_startup_error(python_cmd: &str, message: String) -> String {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("did not find executable at") {
+        return format!(
+            "The selected MinerU Python environment is broken because its base interpreter is missing. \
+             Recreate the environment with a working Python installation, then run Setup Environment again. \
+             Interpreter: {}. Details: {}",
+            python_cmd, message
+        );
+    }
+
+    message
 }
 
 fn with_pip_index_hint(message: String, pip_index_url: &str) -> String {
@@ -1546,9 +1533,9 @@ fn check_python_version(python_cmd: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to run Python: {}", e))?;
 
     if !output.status.success() {
-        return Err(command_output_message(
-            &output,
-            "Failed to detect the configured Python version",
+        return Err(normalize_python_startup_error(
+            python_cmd,
+            command_output_message(&output, "Failed to detect the configured Python version"),
         ));
     }
 

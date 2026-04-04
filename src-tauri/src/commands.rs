@@ -4496,16 +4496,14 @@ async fn execute_parse_job_with_selected_backend(
         get_setting_value(state.settings.as_ref(), "mineru.parse_backend")?,
     )
     .unwrap_or_else(|| "vlm".to_string());
+    let runtime_profile = state.mineru_manager.get_active_runtime_profile()?;
+    let (resolved_backend, backend_note) =
+        resolve_builtin_parse_backend(&parse_backend, runtime_profile.as_ref());
+    if let Some(note) = backend_note {
+        log::warn!("{}", note);
+    }
 
-    let client = if parse_backend == "auto" {
-        if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
-            crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
-        } else {
-            crate::mineru::MinerUClient::new(mineru_url)
-        }
-    } else {
-        crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(parse_backend)
-    };
+    let client = crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(resolved_backend);
 
     log::info!(
         "Dispatching parse job {} for document {} to MinerU.",
@@ -4520,6 +4518,48 @@ async fn execute_parse_job_with_selected_backend(
         parse_result,
         archive_bytes,
     })
+}
+
+fn resolve_builtin_parse_backend(
+    configured_backend: &str,
+    runtime_profile: Option<&crate::mineru_process::MinerURuntimeProfile>,
+) -> (String, Option<String>) {
+    match configured_backend {
+        "auto" => match runtime_profile {
+            Some(profile) => (profile.backend.clone(), None),
+            None => (
+                "pipeline".to_string(),
+                Some(
+                    "MinerU runtime profile was unavailable; defaulting the parse backend to pipeline."
+                        .to_string(),
+                ),
+            ),
+        },
+        "vlm" => match runtime_profile {
+            Some(profile) if profile.backend == "pipeline" => (
+                "pipeline".to_string(),
+                Some(format!(
+                    "Configured MinerU parse backend 'vlm' is not supported by the detected runtime. Falling back to pipeline. {}",
+                    profile.reason
+                )),
+            ),
+            Some(profile) => (
+                profile.backend.clone(),
+                Some(format!(
+                    "Configured MinerU parse backend 'vlm' has been translated to MinerU 3.x backend '{}'.",
+                    profile.backend
+                )),
+            ),
+            None => (
+                "hybrid-auto-engine".to_string(),
+                Some(
+                    "Configured MinerU parse backend 'vlm' has been translated to MinerU 3.x backend 'hybrid-auto-engine'."
+                        .to_string(),
+                ),
+            ),
+        },
+        other => (other.to_string(), None),
+    }
 }
 
 async fn execute_parse_job(
