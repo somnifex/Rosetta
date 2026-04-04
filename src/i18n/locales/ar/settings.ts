@@ -257,8 +257,22 @@ export default {
       status_starting: "جارٍ البدء...",
       status_running: "يعمل على المنفذ {{port}}",
       status_failed: "فشل: {{error}}",
+      restart_count: "تمت إعادة التشغيل {{count}} مرات",
       btn_start: "بدء MinerU",
       btn_stop: "إيقاف",
+      stability: {
+        title: "الاستقرار والأداء",
+        description: "تحكم في كيفية تعامل MinerU مع مهام PDF المتزامنة والتعافي من الأعطال.",
+        max_concurrent_label: "الحد الأقصى لمهام التحليل المتزامنة",
+        max_concurrent_hint:
+          "يحد من عدد ملفات PDF المرسلة إلى MinerU في نفس الوقت. قلل إلى 1 إذا تعطل MinerU أثناء المعالجة المجمعة. يتطلب إعادة تشغيل التطبيق.",
+        health_check_interval_label: "فاصل التحقق من الصحة (ثواني)",
+        health_check_interval_hint:
+          "كم مرة يتحقق التطبيق من استجابة MinerU. النطاق: 10-300 ثانية.",
+        auto_restart_max_retries_label: "الحد الأقصى لمحاولات إعادة التشغيل التلقائي",
+        auto_restart_max_retries_hint:
+          "الحد الأقصى لعدد المرات التي سيتم فيها إعادة تشغيل MinerU تلقائياً بعد حدوث عطل. اضبط على 0 للتعطيل.",
+      },
     },
     external: {
       title: "MinerU خارجي",

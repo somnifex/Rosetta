@@ -51,12 +51,25 @@ const KNOWN_MODEL_FILENAMES: &[&str] = &[
     "weights.pb",
 ];
 
+#[derive(Clone, Debug)]
+struct MinerUStartParams {
+    app_dir: PathBuf,
+    python_path: String,
+    requested_port: u16,
+    use_venv: bool,
+    venv_dir: Option<PathBuf>,
+    model_source: String,
+    models_dir: String,
+}
+
 pub struct MinerUProcessManager {
     process: Mutex<Option<Child>>,
     status: Mutex<String>,
     port: Mutex<Option<u16>>,
     error: Mutex<Option<String>>,
     runtime_profile: Mutex<Option<MinerURuntimeProfile>>,
+    restart_count: Mutex<u32>,
+    last_start_params: Mutex<Option<MinerUStartParams>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,6 +83,7 @@ pub struct MinerUStatusResponse {
     pub runtime_device_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_reason: Option<String>,
+    pub restart_count: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -265,6 +279,8 @@ impl MinerUProcessManager {
             port: Mutex::new(None),
             error: Mutex::new(None),
             runtime_profile: Mutex::new(None),
+            restart_count: Mutex::new(0),
+            last_start_params: Mutex::new(None),
         }
     }
 
@@ -278,11 +294,11 @@ impl MinerUProcessManager {
         model_source: &str,
         models_dir: &str,
     ) -> Result<u16, String> {
-        // Check if already running
+        // Check if already running or starting
         {
             let status = self.status.lock().map_err(|e| e.to_string())?;
-            if *status == "running" {
-                return Err("MinerU is already running".to_string());
+            if *status == "running" || *status == "starting" {
+                return Err("MinerU is already running or starting".to_string());
             }
         }
 
@@ -535,6 +551,21 @@ impl MinerUProcessManager {
         if healthy {
             let mut status = self.status.lock().map_err(|e| e.to_string())?;
             *status = "running".to_string();
+            // Store start params for auto-restart and reset restart count
+            if let Ok(mut params) = self.last_start_params.lock() {
+                *params = Some(MinerUStartParams {
+                    app_dir: app_dir.to_path_buf(),
+                    python_path: python_path.to_string(),
+                    requested_port,
+                    use_venv,
+                    venv_dir: venv_dir.map(|p| p.to_path_buf()),
+                    model_source: model_source.to_string(),
+                    models_dir: models_dir.to_string(),
+                });
+            }
+            if let Ok(mut count) = self.restart_count.lock() {
+                *count = 0;
+            }
             Ok(actual_port)
         } else {
             // Kill the process since it didn't become healthy
@@ -593,6 +624,7 @@ impl MinerUProcessManager {
         let port = self.port.lock().map_err(|e| e.to_string())?;
         let error = self.error.lock().map_err(|e| e.to_string())?;
         let runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
+        let restart_count = *self.restart_count.lock().unwrap_or_else(|e| e.into_inner());
         Ok(MinerUStatusResponse {
             status: status.clone(),
             port: *port,
@@ -600,6 +632,7 @@ impl MinerUProcessManager {
             runtime_backend: runtime_profile.as_ref().map(|p| p.backend.clone()),
             runtime_device_mode: runtime_profile.as_ref().and_then(|p| p.device_mode.clone()),
             runtime_reason: runtime_profile.as_ref().map(|p| p.reason.clone()),
+            restart_count,
         })
     }
 
@@ -612,6 +645,67 @@ impl MinerUProcessManager {
 
         let runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
         Ok(runtime_profile.clone())
+    }
+
+    pub fn get_restart_count(&self) -> u32 {
+        *self.restart_count.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Attempt to auto-restart MinerU using the last successful start parameters.
+    /// Returns true if a restart was attempted, false if skipped (no params or max retries reached).
+    pub async fn attempt_auto_restart(&self, max_retries: u32) -> bool {
+        let params = {
+            let guard = self.last_start_params.lock().unwrap_or_else(|e| e.into_inner());
+            guard.clone()
+        };
+        let Some(params) = params else {
+            log::warn!("Cannot auto-restart MinerU: no previous start parameters stored.");
+            return false;
+        };
+
+        {
+            let mut count = self.restart_count.lock().unwrap_or_else(|e| e.into_inner());
+            if *count >= max_retries {
+                log::warn!(
+                    "MinerU has crashed {} time(s); max_retries={} reached, not restarting.",
+                    *count,
+                    max_retries
+                );
+                return false;
+            }
+            *count += 1;
+            log::info!(
+                "Auto-restarting MinerU (attempt {}/{})",
+                *count,
+                max_retries
+            );
+        }
+
+        // Clean up the crashed process
+        let _ = self.stop_internal();
+
+        let venv_path = params.venv_dir.as_deref();
+        match self
+            .start(
+                &params.app_dir,
+                &params.python_path,
+                params.requested_port,
+                params.use_venv,
+                venv_path,
+                &params.model_source,
+                &params.models_dir,
+            )
+            .await
+        {
+            Ok(port) => {
+                log::info!("MinerU auto-restart succeeded on port {}", port);
+                true
+            }
+            Err(e) => {
+                log::error!("MinerU auto-restart failed: {}", e);
+                true
+            }
+        }
     }
 
     pub fn get_effective_url(
@@ -754,6 +848,11 @@ fn local_mineru_health_check(port: u16, timeout: Duration) -> bool {
         }
         _ => false,
     }
+}
+
+/// Public wrapper for `local_mineru_health_check` for use by the background health monitor.
+pub fn local_mineru_health_check_pub(port: u16, timeout: Duration) -> bool {
+    local_mineru_health_check(port, timeout)
 }
 
 fn local_port_is_open(port: u16, timeout: Duration) -> bool {
@@ -1906,7 +2005,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         } else {
             // pip install method (default): install directly from PyPI
             install_args.extend(build_pip_index_args(&pip_index_url));
-            install_args.push("mineru[core]".to_string());
+            install_args.push("mineru[all]".to_string());
 
             let mut install_command = Command::new(&venv_python_str);
             install_command.args(&install_args);

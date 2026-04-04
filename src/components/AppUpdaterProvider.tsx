@@ -10,7 +10,7 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { getVersion } from "@tauri-apps/api/app"
 import { relaunch } from "@tauri-apps/plugin-process"
-import { check, type Update as TauriUpdate } from "@tauri-apps/plugin-updater"
+import { type Update as TauriUpdate } from "@tauri-apps/plugin-updater"
 import { useTranslation } from "react-i18next"
 import { ConfirmActionDialog } from "@/components/shared/ConfirmActionDialog"
 import { useToast } from "@/hooks/use-toast"
@@ -58,6 +58,14 @@ function readBooleanSetting(
 ) {
   if (!settings) return false
   return settings.some((item) => item.key === key && item.value === "true")
+}
+
+function isUpdatePrerelease(
+  update: Pick<TauriUpdate, "version" | "rawJson"> | null | undefined
+) {
+  if (!update) return false
+  if (update.rawJson?.["prerelease"] === true) return true
+  return update.version.includes("-")
 }
 
 function getErrorDescription(error: unknown) {
@@ -112,6 +120,10 @@ export function AppUpdaterProvider({ children }: { children: ReactNode }) {
     retry: false,
     staleTime: 30_000,
   })
+  const acceptPrereleaseUpdates = readBooleanSetting(
+    appSettings,
+    "general.accept_prerelease_updates"
+  )
 
   const storeAvailableUpdate = useCallback((nextUpdate: TauriUpdate | null) => {
     setAvailableUpdate((currentUpdate) => {
@@ -199,7 +211,7 @@ export function AppUpdaterProvider({ children }: { children: ReactNode }) {
         setUpdateStatus("checking")
         setDownloadProgress(0)
 
-        const nextUpdate = await check()
+        const nextUpdate = await api.checkAppUpdate(acceptPrereleaseUpdates)
 
         if (!nextUpdate) {
           storeAvailableUpdate(null)
@@ -240,7 +252,14 @@ export function AppUpdaterProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [downloadAndInstallKnownUpdate, isTauri, storeAvailableUpdate, t, toast]
+    [
+      acceptPrereleaseUpdates,
+      downloadAndInstallKnownUpdate,
+      isTauri,
+      storeAvailableUpdate,
+      t,
+      toast,
+    ]
   )
 
   const checkForUpdates = useCallback(async () => {
@@ -252,9 +271,16 @@ export function AppUpdaterProvider({ children }: { children: ReactNode }) {
 
     let nextUpdate = availableUpdate
 
+    if (!acceptPrereleaseUpdates && isUpdatePrerelease(nextUpdate)) {
+      storeAvailableUpdate(null)
+      setUpdateVersion("")
+      setUpdateBody("")
+      nextUpdate = null
+    }
+
     if (!nextUpdate) {
       try {
-        nextUpdate = await check()
+        nextUpdate = await api.checkAppUpdate(acceptPrereleaseUpdates)
       } catch (error) {
         setUpdateStatus("error")
         toast({
@@ -275,7 +301,27 @@ export function AppUpdaterProvider({ children }: { children: ReactNode }) {
     }
 
     await downloadAndInstallKnownUpdate(nextUpdate)
-  }, [availableUpdate, downloadAndInstallKnownUpdate, isTauri, storeAvailableUpdate, t, toast])
+  }, [
+    acceptPrereleaseUpdates,
+    availableUpdate,
+    downloadAndInstallKnownUpdate,
+    isTauri,
+    storeAvailableUpdate,
+    t,
+    toast,
+  ])
+
+  useEffect(() => {
+    if (acceptPrereleaseUpdates) return
+    if (updateStatus !== "available") return
+    if (!isUpdatePrerelease(availableUpdate)) return
+
+    storeAvailableUpdate(null)
+    setUpdateVersion("")
+    setUpdateBody("")
+    setDownloadProgress(0)
+    setUpdateStatus("idle")
+  }, [acceptPrereleaseUpdates, availableUpdate, storeAvailableUpdate, updateStatus])
 
   const requestRelaunchConfirmation = useCallback(() => {
     if (statusRef.current !== "restart_required") return

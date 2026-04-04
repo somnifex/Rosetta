@@ -75,6 +75,10 @@ export default {
     check_updates_on_startup_desc: "Automatically check whether a newer Rosetta version is available when the app launches",
     auto_update: "Automatically Download Updates",
     auto_update_desc: "If startup update checks find a new version, download and install it automatically. A confirmation dialog will be shown before restarting.",
+    accept_prerelease_updates: "Accept Prerelease Updates",
+    accept_prerelease_updates_desc: "Include beta, alpha, rc, and other prerelease builds when checking for updates",
+    accept_prerelease_updates_risk:
+      "Prerelease builds may contain incomplete features or stability issues. If startup checks and automatic downloads are enabled, prerelease updates may also be downloaded automatically.",
     chat_behavior_saved: "Chat behavior settings saved",
     chat_behavior_save_error: "Failed to save chat behavior settings",
     update: "Check for Updates",
@@ -82,6 +86,7 @@ export default {
     update_checking: "Checking for updates...",
     update_available: "New version {{version}} available",
     update_available_desc: "Open Settings to review the release notes and install the update.",
+    update_prerelease_notice: "This update is a prerelease build.",
     update_downloading: "Downloading update... {{progress}}%",
     update_installing: "Installing update...",
     update_ready_to_restart: "Version {{version}} is ready. Restart the app to finish applying the update.",
@@ -252,8 +257,22 @@ export default {
       status_starting: "Starting...",
       status_running: "Running on port {{port}}",
       status_failed: "Failed: {{error}}",
+      restart_count: "Restarted {{count}}x",
       btn_start: "Start MinerU",
       btn_stop: "Stop",
+      stability: {
+        title: "Stability & Performance",
+        description: "Control how MinerU handles concurrent PDF jobs and recovers from crashes.",
+        max_concurrent_label: "Max Concurrent Parse Jobs",
+        max_concurrent_hint:
+          "Limits how many PDFs are sent to MinerU at the same time. Reduce to 1 if MinerU crashes during batch processing. Requires app restart to take effect.",
+        health_check_interval_label: "Health Check Interval (seconds)",
+        health_check_interval_hint:
+          "How often the app checks that MinerU is still responding. Range: 10–300 seconds.",
+        auto_restart_max_retries_label: "Auto-restart Max Retries",
+        auto_restart_max_retries_hint:
+          "Maximum number of times MinerU will be automatically restarted after a crash. Set to 0 to disable auto-restart.",
+      },
     },
     external: {
       title: "External MinerU",

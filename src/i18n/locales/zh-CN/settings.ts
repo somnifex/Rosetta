@@ -76,6 +76,11 @@ export default {
     auto_update: "\u81ea\u52a8\u66f4\u65b0",
     auto_update_desc:
       "\u82e5\u542f\u52a8\u68c0\u66f4\u65f6\u53d1\u73b0\u65b0\u7248\u672c\uff0c\u5219\u81ea\u52a8\u4e0b\u8f7d\u5e76\u5b89\u88c5\u3002\u5982\u9700\u91cd\u542f\u5e94\u7528\uff0c\u4f1a\u5148\u5f39\u51fa\u786e\u8ba4\u5bf9\u8bdd\u6846\u3002",
+    accept_prerelease_updates: "\u63a5\u53d7\u6d4b\u8bd5\u7248\u66f4\u65b0",
+    accept_prerelease_updates_desc:
+      "\u68c0\u67e5\u66f4\u65b0\u65f6\u5305\u542b beta\u3001alpha\u3001rc \u7b49 pre-release \u7248\u672c",
+    accept_prerelease_updates_risk:
+      "\u6d4b\u8bd5\u7248\u53ef\u80fd\u5305\u542b\u672a\u5b8c\u6210\u529f\u80fd\u6216\u7a33\u5b9a\u6027\u95ee\u9898\u3002\u82e5\u5df2\u5f00\u542f\u542f\u52a8\u65f6\u68c0\u67e5\u66f4\u65b0\u548c\u81ea\u52a8\u4e0b\u8f7d\uff0c\u6d4b\u8bd5\u7248\u66f4\u65b0\u4e5f\u53ef\u80fd\u88ab\u81ea\u52a8\u4e0b\u8f7d\u3002",
     chat_behavior_saved: "对话行为设置已保存",
     chat_behavior_save_error: "保存对话行为设置失败",
     update: "检查更新",
@@ -83,6 +88,7 @@ export default {
     update_checking: "正在检查更新...",
     update_available: "发现新版本 {{version}}",
     update_available_desc: "\u8bf7\u6253\u5f00\u8bbe\u7f6e\u67e5\u770b\u66f4\u65b0\u65e5\u5fd7\u5e76\u5b89\u88c5\u66f4\u65b0\u3002",
+    update_prerelease_notice: "\u8fd9\u662f\u4e00\u4e2a\u6d4b\u8bd5\u7248\u66f4\u65b0\u3002",
     update_downloading: "正在下载更新... {{progress}}%",
     update_installing: "正在安装更新...",
     update_ready_to_restart:
@@ -256,8 +262,22 @@ export default {
       status_starting: "启动中...",
       status_running: "运行于端口 {{port}}",
       status_failed: "失败：{{error}}",
+      restart_count: "已重启 {{count}} 次",
       btn_start: "启动 MinerU",
       btn_stop: "停止",
+      stability: {
+        title: "稳定性与性能",
+        description: "控制MinerU处理并发PDF任务及从崩溃中恢复的方式。",
+        max_concurrent_label: "最大并发解析任务数",
+        max_concurrent_hint:
+          "限制同时发送到MinerU的PDF数量。如果在批量处理时MinerU崩溃，请降低至1。需要重启应用生效。",
+        health_check_interval_label: "健康检查间隔（秒）",
+        health_check_interval_hint:
+          "应用检查MinerU是否响应的频率。范围：10–300秒。",
+        auto_restart_max_retries_label: "最大自动重启次数",
+        auto_restart_max_retries_hint:
+          "MinerU崩溃后自动重启的最大次数。设置为0禁用自动重启。",
+      },
     },
     external: {
       title: "外部 MinerU",

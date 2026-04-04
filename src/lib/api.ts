@@ -22,6 +22,7 @@ import type {
   TranslationJob,
 } from "../../packages/types"
 import { invoke } from "@tauri-apps/api/core"
+import { Update as TauriUpdate } from "@tauri-apps/plugin-updater"
 
 const isTauri = () => Boolean((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
 
@@ -62,6 +63,15 @@ export interface RuntimeLogEntry {
   message: string
   context: string | null
   created_at: string
+}
+
+interface AppUpdateCheckMetadata {
+  rid: number
+  currentVersion: string
+  version: string
+  date?: string
+  body?: string
+  rawJson: Record<string, unknown>
 }
 
 export const DEFAULT_TRANSLATION_RUNTIME_SETTINGS: TranslationRuntimeSettings = {
@@ -723,6 +733,12 @@ export const api = {
     safeInvoke<void>("set_app_setting", { key, value }),
   getAllAppSettings: () =>
     safeInvoke<Array<{ key: string; value: string }>>("get_all_app_settings"),
+  checkAppUpdate: async (acceptPrereleases: boolean) => {
+    const metadata = await safeInvoke<AppUpdateCheckMetadata | null>("check_app_update", {
+      acceptPrereleases,
+    })
+    return metadata ? new TauriUpdate(metadata) : null
+  },
   syncWindowTheme: (theme: string) =>
     safeInvoke<void>("sync_window_theme", { theme }),
 
@@ -739,7 +755,15 @@ export const api = {
   startMinerU: () => safeInvoke<string>("start_mineru"),
   stopMinerU: () => safeInvoke<void>("stop_mineru"),
   getMinerUStatus: () =>
-    safeInvoke<{ status: string; port: number | null; error: string | null }>("get_mineru_status"),
+    safeInvoke<{
+      status: string
+      port: number | null
+      error: string | null
+      runtime_backend?: string | null
+      runtime_device_mode?: string | null
+      runtime_reason?: string | null
+      restart_count: number
+    }>("get_mineru_status"),
 
   setupMineruVenv: () => safeInvoke<void>("setup_mineru_venv"),
   getVenvStatus: () =>

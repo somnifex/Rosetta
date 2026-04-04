@@ -257,8 +257,22 @@ export default {
       status_starting: "Démarrage...",
       status_running: "En cours sur le port {{port}}",
       status_failed: "Échec : {{error}}",
+      restart_count: "Redémarré {{count}}x",
       btn_start: "Démarrer MinerU",
       btn_stop: "Arrêter",
+      stability: {
+        title: "Stabilité et performances",
+        description: "Contrôle la façon dont MinerU gère les tâches PDF simultanées et se remet des plantages.",
+        max_concurrent_label: "Tâches d'analyse simultanées max",
+        max_concurrent_hint:
+          "Limite le nombre de PDF envoyés à MinerU en même temps. Réduisez à 1 si MinerU plante lors du traitement par lots. Nécessite le redémarrage de l'app.",
+        health_check_interval_label: "Intervalle de vérification de l'état (secondes)",
+        health_check_interval_hint:
+          "À quelle fréquence l'application vérifie que MinerU répond toujours. Plage : 10–300 secondes.",
+        auto_restart_max_retries_label: "Tentatives max de redémarrage automatique",
+        auto_restart_max_retries_hint:
+          "Nombre maximum de fois que MinerU redémarrera automatiquement après un plantage. Réglez sur 0 pour désactiver.",
+      },
     },
     external: {
       title: "MinerU externe",

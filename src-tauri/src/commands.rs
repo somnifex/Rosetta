@@ -4117,6 +4117,7 @@ fn enqueue_parse_job(
     let app_dir_clone = app_dir.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
+        let _permit = state_clone.parse_limiter.acquire().await;
         let result = execute_parse_job(
             &state_clone,
             app_dir_clone.as_deref(),

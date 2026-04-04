@@ -258,8 +258,22 @@ export default {
       status_starting: "Iniciando...",
       status_running: "Ejecutándose en el puerto {{port}}",
       status_failed: "Falló: {{error}}",
+      restart_count: "Reiniciado {{count}}x",
       btn_start: "Iniciar MinerU",
       btn_stop: "Detener",
+      stability: {
+        title: "Estabilidad y rendimiento",
+        description: "Controla cómo MinerU maneja trabajos PDF concurrentes y se recupera de bloqueos.",
+        max_concurrent_label: "Trabajos de análisis simultáneos máx.",
+        max_concurrent_hint:
+          "Limita cuántos PDFs se envían a MinerU al mismo tiempo. Reduce a 1 si MinerU falla durante el procesamiento por lotes. Requiere reiniciar la app.",
+        health_check_interval_label: "Intervalo de comprobación de estado (segundos)",
+        health_check_interval_hint:
+          "Con qué frecuencia la app comprueba que MinerU sigue respondiendo. Rango: 10–300 segundos.",
+        auto_restart_max_retries_label: "Reintentos máximos de reinicio automático",
+        auto_restart_max_retries_hint:
+          "Número máximo de veces que MinerU se reiniciará automáticamente tras un fallo. Establecer en 0 para desactivar.",
+      },
     },
     external: {
       title: "MinerU externo",

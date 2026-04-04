@@ -1,4 +1,5 @@
 mod app_dirs;
+mod app_updater;
 mod chunking;
 mod commands;
 mod content_store;
@@ -31,6 +32,10 @@ use tauri::async_runtime::JoinHandle;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, RunEvent};
 
+const DEFAULT_MINERU_MAX_CONCURRENT_PARSE_JOBS: usize = 2;
+const DEFAULT_HEALTH_CHECK_INTERVAL_SECS: u64 = 30;
+const DEFAULT_AUTO_RESTART_MAX_RETRIES: u32 = 3;
+
 pub struct AppState {
     pub app_dir: PathBuf,
     pub db: Arc<Mutex<Database>>,
@@ -45,6 +50,7 @@ pub struct AppState {
     pub translation_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub index_job_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub chat_request_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    pub parse_limiter: Arc<rate_limiter::ConcurrencyLimiter>,
 }
 
 impl Clone for AppState {
@@ -63,6 +69,7 @@ impl Clone for AppState {
             translation_job_handles: Arc::clone(&self.translation_job_handles),
             index_job_handles: Arc::clone(&self.index_job_handles),
             chat_request_handles: Arc::clone(&self.chat_request_handles),
+            parse_limiter: Arc::clone(&self.parse_limiter),
         }
     }
 }
@@ -245,6 +252,14 @@ pub fn run() {
 
             let db_arc = Arc::new(Mutex::new(db));
 
+            let max_concurrent_parse = settings_manager
+                .get("mineru.max_concurrent_parse_jobs")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(DEFAULT_MINERU_MAX_CONCURRENT_PARSE_JOBS)
+                .clamp(1, 8);
+            let parse_limiter = Arc::new(rate_limiter::ConcurrencyLimiter::new(max_concurrent_parse));
+            log::info!("Parse job concurrency limiter initialized with max_concurrent={}", max_concurrent_parse);
+
             if db_arc.lock().is_ok() {
                 mineru_process::refresh_model_download_status(
                     &model_manager,
@@ -267,6 +282,7 @@ pub fn run() {
                 translation_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 index_job_handles: Arc::new(Mutex::new(HashMap::new())),
                 chat_request_handles: Arc::new(Mutex::new(HashMap::new())),
+                parse_limiter: Arc::clone(&parse_limiter),
             });
 
             window_appearance::sync_main_window_theme(app.handle(), settings_manager.as_ref());
@@ -333,6 +349,63 @@ pub fn run() {
                     match manager_for_autostart.start(&app_dir_for_autostart, &python_path, port, use_venv, venv_path, &model_source, &models_dir).await {
                         Ok(p) => log::info!("MinerU auto-started on port {}", p),
                         Err(e) => log::error!("Failed to auto-start MinerU: {}", e),
+                    }
+                }
+            });
+
+            // Background health monitor for MinerU
+            let manager_for_health = Arc::clone(&mineru_manager);
+            let settings_for_health = Arc::clone(&settings_manager);
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let interval_secs = settings_for_health
+                        .get("mineru.health_check_interval_secs")
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(DEFAULT_HEALTH_CHECK_INTERVAL_SECS)
+                        .clamp(10, 300);
+
+                    tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+
+                    let mode = settings_for_health.get_with_default("mineru.mode", "builtin");
+                    if mode != "builtin" {
+                        continue;
+                    }
+
+                    let status_response = match manager_for_health.get_status() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    if status_response.status != "running" {
+                        continue;
+                    }
+
+                    let Some(port) = status_response.port else {
+                        continue;
+                    };
+
+                    let is_healthy = mineru_process::local_mineru_health_check_pub(
+                        port,
+                        std::time::Duration::from_millis(1500),
+                    );
+
+                    if !is_healthy {
+                        log::warn!(
+                            "Periodic health check: MinerU on port {} is not responding.",
+                            port
+                        );
+
+                        let max_retries = settings_for_health
+                            .get("mineru.auto_restart_max_retries")
+                            .and_then(|v| v.parse::<u32>().ok())
+                            .unwrap_or(DEFAULT_AUTO_RESTART_MAX_RETRIES)
+                            .clamp(0, 10);
+
+                        if max_retries > 0 {
+                            manager_for_health.attempt_auto_restart(max_retries).await;
+                        } else {
+                            log::warn!("Auto-restart is disabled (max_retries=0). MinerU remains in failed state.");
+                        }
                     }
                 }
             });
@@ -561,6 +634,7 @@ pub fn run() {
             sync_backup::validate_backup,
             sync_backup::webdav_upload_backup,
             sync_backup::webdav_download_backup,
+            app_updater::check_app_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

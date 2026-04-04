@@ -257,8 +257,22 @@ export default {
       status_starting: "Запуск...",
       status_running: "Работает на порту {{port}}",
       status_failed: "Ошибка: {{error}}",
+      restart_count: "Перезапущено {{count}} раз(а)",
       btn_start: "Запустить MinerU",
       btn_stop: "Остановить",
+      stability: {
+        title: "Стабильность и производительность",
+        description: "Управление обработкой одновременных задач PDF и восстановлением MinerU после сбоев.",
+        max_concurrent_label: "Максимум одновременных задач парсинга",
+        max_concurrent_hint:
+          "Ограничивает количество одновременно отправляемых PDF в MinerU. Уменьшите до 1, если MinerU падает при пакетной обработке. Требуется перезапуск приложения.",
+        health_check_interval_label: "Интервал проверки (секунды)",
+        health_check_interval_hint:
+          "Как часто приложение проверяет ответ от MinerU. Диапазон: 10–300 секунд.",
+        auto_restart_max_retries_label: "Максимум автоперезапусков",
+        auto_restart_max_retries_hint:
+          "Максимальное количество автоматических перезапусков MinerU после сбоя. Установите 0 для отключения.",
+      },
     },
     external: {
       title: "Внешний MinerU",

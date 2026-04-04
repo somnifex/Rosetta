@@ -45,6 +45,9 @@ export default function MineruTab() {
   const [mineruInstallMethod, setMineruInstallMethod] = useState("pip")
   const [mineruModelSource, setMineruModelSource] = useState("huggingface")
   const [mineruModelsDir, setMineruModelsDir] = useState("")
+  const [mineruMaxConcurrentJobs, setMineruMaxConcurrentJobs] = useState("2")
+  const [mineruHealthCheckInterval, setMineruHealthCheckInterval] = useState("30")
+  const [mineruAutoRestartMaxRetries, setMineruAutoRestartMaxRetries] = useState("3")
 
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
@@ -76,6 +79,9 @@ export default function MineruTab() {
       setMineruInstallMethod(settingsMap.get("mineru.install_method") || "pip")
       setMineruModelSource(settingsMap.get("mineru.model_source") || "huggingface")
       setMineruModelsDir(settingsMap.get("mineru.models_dir") || "")
+      setMineruMaxConcurrentJobs(settingsMap.get("mineru.max_concurrent_parse_jobs") || "2")
+      setMineruHealthCheckInterval(settingsMap.get("mineru.health_check_interval_secs") || "30")
+      setMineruAutoRestartMaxRetries(settingsMap.get("mineru.auto_restart_max_retries") || "3")
       setMineruSettingsLoaded(true)
     }
   }, [
@@ -144,6 +150,9 @@ export default function MineruTab() {
       await api.setAppSetting("mineru.install_method", mineruInstallMethod)
       await api.setAppSetting("mineru.model_source", mineruModelSource)
       await api.setAppSetting("mineru.models_dir", mineruModelSource === "local" ? mineruModelsDir.trim() : "")
+      await api.setAppSetting("mineru.max_concurrent_parse_jobs", mineruMaxConcurrentJobs)
+      await api.setAppSetting("mineru.health_check_interval_secs", mineruHealthCheckInterval)
+      await api.setAppSetting("mineru.auto_restart_max_retries", mineruAutoRestartMaxRetries)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appSettings"] })
@@ -307,6 +316,11 @@ export default function MineruTab() {
               ) : (
                 <Badge variant="outline">
                   {t("mineru.builtin.status_stopped")}
+                </Badge>
+              )}
+              {(mineruStatus?.restart_count ?? 0) > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  {t("mineru.builtin.restart_count", { count: mineruStatus?.restart_count })}
                 </Badge>
               )}
             </div>
@@ -567,6 +581,62 @@ export default function MineruTab() {
                 checked={mineruAutoStart}
                 onCheckedChange={setMineruAutoStart}
               />
+            </div>
+
+            {/* Stability & Performance */}
+            <div className="space-y-4 border rounded-lg p-4 bg-background/50">
+              <div>
+                <p className="font-medium text-sm">{t("mineru.builtin.stability.title")}</p>
+                <p className="text-xs text-muted-foreground">{t("mineru.builtin.stability.description")}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("mineru.builtin.stability.max_concurrent_label")}</Label>
+                <Input
+                  data-setting-key="mineru.max_concurrent_parse_jobs"
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={mineruMaxConcurrentJobs}
+                  onChange={(e) => setMineruMaxConcurrentJobs(e.target.value)}
+                  className="w-24"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("mineru.builtin.stability.max_concurrent_hint")}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("mineru.builtin.stability.health_check_interval_label")}</Label>
+                <Input
+                  data-setting-key="mineru.health_check_interval_secs"
+                  type="number"
+                  min={10}
+                  max={300}
+                  value={mineruHealthCheckInterval}
+                  onChange={(e) => setMineruHealthCheckInterval(e.target.value)}
+                  className="w-24"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("mineru.builtin.stability.health_check_interval_hint")}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("mineru.builtin.stability.auto_restart_max_retries_label")}</Label>
+                <Input
+                  data-setting-key="mineru.auto_restart_max_retries"
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={mineruAutoRestartMaxRetries}
+                  onChange={(e) => setMineruAutoRestartMaxRetries(e.target.value)}
+                  className="w-24"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("mineru.builtin.stability.auto_restart_max_retries_hint")}
+                </p>
+              </div>
             </div>
 
             {/* Start/Stop buttons */}

@@ -49,6 +49,7 @@ export default function GeneralTab() {
   const [startSilent, setStartSilent] = useState(false)
   const [checkUpdatesOnStartup, setCheckUpdatesOnStartup] = useState(false)
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false)
+  const [acceptPrereleaseUpdates, setAcceptPrereleaseUpdates] = useState(false)
 
   useEffect(() => {
     const handleThemeChange = (event: Event) => {
@@ -89,6 +90,9 @@ export default function GeneralTab() {
         setStartSilent(settingsMap.get("general.start_silent") === "true")
         setCheckUpdatesOnStartup(settingsMap.get("general.check_updates_on_startup") === "true")
         setAutoUpdateEnabled(settingsMap.get("general.auto_update") === "true")
+        setAcceptPrereleaseUpdates(
+          settingsMap.get("general.accept_prerelease_updates") === "true"
+        )
 
         try {
           const enabled = await isAutostartEnabled()
@@ -157,6 +161,10 @@ export default function GeneralTab() {
         checkUpdatesOnStartup ? "true" : "false"
       )
       await api.setAppSetting("general.auto_update", autoUpdateEnabled ? "true" : "false")
+      await api.setAppSetting(
+        "general.accept_prerelease_updates",
+        acceptPrereleaseUpdates ? "true" : "false"
+      )
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appSettings"] })
@@ -249,6 +257,22 @@ export default function GeneralTab() {
             />
           </div>
           <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+            <div className="pr-4">
+              <p className="text-sm font-medium">{t("general.accept_prerelease_updates")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("general.accept_prerelease_updates_desc")}
+              </p>
+              <p className="mt-1 text-xs text-amber-600">
+                {t("general.accept_prerelease_updates_risk")}
+              </p>
+            </div>
+            <Switch
+              data-setting-key="general.accept_prerelease_updates"
+              checked={acceptPrereleaseUpdates}
+              onCheckedChange={setAcceptPrereleaseUpdates}
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
             <div>
               <p className="text-sm font-medium">{t("general.update")}</p>
               <p className="text-xs text-muted-foreground">{t("general.update_desc")}</p>
@@ -263,6 +287,11 @@ export default function GeneralTab() {
               {updateStatus === "available" && (
                 <p className="text-xs text-green-500 mt-1">
                   {t("general.update_available", { version: updateVersion })}
+                </p>
+              )}
+              {updateStatus === "available" && updateVersion.includes("-") && (
+                <p className="text-xs text-amber-600 mt-1">
+                  {t("general.update_prerelease_notice")}
                 </p>
               )}
               {(updateStatus === "available" || updateStatus === "restart_required") && updateBody && (
