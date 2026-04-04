@@ -255,6 +255,12 @@ export default {
       python_path_label: "Python 可执行文件路径",
       python_path_placeholder: "python3",
       port_label: "端口",
+      parse_backend_label: "解析后端",
+      parse_backend_vlm: "VLM（推荐）",
+      parse_backend_pipeline: "Pipeline",
+      parse_backend_auto: "自动（基于硬件检测）",
+      parse_backend_hint:
+        "VLM 使用视觉语言模型，精度更高。Pipeline 使用传统版面分析。自动则根据硬件能力选择。",
       auto_start_label: "启动时自动开启",
       auto_start_description: "应用打开时自动启动 MinerU",
       status_label: "状态",

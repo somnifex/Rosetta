@@ -48,6 +48,7 @@ export default function MineruTab() {
   const [mineruMaxConcurrentJobs, setMineruMaxConcurrentJobs] = useState("2")
   const [mineruHealthCheckInterval, setMineruHealthCheckInterval] = useState("30")
   const [mineruAutoRestartMaxRetries, setMineruAutoRestartMaxRetries] = useState("3")
+  const [mineruParseBackend, setMineruParseBackend] = useState("vlm")
 
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
@@ -82,6 +83,7 @@ export default function MineruTab() {
       setMineruMaxConcurrentJobs(settingsMap.get("mineru.max_concurrent_parse_jobs") || "2")
       setMineruHealthCheckInterval(settingsMap.get("mineru.health_check_interval_secs") || "30")
       setMineruAutoRestartMaxRetries(settingsMap.get("mineru.auto_restart_max_retries") || "3")
+      setMineruParseBackend(settingsMap.get("mineru.parse_backend") || "vlm")
       setMineruSettingsLoaded(true)
     }
   }, [
@@ -153,6 +155,7 @@ export default function MineruTab() {
       await api.setAppSetting("mineru.max_concurrent_parse_jobs", mineruMaxConcurrentJobs)
       await api.setAppSetting("mineru.health_check_interval_secs", mineruHealthCheckInterval)
       await api.setAppSetting("mineru.auto_restart_max_retries", mineruAutoRestartMaxRetries)
+      await api.setAppSetting("mineru.parse_backend", mineruParseBackend)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appSettings"] })
@@ -350,6 +353,22 @@ export default function MineruTab() {
                 onChange={(e) => setMineruPort(e.target.value)}
                 className="w-32"
               />
+            </div>
+
+            {/* Parse Backend */}
+            <div className="space-y-2">
+              <Label>{t("mineru.builtin.parse_backend_label")}</Label>
+              <select
+                data-setting-key="mineru.parse_backend"
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                value={mineruParseBackend}
+                onChange={(e) => setMineruParseBackend(e.target.value)}
+              >
+                <option value="vlm">{t("mineru.builtin.parse_backend_vlm")}</option>
+                <option value="pipeline">{t("mineru.builtin.parse_backend_pipeline")}</option>
+                <option value="auto">{t("mineru.builtin.parse_backend_auto")}</option>
+              </select>
+              <p className="text-xs text-muted-foreground">{t("mineru.builtin.parse_backend_hint")}</p>
             </div>
 
             {/* Python Environment Setup */}

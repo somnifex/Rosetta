@@ -4492,10 +4492,19 @@ async fn execute_parse_job_with_selected_backend(
         .mineru_manager
         .get_effective_url(state.settings.as_ref())?;
     let _ = update_parse_job_runtime_progress(state, job_id, 8.0);
-    let client = if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
-        crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
+    let parse_backend = normalize_optional_string(
+        get_setting_value(state.settings.as_ref(), "mineru.parse_backend")?,
+    )
+    .unwrap_or_else(|| "vlm".to_string());
+
+    let client = if parse_backend == "auto" {
+        if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
+            crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
+        } else {
+            crate::mineru::MinerUClient::new(mineru_url)
+        }
     } else {
-        crate::mineru::MinerUClient::new(mineru_url)
+        crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(parse_backend)
     };
 
     log::info!(

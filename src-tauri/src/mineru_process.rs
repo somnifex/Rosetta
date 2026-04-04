@@ -1976,7 +1976,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             // Install from cloned repo with build isolation disabled
             install_args.push("--no-build-isolation".to_string());
             install_args.extend(build_pip_index_args(&pip_index_url));
-            install_args.push(".[core]".to_string());
+            install_args.push(".[all]".to_string());
 
             let mut install_command = Command::new(&venv_python_str);
             install_command.args(&install_args).current_dir(&repo_dir);
@@ -2312,12 +2312,16 @@ pub async fn download_mineru_models(
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
     let venv_dir = crate::app_dirs::mineru_venv_dir(&app_dir);
 
-    let (use_venv, model_source) = {
+    let (use_venv, model_source, parse_backend) = {
         let use_venv = get_setting_value(&state.settings, "mineru.use_venv")
             .unwrap_or_else(|| "false".to_string());
         let model_source = get_setting_value(&state.settings, "mineru.model_source")
             .unwrap_or_else(|| "huggingface".to_string());
-        (use_venv == "true", model_source)
+        let parse_backend = get_setting_value(&state.settings, "mineru.parse_backend")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "vlm".to_string());
+        (use_venv == "true", model_source, parse_backend)
     };
 
     // Default models dir to app_data_dir/mineru_models for clean uninstall
@@ -2381,7 +2385,8 @@ pub async fn download_mineru_models(
         } else {
             &model_source
         };
-        command.args(["--source", effective_source, "--model_type", "pipeline"]);
+        let model_type = if parse_backend == "vlm" { "vlm" } else { "pipeline" };
+        command.args(["--source", effective_source, "--model_type", model_type]);
         // Also set env var for older MinerU versions that read it
         if model_source != "huggingface" {
             command.env("MINERU_MODEL_SOURCE", &model_source);

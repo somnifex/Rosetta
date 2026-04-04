@@ -251,6 +251,12 @@ export default {
       python_path_label: "Ejecutable de Python",
       python_path_placeholder: "python3",
       port_label: "Puerto",
+      parse_backend_label: "Parse Backend",
+      parse_backend_vlm: "VLM (recommended)",
+      parse_backend_pipeline: "Pipeline",
+      parse_backend_auto: "Auto (hardware detection)",
+      parse_backend_hint:
+        "VLM uses vision language models for higher accuracy. Pipeline uses traditional layout analysis. Auto selects based on hardware capabilities.",
       auto_start_label: "Iniciar automáticamente al abrir",
       auto_start_description: "Inicia MinerU automáticamente al abrir la aplicación",
       status_label: "Estado",

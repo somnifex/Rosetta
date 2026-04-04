@@ -250,6 +250,12 @@ export default {
       python_path_label: "ملف Python التنفيذي",
       python_path_placeholder: "python3",
       port_label: "المنفذ",
+      parse_backend_label: "Parse Backend",
+      parse_backend_vlm: "VLM (recommended)",
+      parse_backend_pipeline: "Pipeline",
+      parse_backend_auto: "Auto (hardware detection)",
+      parse_backend_hint:
+        "VLM uses vision language models for higher accuracy. Pipeline uses traditional layout analysis. Auto selects based on hardware capabilities.",
       auto_start_label: "بدء تلقائي عند الفتح",
       auto_start_description: "بدء MinerU تلقائياً عند فتح التطبيق",
       status_label: "الحالة",

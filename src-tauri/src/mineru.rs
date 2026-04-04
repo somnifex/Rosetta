@@ -110,13 +110,16 @@ impl MinerUClient {
             Ok(Some(result)) => return Ok(result),
             Ok(None) => {}
             Err(err) => {
-                if self.preferred_backend.as_deref() == Some("hybrid-auto-engine") {
+                if matches!(self.preferred_backend.as_deref(), Some("hybrid-auto-engine") | Some("vlm")) {
+                    let fallback = "pipeline";
                     log::warn!(
-                        "MinerU modern parse flow failed with hybrid-auto-engine, retrying with pipeline: {}",
+                        "MinerU modern parse flow failed with {}, retrying with {}: {}",
+                        self.preferred_backend.as_deref().unwrap_or("unknown"),
+                        fallback,
                         err
                     );
                     match self
-                        .try_parse_with_modern_endpoint(file_path, Some("pipeline"))
+                        .try_parse_with_modern_endpoint(file_path, Some(fallback))
                         .await
                     {
                         Ok(Some(result)) => return Ok(result),
