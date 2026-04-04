@@ -140,14 +140,36 @@ impl MinerUClient {
         file_path: &Path,
         backend: Option<&str>,
     ) -> Result<Option<ParseExecution>, String> {
+        let mut tasks_error: Option<String> = None;
+
         match self.try_parse_with_tasks_endpoint(file_path, backend).await {
             Ok(Some(result)) => return Ok(Some(result)),
             Ok(None) => {}
-            Err(err) => return Err(err),
+            Err(err) => {
+                log::warn!(
+                    "MinerU /tasks parse flow failed, falling back to /file_parse: {}",
+                    err
+                );
+                tasks_error = Some(err);
+            }
         }
 
-        self.try_parse_with_file_parse_endpoint(file_path, backend)
+        match self
+            .try_parse_with_file_parse_endpoint(file_path, backend)
             .await
+        {
+            Ok(result) => Ok(result),
+            Err(file_parse_err) => {
+                if let Some(tasks_error) = tasks_error {
+                    Err(format!(
+                        "MinerU modern endpoints failed. /tasks: {}; /file_parse: {}",
+                        tasks_error, file_parse_err
+                    ))
+                } else {
+                    Err(file_parse_err)
+                }
+            }
+        }
     }
 
     async fn try_parse_with_tasks_endpoint(

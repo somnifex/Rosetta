@@ -66,6 +66,7 @@ pub struct MinerUProcessManager {
     process: Mutex<Option<Child>>,
     status: Mutex<String>,
     port: Mutex<Option<u16>>,
+    owned_by_app: Mutex<bool>,
     error: Mutex<Option<String>>,
     runtime_profile: Mutex<Option<MinerURuntimeProfile>>,
     restart_count: Mutex<u32>,
@@ -253,10 +254,6 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
     }
 }
 
-pub fn venv_python_path_pub(venv_dir: &Path) -> PathBuf {
-    venv_python_path(venv_dir)
-}
-
 fn venv_script_path(venv_dir: &Path, script_name: &str) -> PathBuf {
     if cfg!(windows) {
         venv_dir
@@ -273,6 +270,7 @@ impl MinerUProcessManager {
             process: Mutex::new(None),
             status: Mutex::new("stopped".to_string()),
             port: Mutex::new(None),
+            owned_by_app: Mutex::new(false),
             error: Mutex::new(None),
             runtime_profile: Mutex::new(None),
             restart_count: Mutex::new(0),
@@ -316,12 +314,10 @@ impl MinerUProcessManager {
             runtime_profile.reason
         );
         if local_mineru_health_check(requested_port, LOCAL_MINERU_HEALTH_TIMEOUT) {
-            log::info!(
-                "Reusing existing healthy MinerU service on configured port {}.",
+            log::warn!(
+                "Configured MinerU port {} is already occupied by a healthy service. Rosetta will start its own managed MinerU process on a nearby free port instead of taking over an external process.",
                 requested_port
             );
-            self.remember_running_service(requested_port, Some(runtime_profile))?;
-            return Ok(requested_port);
         }
 
         // Find available port only after checking whether we can reuse the
@@ -469,6 +465,8 @@ impl MinerUProcessManager {
             *proc = Some(child);
             let mut port = self.port.lock().map_err(|e| e.to_string())?;
             *port = Some(actual_port);
+            let mut owned = self.owned_by_app.lock().map_err(|e| e.to_string())?;
+            *owned = true;
         }
 
         // Wait for health check (up to 30 seconds)
@@ -575,6 +573,14 @@ impl MinerUProcessManager {
     }
 
     fn stop_internal(&self) -> Result<(), String> {
+        let owned_by_app = *self.owned_by_app.lock().map_err(|e| e.to_string())?;
+
+        if !owned_by_app {
+            let mut proc = self.process.lock().map_err(|e| e.to_string())?;
+            *proc = None;
+            return Ok(());
+        }
+
         let port_to_cleanup = *self.port.lock().map_err(|e| e.to_string())?;
         let mut proc = self.process.lock().map_err(|e| e.to_string())?;
         if let Some(ref mut child) = *proc {
@@ -608,6 +614,8 @@ impl MinerUProcessManager {
         *status = "stopped".to_string();
         let mut port = self.port.lock().map_err(|e| e.to_string())?;
         *port = None;
+        let mut owned = self.owned_by_app.lock().map_err(|e| e.to_string())?;
+        *owned = false;
         let mut error = self.error.lock().map_err(|e| e.to_string())?;
         *error = None;
         let mut runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
@@ -724,9 +732,6 @@ impl MinerUProcessManager {
 
         match mode.as_str() {
             "builtin" => {
-                let configured_port = get_setting_value(settings, "mineru.port")
-                    .and_then(|value| value.trim().parse::<u16>().ok())
-                    .unwrap_or(8765);
                 let status = self.status.lock().map_err(|e| e.to_string())?.clone();
                 let current_port = *self.port.lock().map_err(|e| e.to_string())?;
 
@@ -736,26 +741,11 @@ impl MinerUProcessManager {
                             return Ok(local_mineru_base_url(port));
                         }
 
-                        log::warn!(
-                            "MinerU process manager expected port {} to be healthy, but /health did not respond. Trying to recover a healthy local MinerU service.",
+                        return Err(format!(
+                            "Built-in MinerU process on port {} is not responding. Stop and restart it in Settings.",
                             port
-                        );
+                        ));
                     }
-                }
-
-                if let Some(port) = find_healthy_local_mineru_port(configured_port) {
-                    if current_port.is_some() && current_port != Some(port) {
-                        let _ = self.stop_internal();
-                    }
-                    self.remember_running_service(port, None)?;
-                    if port != configured_port {
-                        log::warn!(
-                            "Recovered a healthy MinerU service on nearby port {} after the configured builtin port {} became unavailable.",
-                            port,
-                            configured_port
-                        );
-                    }
-                    return Ok(local_mineru_base_url(port));
                 }
 
                 if let Ok(url) = std::env::var("MINERU_URL") {
@@ -780,30 +770,6 @@ impl MinerUProcessManager {
         }
     }
 
-    fn remember_running_service(
-        &self,
-        port: u16,
-        runtime_profile: Option<MinerURuntimeProfile>,
-    ) -> Result<(), String> {
-        let mut status = self.status.lock().map_err(|e| e.to_string())?;
-        *status = "running".to_string();
-        drop(status);
-
-        let mut stored_port = self.port.lock().map_err(|e| e.to_string())?;
-        *stored_port = Some(port);
-        drop(stored_port);
-
-        let mut error = self.error.lock().map_err(|e| e.to_string())?;
-        *error = None;
-        drop(error);
-
-        if let Some(profile) = runtime_profile {
-            let mut stored_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
-            *stored_profile = Some(profile);
-        }
-
-        Ok(())
-    }
 }
 
 fn find_available_port(start_port: u16) -> Option<u16> {
@@ -818,16 +784,6 @@ fn find_available_port(start_port: u16) -> Option<u16> {
 
 fn local_mineru_base_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
-}
-
-fn find_healthy_local_mineru_port(start_port: u16) -> Option<u16> {
-    for offset in 0..LOCAL_MINERU_PORT_SCAN_WINDOW {
-        let port = start_port + offset;
-        if local_mineru_health_check(port, LOCAL_MINERU_HEALTH_TIMEOUT) {
-            return Some(port);
-        }
-    }
-    None
 }
 
 fn local_mineru_health_check(port: u16, timeout: Duration) -> bool {
@@ -1564,10 +1520,14 @@ fn check_python_version(python_cmd: &str) -> Result<String, String> {
         .get(1)
         .ok_or_else(|| format!("Failed to parse Python version from '{}'", version))?;
 
-    if major != 3 || !(10..=13).contains(&minor) {
+    let supported_range = if cfg!(windows) { 10..=12 } else { 10..=13 };
+
+    if major != 3 || !supported_range.contains(&minor) {
         return Err(format!(
-            "MinerU requires Python 3.10-3.13, but '{}' resolved to Python {}. Please choose a compatible interpreter and try again.",
-            python_cmd, version
+            "MinerU requires Python 3.10-{} on this platform, but '{}' resolved to Python {}. Please choose a compatible interpreter and try again.",
+            if cfg!(windows) { 12 } else { 13 },
+            python_cmd,
+            version
         ));
     }
 
@@ -1600,9 +1560,8 @@ pub fn get_all_app_settings(state: State<AppState>) -> Result<Vec<AppSettingRow>
 
 // --- MinerU Lifecycle Commands ---
 
-#[tauri::command]
-pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
-    let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
+pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
+    let app_dir = state.app_dir.clone();
     let venv_dir = crate::app_dirs::mineru_venv_dir(&app_dir);
 
     let (python_path, port_str, use_venv, model_source, models_dir_raw, pip_index_url) = {
@@ -1688,13 +1647,13 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
                 &pip_index_url,
                 &missing_modules,
             )
-                .await
-                .map_err(|error| {
-                    format!(
-                        "{}. Run Setup Environment again if the built-in MinerU environment is still broken.",
-                        error
-                    )
-                })?;
+            .await
+            .map_err(|error| {
+                format!(
+                    "{}. Run Setup Environment again if the built-in MinerU environment is still broken.",
+                    error
+                )
+            })?;
 
             required_mineru_modules_ready(&python_path).map_err(|error| {
                 format!(
@@ -1718,7 +1677,8 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
     } else {
         None
     };
-    let actual_port = state
+
+    state
         .mineru_manager
         .start(
             &app_dir,
@@ -1729,7 +1689,13 @@ pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<
             &model_source,
             &models_dir,
         )
-        .await?;
+        .await
+}
+
+#[tauri::command]
+pub async fn start_mineru(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    let _ = app;
+    let actual_port = start_mineru_with_state(state.inner()).await?;
 
     Ok(format!("MinerU started on port {}", actual_port))
 }

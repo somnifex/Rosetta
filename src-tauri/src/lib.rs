@@ -310,45 +310,23 @@ pub fn run() {
             }
 
             let settings_for_autostart = Arc::clone(&settings_manager);
-            let manager_for_autostart = Arc::clone(&mineru_manager);
-            let app_dir_for_autostart = app_dir.clone();
+            let app_handle_for_autostart = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let (mode, auto_start, python_path, port_str, use_venv, model_source, models_dir) = {
+                let (mode, auto_start) = {
                     let mode = settings_for_autostart.get_with_default("mineru.mode", "builtin");
                     let auto_start = settings_for_autostart.get_with_default("mineru.auto_start", "false");
-                    let use_venv_str = settings_for_autostart.get_with_default("mineru.use_venv", "false");
-                    let use_venv = use_venv_str == "true";
-                    let python_path = if use_venv {
-                        let venv_dir = app_dirs::mineru_venv_dir(&app_dir_for_autostart);
-                        let venv_python = mineru_process::venv_python_path_pub(&venv_dir);
-                        if venv_python.exists() {
-                            venv_python.to_str().unwrap_or("python").to_string()
-                        } else {
-                            log::warn!("use_venv is true but venv python not found, falling back to system python");
-                            settings_for_autostart.get_with_default("mineru.python_path", if cfg!(windows) { "python" } else { "python3" })
-                        }
-                    } else {
-                        settings_for_autostart.get_with_default("mineru.python_path", if cfg!(windows) { "python" } else { "python3" })
-                    };
-                    let port_str = settings_for_autostart.get_with_default("mineru.port", "8765");
-                    let model_source = settings_for_autostart.get_with_default("mineru.model_source", "huggingface");
-                    let models_dir = settings_for_autostart.get_with_default("mineru.models_dir", "");
-                    let models_dir = if model_source == "local" && !models_dir.trim().is_empty() {
-                        models_dir
-                    } else {
-                        app_dirs::mineru_models_dir(&app_dir_for_autostart).to_str().unwrap_or_default().to_string()
-                    };
-                    (mode, auto_start, python_path, port_str, use_venv, model_source, models_dir)
+                    (mode, auto_start)
                 };
 
                 if mode == "builtin" && auto_start == "true" {
-                    let port: u16 = port_str.parse().unwrap_or(8765);
-                    log::info!("Auto-starting MinerU on port {}...", port);
-                    let venv_dir = app_dirs::mineru_venv_dir(&app_dir_for_autostart);
-                    let venv_path = if use_venv { Some(venv_dir.as_path()) } else { None };
-                    match manager_for_autostart.start(&app_dir_for_autostart, &python_path, port, use_venv, venv_path, &model_source, &models_dir).await {
-                        Ok(p) => log::info!("MinerU auto-started on port {}", p),
-                        Err(e) => log::error!("Failed to auto-start MinerU: {}", e),
+                    if let Some(state) = app_handle_for_autostart.try_state::<AppState>() {
+                        log::info!("Auto-starting MinerU with unified startup validation...");
+                        match mineru_process::start_mineru_with_state(state.inner()).await {
+                            Ok(port) => log::info!("MinerU auto-started on port {}", port),
+                            Err(e) => log::error!("Failed to auto-start MinerU: {}", e),
+                        }
+                    } else {
+                        log::error!("Failed to auto-start MinerU: app state is not available.");
                     }
                 }
             });
