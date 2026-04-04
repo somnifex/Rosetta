@@ -678,7 +678,18 @@ impl MinerUProcessManager {
         }
 
         // Clean up the crashed process
-        let _ = self.stop_internal();
+        if let Err(error) = self.stop() {
+            log::warn!(
+                "MinerU auto-restart could not fully stop the previous process cleanly: {}",
+                error
+            );
+            if let Ok(mut status) = self.status.lock() {
+                *status = "stopped".to_string();
+            }
+            if let Ok(mut port) = self.port.lock() {
+                *port = None;
+            }
+        }
 
         let venv_path = params.venv_dir.as_deref();
         match self

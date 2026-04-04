@@ -356,6 +356,7 @@ pub fn run() {
             // Background health monitor for MinerU
             let manager_for_health = Arc::clone(&mineru_manager);
             let settings_for_health = Arc::clone(&settings_manager);
+            let app_handle_for_health = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     let interval_secs = settings_for_health
@@ -383,6 +384,26 @@ pub fn run() {
                     let Some(port) = status_response.port else {
                         continue;
                     };
+
+                    let active_parse_jobs = app_handle_for_health
+                        .try_state::<AppState>()
+                        .and_then(|state| {
+                            state
+                                .parse_job_handles
+                                .lock()
+                                .ok()
+                                .map(|handles| handles.len())
+                        })
+                        .unwrap_or(0);
+
+                    if active_parse_jobs > 0 {
+                        log::debug!(
+                            "Skipping MinerU background health probe on port {} because {} parse job(s) are active.",
+                            port,
+                            active_parse_jobs
+                        );
+                        continue;
+                    }
 
                     let is_healthy = mineru_process::local_mineru_health_check_pub(
                         port,
