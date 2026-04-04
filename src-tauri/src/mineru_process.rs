@@ -1,6 +1,7 @@
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -30,6 +31,8 @@ const AUTO_ENGINE_MIN_VRAM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const APPLE_SILICON_AUTO_ENGINE_MIN_RAM_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 const MODEL_SCAN_MAX_DEPTH: usize = 12;
 const MODEL_SCAN_MAX_ENTRIES: usize = 20000;
+const LOCAL_MINERU_HEALTH_TIMEOUT: Duration = Duration::from_millis(750);
+const LOCAL_MINERU_PORT_SCAN_WINDOW: u16 = 10;
 const REQUIRED_MINERU_MODULES: &[&str] = &["mineru", "albumentations"];
 const KNOWN_MODEL_EXTENSIONS: &[&str] = &[
     "safetensors",
@@ -293,11 +296,6 @@ impl MinerUProcessManager {
             *runtime_profile = None;
         }
 
-        // Find available port
-        let actual_port = find_available_port(requested_port)
-            .ok_or_else(|| "Could not find an available port".to_string())?;
-
-        let port_str = actual_port.to_string();
         let runtime_profile = detect_mineru_runtime_profile(python_path);
         log::info!(
             "MinerU runtime profile detected: backend={}, device_mode={:?}, reason={}",
@@ -305,6 +303,20 @@ impl MinerUProcessManager {
             runtime_profile.device_mode,
             runtime_profile.reason
         );
+        if local_mineru_health_check(requested_port, LOCAL_MINERU_HEALTH_TIMEOUT) {
+            log::info!(
+                "Reusing existing healthy MinerU service on configured port {}.",
+                requested_port
+            );
+            self.remember_running_service(requested_port, Some(runtime_profile))?;
+            return Ok(requested_port);
+        }
+
+        // Find available port only after checking whether we can reuse the
+        // configured builtin service directly.
+        let actual_port = find_available_port(requested_port)
+            .ok_or_else(|| "Could not find an available port".to_string())?;
+        let port_str = actual_port.to_string();
         {
             let mut profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
             *profile = Some(runtime_profile.clone());
@@ -602,13 +614,40 @@ impl MinerUProcessManager {
 
         match mode.as_str() {
             "builtin" => {
-                let status = self.status.lock().map_err(|e| e.to_string())?;
-                if *status == "running" {
-                    let port = self.port.lock().map_err(|e| e.to_string())?;
-                    if let Some(p) = *port {
-                        return Ok(format!("http://127.0.0.1:{}", p));
+                let configured_port = get_setting_value(settings, "mineru.port")
+                    .and_then(|value| value.trim().parse::<u16>().ok())
+                    .unwrap_or(8765);
+                let status = self.status.lock().map_err(|e| e.to_string())?.clone();
+                let current_port = *self.port.lock().map_err(|e| e.to_string())?;
+
+                if status == "running" {
+                    if let Some(port) = current_port {
+                        if local_mineru_health_check(port, LOCAL_MINERU_HEALTH_TIMEOUT) {
+                            return Ok(local_mineru_base_url(port));
+                        }
+
+                        log::warn!(
+                            "MinerU process manager expected port {} to be healthy, but /health did not respond. Trying to recover a healthy local MinerU service.",
+                            port
+                        );
                     }
                 }
+
+                if let Some(port) = find_healthy_local_mineru_port(configured_port) {
+                    if current_port.is_some() && current_port != Some(port) {
+                        let _ = self.stop_internal();
+                    }
+                    self.remember_running_service(port, None)?;
+                    if port != configured_port {
+                        log::warn!(
+                            "Recovered a healthy MinerU service on nearby port {} after the configured builtin port {} became unavailable.",
+                            port,
+                            configured_port
+                        );
+                    }
+                    return Ok(local_mineru_base_url(port));
+                }
+
                 if let Ok(url) = std::env::var("MINERU_URL") {
                     if !url.trim().is_empty() {
                         return Ok(url);
@@ -630,16 +669,82 @@ impl MinerUProcessManager {
             }
         }
     }
+
+    fn remember_running_service(
+        &self,
+        port: u16,
+        runtime_profile: Option<MinerURuntimeProfile>,
+    ) -> Result<(), String> {
+        let mut status = self.status.lock().map_err(|e| e.to_string())?;
+        *status = "running".to_string();
+        drop(status);
+
+        let mut stored_port = self.port.lock().map_err(|e| e.to_string())?;
+        *stored_port = Some(port);
+        drop(stored_port);
+
+        let mut error = self.error.lock().map_err(|e| e.to_string())?;
+        *error = None;
+        drop(error);
+
+        if let Some(profile) = runtime_profile {
+            let mut stored_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
+            *stored_profile = Some(profile);
+        }
+
+        Ok(())
+    }
 }
 
 fn find_available_port(start_port: u16) -> Option<u16> {
-    for offset in 0..10 {
+    for offset in 0..LOCAL_MINERU_PORT_SCAN_WINDOW {
         let port = start_port + offset;
         if TcpListener::bind(("127.0.0.1", port)).is_ok() {
             return Some(port);
         }
     }
     None
+}
+
+fn local_mineru_base_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
+}
+
+fn find_healthy_local_mineru_port(start_port: u16) -> Option<u16> {
+    for offset in 0..LOCAL_MINERU_PORT_SCAN_WINDOW {
+        let port = start_port + offset;
+        if local_mineru_health_check(port, LOCAL_MINERU_HEALTH_TIMEOUT) {
+            return Some(port);
+        }
+    }
+    None
+}
+
+fn local_mineru_health_check(port: u16, timeout: Duration) -> bool {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(stream) => stream,
+        Err(_) => return false,
+    };
+
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+
+    if stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+
+    let mut buf = [0u8; 512];
+    match stream.read(&mut buf) {
+        Ok(n) if n > 0 => {
+            let response = String::from_utf8_lossy(&buf[..n]);
+            response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200")
+        }
+        _ => false,
+    }
 }
 
 fn get_setting_value(settings: &crate::settings::SettingsManager, key: &str) -> Option<String> {

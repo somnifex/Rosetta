@@ -592,10 +592,7 @@ fn save_builtin_extraction_state_map(
     states: &HashMap<String, bool>,
 ) -> Result<(), String> {
     let serialized = serde_json::to_string(states).map_err(|e| e.to_string())?;
-    settings.set(
-        EXTRACTION_BUILTIN_STATE_SETTING_KEY.to_string(),
-        serialized,
-    )
+    settings.set(EXTRACTION_BUILTIN_STATE_SETTING_KEY.to_string(), serialized)
 }
 
 fn normalize_field_key(raw: &str) -> Result<String, String> {
@@ -653,7 +650,10 @@ fn normalize_requested_field_keys(
     let mut normalized = Vec::new();
     for field_key in field_keys {
         let normalized_key = normalize_field_key(&field_key)?;
-        if !normalized.iter().any(|existing| existing == &normalized_key) {
+        if !normalized
+            .iter()
+            .any(|existing| existing == &normalized_key)
+        {
             normalized.push(normalized_key);
         }
     }
@@ -890,7 +890,9 @@ fn resolve_extraction_provider_internal(
         Ok(sampling)
     };
 
-    if let Some(provider_id) = requested_provider_id.map(str::trim).filter(|value| !value.is_empty())
+    if let Some(provider_id) = requested_provider_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
     {
         let record = load_provider_record_by_id(conn, provider_id)?;
         if !record.is_active {
@@ -901,8 +903,8 @@ fn resolve_extraction_provider_internal(
         }
 
         let models = load_provider_models_for_provider(conn, provider_id)?;
-        let chat_model =
-            find_primary_model_for_type(&models, PROVIDER_MODEL_TYPE_CHAT).ok_or_else(|| {
+        let chat_model = find_primary_model_for_type(&models, PROVIDER_MODEL_TYPE_CHAT)
+            .ok_or_else(|| {
                 format!(
                     "Provider \"{}\" has no active chat model for extraction",
                     record.name
@@ -1490,19 +1492,19 @@ fn load_custom_extraction_templates_internal(
 
     let rows = stmt
         .query_map([], |row| {
-        Ok(ExtractionTemplate {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            field_key: row.get(2)?,
-            description: row.get(3)?,
-            system_prompt: row.get(4)?,
-            user_prompt: row.get(5)?,
-            is_enabled: row.get::<_, i32>(6)? != 0,
-            is_builtin: false,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
+            Ok(ExtractionTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                field_key: row.get(2)?,
+                description: row.get(3)?,
+                system_prompt: row.get(4)?,
+                user_prompt: row.get(5)?,
+                is_enabled: row.get::<_, i32>(6)? != 0,
+                is_builtin: false,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
         })
-    })
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
@@ -1630,7 +1632,11 @@ fn resolve_extraction_templates(
         .into_iter()
         .filter(|template| template.is_enabled)
         .collect::<Vec<_>>();
-    resolved.extend(custom_templates.into_iter().filter(|template| template.is_enabled));
+    resolved.extend(
+        custom_templates
+            .into_iter()
+            .filter(|template| template.is_enabled),
+    );
 
     if resolved.is_empty() {
         return Err("No enabled extraction templates found".to_string());
@@ -1654,17 +1660,17 @@ fn load_document_metadata_rows_internal(
 
     let rows = stmt
         .query_map([document_id], |row| {
-        Ok(DocumentMetadataField {
-            id: row.get(0)?,
-            document_id: row.get(1)?,
-            field_key: row.get(2)?,
-            field_value: row.get(3)?,
-            provider_id: row.get(4)?,
-            model_name: row.get(5)?,
-            extracted_at: row.get(6)?,
-            error: row.get(7)?,
+            Ok(DocumentMetadataField {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                field_key: row.get(2)?,
+                field_value: row.get(3)?,
+                provider_id: row.get(4)?,
+                model_name: row.get(5)?,
+                extracted_at: row.get(6)?,
+                error: row.get(7)?,
+            })
         })
-    })
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
@@ -4480,15 +4486,22 @@ async fn execute_parse_job_with_selected_backend(
         return execute_parse_job_with_official_api(state, job_id, document_id, file_path).await;
     }
 
+    let _ = update_parse_job_runtime_progress(state, job_id, 3.0);
     let mineru_url = state
         .mineru_manager
         .get_effective_url(state.settings.as_ref())?;
+    let _ = update_parse_job_runtime_progress(state, job_id, 8.0);
     let client = if let Some(profile) = state.mineru_manager.get_active_runtime_profile()? {
         crate::mineru::MinerUClient::new(mineru_url).with_parse_backend(profile.backend)
     } else {
         crate::mineru::MinerUClient::new(mineru_url)
     };
 
+    log::info!(
+        "Dispatching parse job {} for document {} to MinerU.",
+        job_id,
+        document_id
+    );
     let crate::mineru::ParseExecution {
         parse_result,
         archive_bytes,
@@ -4779,7 +4792,9 @@ async fn extract_document_fields_internal(
     };
 
     if extraction_input.trim().is_empty() {
-        return Err("Parsed content is empty and cannot be used for metadata extraction".to_string());
+        return Err(
+            "Parsed content is empty and cannot be used for metadata extraction".to_string(),
+        );
     }
 
     log::info!(
@@ -4913,7 +4928,11 @@ pub fn create_extraction_template(
             &normalize_optional_string(input.description),
             system_prompt,
             user_prompt,
-            if input.is_enabled.unwrap_or(true) { 1 } else { 0 },
+            if input.is_enabled.unwrap_or(true) {
+                1
+            } else {
+                0
+            },
             &now,
         ),
     )
@@ -5070,7 +5089,8 @@ pub fn get_all_documents_metadata(
             continue;
         }
 
-        let rows = load_document_metadata_with_backfill_internal(conn, &state.app_dir, &document_id)?;
+        let rows =
+            load_document_metadata_with_backfill_internal(conn, &state.app_dir, &document_id)?;
         if !rows.is_empty() {
             metadata.insert(document_id, rows);
         }

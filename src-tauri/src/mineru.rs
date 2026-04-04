@@ -299,7 +299,13 @@ impl MinerUClient {
     pub async fn health_check(&self) -> Result<bool, String> {
         let url = format!("{}/health", self.base_url.trim_end_matches('/'));
 
-        match self.client.get(&url).send().await {
+        match self
+            .client
+            .get(&url)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+        {
             Ok(resp) => Ok(resp.status().is_success()),
             Err(_) => Ok(false),
         }
