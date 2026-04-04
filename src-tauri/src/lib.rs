@@ -389,8 +389,28 @@ pub fn run() {
                     );
 
                     if !is_healthy {
+                        let process_alive = match manager_for_health.managed_process_is_alive() {
+                            Ok(alive) => alive,
+                            Err(error) => {
+                                log::warn!(
+                                    "Periodic health check could not inspect the managed MinerU process on port {}: {}",
+                                    port,
+                                    error
+                                );
+                                continue;
+                            }
+                        };
+
+                        if process_alive {
+                            log::warn!(
+                                "Periodic health check: MinerU on port {} did not answer /health, but its managed process is still running. Skipping auto-restart while the process remains alive.",
+                                port
+                            );
+                            continue;
+                        }
+
                         log::warn!(
-                            "Periodic health check: MinerU on port {} is not responding.",
+                            "Periodic health check: MinerU on port {} is not responding and its managed process is no longer running.",
                             port
                         );
 

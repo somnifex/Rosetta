@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use zip::ZipArchive;
 
 const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const TASK_STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const TASK_RESULT_TIMEOUT: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Deserialize)]
@@ -110,7 +111,10 @@ impl MinerUClient {
             Ok(Some(result)) => return Ok(result),
             Ok(None) => {}
             Err(err) => {
-                if matches!(self.preferred_backend.as_deref(), Some("hybrid-auto-engine") | Some("vlm")) {
+                if matches!(
+                    self.preferred_backend.as_deref(),
+                    Some("hybrid-auto-engine") | Some("vlm")
+                ) {
                     let fallback = "pipeline";
                     log::warn!(
                         "MinerU modern parse flow failed with {}, retrying with {}: {}",
@@ -359,12 +363,30 @@ impl MinerUClient {
         let deadline = Instant::now() + TASK_RESULT_TIMEOUT;
 
         loop {
-            let response = self
+            let response = match self
                 .client
                 .get(status_url)
+                .timeout(TASK_STATUS_REQUEST_TIMEOUT)
                 .send()
                 .await
-                .map_err(|e| format!("Failed to query MinerU task status: {}", e))?;
+            {
+                Ok(response) => response,
+                Err(error) if error.is_timeout() => {
+                    if Instant::now() >= deadline {
+                        return Err("Timed out waiting for MinerU task completion.".to_string());
+                    }
+
+                    log::warn!(
+                        "MinerU task status poll timed out for {}. This can happen while MinerU is cold-starting models or busy inside a long-running parse; retrying until the task deadline.",
+                        status_url
+                    );
+                    tokio::time::sleep(TASK_STATUS_POLL_INTERVAL).await;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!("Failed to query MinerU task status: {}", error));
+                }
+            };
 
             if !response.status().is_success() {
                 return Err(read_error_response(response).await);

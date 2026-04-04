@@ -4492,9 +4492,10 @@ async fn execute_parse_job_with_selected_backend(
         .mineru_manager
         .get_effective_url(state.settings.as_ref())?;
     let _ = update_parse_job_runtime_progress(state, job_id, 8.0);
-    let parse_backend = normalize_optional_string(
-        get_setting_value(state.settings.as_ref(), "mineru.parse_backend")?,
-    )
+    let parse_backend = normalize_optional_string(get_setting_value(
+        state.settings.as_ref(),
+        "mineru.parse_backend",
+    )?)
     .unwrap_or_else(|| "vlm".to_string());
     let runtime_profile = state.mineru_manager.get_active_runtime_profile()?;
     let (resolved_backend, backend_note) =

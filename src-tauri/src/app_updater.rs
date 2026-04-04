@@ -233,7 +233,12 @@ mod tests {
 
     #[test]
     fn ignores_releases_without_latest_manifest_asset() {
-        let release = release("v0.3.0-beta.1", true, "2026-04-04T00:00:00Z", Some("notes.txt"));
+        let release = release(
+            "v0.3.0-beta.1",
+            true,
+            "2026-04-04T00:00:00Z",
+            Some("notes.txt"),
+        );
         assert!(release_manifest_url(&release).is_none());
     }
 
@@ -246,12 +251,7 @@ mod tests {
                 "2026-04-04T00:00:00Z",
                 Some("latest.json"),
             ),
-            release(
-                "v0.2.9",
-                false,
-                "2026-04-03T00:00:00Z",
-                Some("latest.json"),
-            ),
+            release("v0.2.9", false, "2026-04-03T00:00:00Z", Some("latest.json")),
         ];
 
         let selected =
@@ -264,12 +264,7 @@ mod tests {
     #[test]
     fn picks_highest_semver_release_when_prereleases_are_enabled() {
         let releases = vec![
-            release(
-                "v0.2.9",
-                false,
-                "2026-04-03T00:00:00Z",
-                Some("latest.json"),
-            ),
+            release("v0.2.9", false, "2026-04-03T00:00:00Z", Some("latest.json")),
             release(
                 "v0.3.0-beta.1",
                 true,

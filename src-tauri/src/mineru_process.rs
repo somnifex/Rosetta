@@ -640,6 +640,33 @@ impl MinerUProcessManager {
         })
     }
 
+    pub fn managed_process_is_alive(&self) -> Result<bool, String> {
+        let owned_by_app = *self.owned_by_app.lock().map_err(|e| e.to_string())?;
+        if !owned_by_app {
+            return Ok(false);
+        }
+
+        let mut process = self.process.lock().map_err(|e| e.to_string())?;
+        let Some(child) = process.as_mut() else {
+            return Ok(false);
+        };
+
+        match child.try_wait() {
+            Ok(Some(exit_status)) => {
+                log::warn!(
+                    "Managed MinerU process has already exited with {}.",
+                    exit_status
+                );
+                Ok(false)
+            }
+            Ok(None) => Ok(true),
+            Err(error) => Err(format!(
+                "Failed to inspect managed MinerU process state: {}",
+                error
+            )),
+        }
+    }
+
     pub fn get_active_runtime_profile(&self) -> Result<Option<MinerURuntimeProfile>, String> {
         let status = self.status.lock().map_err(|e| e.to_string())?;
         if *status != "running" {
@@ -659,7 +686,10 @@ impl MinerUProcessManager {
     /// Returns true if a restart was attempted, false if skipped (no params or max retries reached).
     pub async fn attempt_auto_restart(&self, max_retries: u32) -> bool {
         let params = {
-            let guard = self.last_start_params.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self
+                .last_start_params
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             guard.clone()
         };
         let Some(params) = params else {
@@ -769,7 +799,6 @@ impl MinerUProcessManager {
             }
         }
     }
-
 }
 
 fn find_available_port(start_port: u16) -> Option<u16> {
@@ -2349,7 +2378,11 @@ pub async fn download_mineru_models(
         } else {
             &model_source
         };
-        let model_type = if parse_backend == "vlm" { "vlm" } else { "pipeline" };
+        let model_type = if parse_backend == "vlm" {
+            "vlm"
+        } else {
+            "pipeline"
+        };
         command.args(["--source", effective_source, "--model_type", model_type]);
         // Also set env var for older MinerU versions that read it
         if model_source != "huggingface" {
