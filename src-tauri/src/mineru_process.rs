@@ -548,6 +548,7 @@ impl MinerUProcessManager {
     }
 
     fn stop_internal(&self) -> Result<(), String> {
+        let port_to_cleanup = *self.port.lock().map_err(|e| e.to_string())?;
         let mut proc = self.process.lock().map_err(|e| e.to_string())?;
         if let Some(ref mut child) = *proc {
             if let Some(pid) = child.id() {
@@ -563,6 +564,14 @@ impl MinerUProcessManager {
             }
         }
         *proc = None;
+        drop(proc);
+
+        if let Some(port) = port_to_cleanup {
+            if local_port_is_open(port, Duration::from_millis(250)) {
+                kill_processes_listening_on_port(port);
+            }
+        }
+
         Ok(())
     }
 
@@ -745,6 +754,11 @@ fn local_mineru_health_check(port: u16, timeout: Duration) -> bool {
         }
         _ => false,
     }
+}
+
+fn local_port_is_open(port: u16, timeout: Duration) -> bool {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    TcpStream::connect_timeout(&addr, timeout).is_ok()
 }
 
 fn get_setting_value(settings: &crate::settings::SettingsManager, key: &str) -> Option<String> {
@@ -1067,6 +1081,23 @@ fn kill_process_tree(pid: u32) {
 
 #[cfg(not(target_os = "windows"))]
 fn kill_process_tree(_pid: u32) {}
+
+#[cfg(target_os = "windows")]
+fn kill_processes_listening_on_port(port: u16) {
+    let script = format!(
+        "Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | \
+         Select-Object -ExpandProperty OwningProcess -Unique | \
+         ForEach-Object {{ Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }}"
+    );
+
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-Command", &script]);
+    hide_console_window!(cmd);
+    let _ = cmd.status();
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_processes_listening_on_port(_port: u16) {}
 
 #[cfg(target_os = "windows")]
 fn kill_lingering_processes_in_venv(venv_dir: &Path) {
