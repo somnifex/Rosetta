@@ -4563,6 +4563,27 @@ fn resolve_builtin_parse_backend(
     }
 }
 
+/// Errors containing any of these substrings are considered transient and
+/// eligible for automatic retry (e.g. MinerU is starting up or temporarily
+/// busy processing another task).
+const TRANSIENT_PARSE_ERROR_HINTS: &[&str] = &[
+    "not running",
+    "not responding",
+    "operation timed out",
+    "connection refused",
+    "Connection refused",
+    "error sending request",
+    "502 Bad Gateway",
+];
+const PARSE_JOB_MAX_RETRIES: u32 = 2;
+const PARSE_JOB_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn is_transient_parse_error(error: &str) -> bool {
+    TRANSIENT_PARSE_ERROR_HINTS
+        .iter()
+        .any(|hint| error.contains(hint))
+}
+
 async fn execute_parse_job(
     state: &AppState,
     app_dir: Option<&Path>,
@@ -4596,35 +4617,62 @@ async fn execute_parse_job(
         .map_err(|e| e.to_string())?
     };
     let file_path = PathBuf::from(file_path);
-    let result =
-        execute_parse_job_with_selected_backend(state, job_id, document_id, &file_path).await;
 
+    // Retry loop for transient MinerU errors (not running, busy, connection issues).
+    let mut last_error: Option<String> = None;
+    for attempt in 0..=PARSE_JOB_MAX_RETRIES {
+        if attempt > 0 {
+            let delay = PARSE_JOB_RETRY_DELAY;
+            log::warn!(
+                "Parse job {} attempt {} failed with transient error, retrying in {}s: {}",
+                job_id,
+                attempt,
+                delay.as_secs(),
+                last_error.as_deref().unwrap_or("unknown")
+            );
+            let _ = update_parse_job_runtime_progress(state, job_id, 1.0);
+            tokio::time::sleep(delay).await;
+        }
+
+        match execute_parse_job_with_selected_backend(state, job_id, document_id, &file_path).await
+        {
+            Ok(execution) => {
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                let conn = db.get_connection();
+                let now = Utc::now().to_rfc3339();
+                return persist_parse_job_success(
+                    conn, app_dir, job_id, document_id, execution, &now,
+                );
+            }
+            Err(error) => {
+                if attempt < PARSE_JOB_MAX_RETRIES && is_transient_parse_error(&error) {
+                    last_error = Some(error);
+                    continue;
+                }
+
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                let conn = db.get_connection();
+                let now = Utc::now().to_rfc3339();
+                if let Err(status_error) =
+                    mark_parse_job_failed(conn, job_id, document_id, &now, &error)
+                {
+                    return Err(format!(
+                        "{}; additionally failed to update parse job status: {}",
+                        error, status_error
+                    ));
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    // Should not reach here, but handle gracefully
+    let error = last_error.unwrap_or_else(|| "Parse job exhausted retries".to_string());
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
     let now = Utc::now().to_rfc3339();
-
-    let result = match result {
-        Ok(execution) => {
-            persist_parse_job_success(conn, app_dir, job_id, document_id, execution, &now)
-        }
-        Err(error) => Err(error),
-    };
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            if let Err(status_error) =
-                mark_parse_job_failed(conn, job_id, document_id, &now, &error)
-            {
-                return Err(format!(
-                    "{}; additionally failed to update parse job status: {}",
-                    error, status_error
-                ));
-            }
-
-            Err(error)
-        }
-    }
+    let _ = mark_parse_job_failed(conn, job_id, document_id, &now, &error);
+    Err(error)
 }
 
 #[tauri::command]

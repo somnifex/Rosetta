@@ -767,14 +767,12 @@ impl MinerUProcessManager {
 
                 if status == "running" {
                     if let Some(port) = current_port {
-                        if local_mineru_health_check(port, LOCAL_MINERU_HEALTH_TIMEOUT) {
-                            return Ok(local_mineru_base_url(port));
-                        }
-
-                        return Err(format!(
-                            "Built-in MinerU process on port {} is not responding. Stop and restart it in Settings.",
-                            port
-                        ));
+                        // Trust the manager status. MinerU's FastAPI server blocks
+                        // /health while processing tasks, so a synchronous health
+                        // check here would cause false negatives and fail parse jobs
+                        // that could otherwise succeed. The background health monitor
+                        // already detects genuinely unhealthy MinerU instances.
+                        return Ok(local_mineru_base_url(port));
                     }
                 }
 
