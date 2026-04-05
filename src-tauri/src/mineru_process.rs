@@ -9,7 +9,6 @@ use tauri::{AppHandle, State};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
-/// Hide console window on Windows.
 macro_rules! hide_console_window {
     ($cmd:expr) => {{
         #[cfg(target_os = "windows")]
@@ -134,7 +133,6 @@ pub struct MinerUModelManager {
     status: Mutex<String>,
     message: Mutex<String>,
     progress: Mutex<f64>,
-    /// Accumulates process output tail for error reporting.
     output_tail: Mutex<String>,
 }
 
@@ -198,13 +196,11 @@ impl MinerUModelManager {
         if let Ok(mut m) = self.message.lock() {
             *m = message.to_string();
         }
-        // Reset progress and output tail when status changes to non-downloading
         if status != "downloading" {
             if let Ok(mut p) = self.progress.lock() {
                 *p = if status == "completed" { 100.0 } else { 0.0 };
             }
         }
-        // Clear accumulated output when starting a new download
         if status == "downloading" {
             if let Ok(mut t) = self.output_tail.lock() {
                 t.clear();
@@ -221,14 +217,12 @@ impl MinerUModelManager {
         }
     }
 
-    /// Append output line to buffer (last ~2000 chars retained).
     pub fn append_output(&self, line: &str) {
         if let Ok(mut t) = self.output_tail.lock() {
             if !t.is_empty() {
                 t.push('\n');
             }
             t.push_str(line);
-            // Keep only the last ~2000 chars
             if t.len() > 2000 {
                 let start = t.len() - 2000;
                 *t = t[start..].to_string();
@@ -236,7 +230,6 @@ impl MinerUModelManager {
         }
     }
 
-    /// Get accumulated buffered output.
     pub fn get_output_tail(&self) -> String {
         self.output_tail
             .lock()
@@ -287,23 +280,21 @@ impl MinerUProcessManager {
         model_source: &str,
         models_dir: &str,
     ) -> Result<u16, String> {
-    // Check if already running
-    {
-        let status = self.status.lock().map_err(|e| e.to_string())?;
-        if *status == "running" || *status == "starting" {
-            return Err("MinerU is already running or starting".to_string());
+        {
+            let status = self.status.lock().map_err(|e| e.to_string())?;
+            if *status == "running" || *status == "starting" {
+                return Err("MinerU is already running or starting".to_string());
+            }
         }
-    }
 
-    // Set status to starting
-    {
-        let mut status = self.status.lock().map_err(|e| e.to_string())?;
-        *status = "starting".to_string();
-        let mut error = self.error.lock().map_err(|e| e.to_string())?;
-        *error = None;
-        let mut runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
-        *runtime_profile = None;
-    }
+        {
+            let mut status = self.status.lock().map_err(|e| e.to_string())?;
+            *status = "starting".to_string();
+            let mut error = self.error.lock().map_err(|e| e.to_string())?;
+            *error = None;
+            let mut runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
+            *runtime_profile = None;
+        }
 
         let runtime_profile = detect_mineru_runtime_profile(python_path);
         log::info!(
@@ -319,8 +310,6 @@ impl MinerUProcessManager {
             );
         }
 
-        // Find available port only after checking whether we can reuse the
-        // configured builtin service directly.
         let actual_port = find_available_port(requested_port)
             .ok_or_else(|| "Could not find an available port".to_string())?;
         let port_str = actual_port.to_string();
@@ -342,7 +331,6 @@ impl MinerUProcessManager {
                     ],
                 )
             } else {
-                // Fallback for older MinerU installs in venv
                 (
                     python_path.to_string(),
                     vec![
@@ -367,7 +355,6 @@ impl MinerUProcessManager {
             )
         };
 
-        // Build and spawn command
         let mut command = Command::new(&cmd);
         command
             .args(&args)
@@ -378,14 +365,12 @@ impl MinerUProcessManager {
 
         hide_console_window!(command);
 
-        // Inject model source env var
         if !model_source.is_empty() && model_source != "huggingface" {
             command.env("MINERU_MODEL_SOURCE", model_source);
         }
         if let Some(device_mode) = runtime_profile.device_mode.as_deref() {
             command.env("MINERU_DEVICE_MODE", device_mode);
         }
-        // Redirect model cache to app data directory for clean uninstall
         if !models_dir.is_empty() {
             command.env("HF_HOME", models_dir);
             command.env("MODELSCOPE_CACHE", models_dir);
@@ -396,12 +381,10 @@ impl MinerUProcessManager {
         command.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
         apply_managed_cache_env(&mut command, app_dir)?;
 
-        // Fallback to Python interpreter if entry point missing
         let child = match command.spawn() {
             Ok(c) => c,
             Err(e) => {
                 if use_venv && cmd != python_path {
-                    // Fallback to Python if venv entry point missing
                     let mut fallback = Command::new(python_path);
                     fallback
                         .args([
@@ -455,7 +438,6 @@ impl MinerUProcessManager {
             }
         };
 
-        // Take stderr handle immediately to prevent buffer deadlock during model loading.
         let early_exit_stderr: std::sync::Arc<Mutex<String>> =
             std::sync::Arc::new(Mutex::new(String::new()));
         {
@@ -487,7 +469,6 @@ impl MinerUProcessManager {
             *owned = true;
         }
 
-        // Wait for health check (up to 30 seconds)
         let base_url = format!("http://127.0.0.1:{}", actual_port);
         let client = crate::mineru::MinerUClient::new(base_url);
 
@@ -495,7 +476,6 @@ impl MinerUProcessManager {
         for _ in 0..30 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-            // Check if process is still alive
             let exited_info: Option<std::process::ExitStatus> = {
                 let mut proc = self.process.lock().map_err(|e| e.to_string())?;
                 if let Some(ref mut child) = *proc {
@@ -516,7 +496,6 @@ impl MinerUProcessManager {
             };
 
             if let Some(exit_status) = exited_info {
-                // Give the stderr drain task a moment to flush.
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 let stderr_output = early_exit_stderr
                     .lock()
@@ -526,7 +505,6 @@ impl MinerUProcessManager {
                 let err_detail = if stderr_output.trim().is_empty() {
                     format!("Process exited with {}", exit_status)
                 } else {
-                    // Take last 500 chars to keep it readable
                     let trimmed = stderr_output.trim();
                     let tail = if trimmed.len() > 500 {
                         &trimmed[trimmed.len() - 500..]
@@ -555,7 +533,6 @@ impl MinerUProcessManager {
         if healthy {
             let mut status = self.status.lock().map_err(|e| e.to_string())?;
             *status = "running".to_string();
-            // Store start params for auto-restart and reset restart count
             if let Ok(mut params) = self.last_start_params.lock() {
                 *params = Some(MinerUStartParams {
                     app_dir: app_dir.to_path_buf(),
@@ -572,7 +549,6 @@ impl MinerUProcessManager {
             }
             Ok(actual_port)
         } else {
-            // Kill the process since it didn't become healthy
             self.stop_internal()?;
             let mut status = self.status.lock().map_err(|e| e.to_string())?;
             *status = "failed".to_string();
@@ -692,8 +668,6 @@ impl MinerUProcessManager {
         *self.restart_count.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Attempt to auto-restart MinerU using the last successful start parameters.
-    /// Returns true if a restart was attempted, false if skipped (no params or max retries reached).
     pub async fn attempt_auto_restart(&self, max_retries: u32) -> bool {
         let params = {
             let guard = self
@@ -725,7 +699,6 @@ impl MinerUProcessManager {
             );
         }
 
-        // Clean up the crashed process
         if let Err(error) = self.stop() {
             log::warn!(
                 "MinerU auto-restart could not fully stop the previous process cleanly: {}",
@@ -845,7 +818,6 @@ fn local_mineru_health_check(port: u16, timeout: Duration) -> bool {
     }
 }
 
-/// Public wrapper for `local_mineru_health_check` for use by the background health monitor.
 pub fn local_mineru_health_check_pub(port: u16, timeout: Duration) -> bool {
     local_mineru_health_check(port, timeout)
 }
@@ -872,7 +844,8 @@ fn detect_mineru_runtime_profile(python_cmd: &str) -> MinerURuntimeProfile {
         Err(err) => {
             log::warn!(
                 "Failed to probe MinerU runtime with '{}': {}; using CPU pipeline",
-                python_cmd, err
+                python_cmd,
+                err
             );
             MinerURuntimeProfile {
                 backend: "pipeline".to_string(),
@@ -1447,9 +1420,6 @@ async fn install_missing_mineru_modules_in_venv(
     Ok(())
 }
 
-/// If an NVIDIA GPU is present but the venv has CPU-only PyTorch, reinstall
-/// the CUDA build.  Returns `true` when an upgrade was attempted (regardless
-/// of success).  This is intentionally non-fatal — MinerU still works on CPU.
 async fn upgrade_to_cuda_torch_if_needed(
     app_dir: &Path,
     python_cmd: &str,
@@ -1545,14 +1515,13 @@ fn check_python_version(python_cmd: &str) -> Result<String, String> {
         return Err(format!(
             "MinerU requires Python 3.10-{} on this platform, but '{}' resolved to Python {}.",
             if cfg!(windows) { 12 } else { 13 },
-            python_cmd, version
+            python_cmd,
+            version
         ));
     }
 
     Ok(version)
 }
-
-// --- App Settings CRUD Commands ---
 
 #[tauri::command]
 pub fn get_app_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
@@ -1575,8 +1544,6 @@ pub fn get_all_app_settings(state: State<AppState>) -> Result<Vec<AppSettingRow>
     rows.sort_by(|a, b| a.key.cmp(&b.key));
     Ok(rows)
 }
-
-// --- MinerU Lifecycle Commands ---
 
 pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
     let app_dir = state.app_dir.clone();
@@ -1638,14 +1605,11 @@ pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
         .parse()
         .map_err(|_| "Invalid port number".to_string())?;
 
-    check_python_version(&python_path).map_err(|e| {
-        format!("Selected Python environment cannot start: {}", e)
-    })?;
+    check_python_version(&python_path)
+        .map_err(|e| format!("Selected Python environment cannot start: {}", e))?;
 
     if !python_has_module(&python_path, "mineru") {
-        return Err(
-            "MinerU is not installed in the selected Python environment.".to_string(),
-        );
+        return Err("MinerU is not installed in the selected Python environment.".to_string());
     }
 
     let missing_modules = missing_python_modules(&python_path, REQUIRED_MINERU_MODULES);
@@ -1662,13 +1626,9 @@ pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
                 &missing_modules,
             )
             .await
-            .map_err(|error| {
-                format!("{}", error)
-            })?;
+            .map_err(|error| format!("{}", error))?;
 
-            required_mineru_modules_ready(&python_path).map_err(|error| {
-                format!("{}", error)
-            })?;
+            required_mineru_modules_ready(&python_path).map_err(|error| format!("{}", error))?;
         } else {
             return Err(format!(
                 "The MinerU runtime is missing required Python modules: {}. Install the missing modules into the configured Python environment before starting MinerU.",
@@ -1719,8 +1679,6 @@ pub fn get_mineru_status(state: State<AppState>) -> Result<MinerUStatusResponse,
     state.mineru_manager.get_status()
 }
 
-// --- Venv Management Commands ---
-
 #[tauri::command]
 pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     if let Ok(status) = state.venv_manager.status.lock() {
@@ -1731,9 +1689,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
 
     let mineru_status = state.mineru_manager.get_status()?;
     if matches!(mineru_status.status.as_str(), "running" | "starting") {
-        return Err(
-            "Stop MinerU before setting up or reinstalling the environment.".to_string(),
-        );
+        return Err("Stop MinerU before setting up or reinstalling the environment.".to_string());
     }
 
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
@@ -1790,7 +1746,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             }
         }
 
-        // Create venv
         venv_manager.set_status(
             "creating",
             &format!("Creating venv with Python {}...", python_version),
@@ -1818,7 +1773,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             _ => {}
         }
 
-        // Git clone or pull MinerU
         if install_method == "git" {
             let repo_dir_str = repo_dir.to_str().unwrap_or_default().to_string();
             if repo_dir.join(".git").exists() {
@@ -1837,7 +1791,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
                 }
             } else {
                 venv_manager.set_status("creating", "Cloning MinerU repository...");
-                // Remove dir if exists but is not a git repo
                 if repo_dir.exists() {
                     let _ = std::fs::remove_dir_all(&repo_dir);
                 }
@@ -1865,7 +1818,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         let venv_python = venv_python_path(&venv_dir);
         let venv_python_str = venv_python.to_str().unwrap_or_default().to_string();
 
-        // Prepare build tools (setuptools required for Python 3.12+)
         venv_manager.set_status("creating", "Preparing Python build tools...");
 
         let mut build_tool_args = vec![
@@ -1924,7 +1876,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             Ok(_) => {}
         }
 
-        // Install MinerU
         venv_manager.set_status(
             "creating",
             "Installing MinerU (this may take several minutes)...",
@@ -1933,7 +1884,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         let mut install_args = vec!["-m".to_string(), "pip".to_string(), "install".to_string()];
 
         if install_method == "git" {
-            // Install from cloned repo with build isolation disabled
             install_args.push("--no-build-isolation".to_string());
             install_args.extend(build_pip_index_args(&pip_index_url));
             install_args.push(".[all]".to_string());
@@ -1963,7 +1913,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
                 Ok(_) => {}
             }
         } else {
-            // pip install method (default): install directly from PyPI
             install_args.extend(build_pip_index_args(&pip_index_url));
             install_args.push("mineru[all]".to_string());
 
@@ -1993,7 +1942,6 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             }
         }
 
-        // Upgrade to CUDA PyTorch if needed
         if has_nvidia_gpu() && torch_is_cpu_only(&venv_python_str) {
             venv_manager.set_status(
                 "creating",
@@ -2057,10 +2005,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         if python_has_module(&venv_python_str, "mineru")
             && missing_python_modules(&venv_python_str, REQUIRED_MINERU_MODULES).is_empty()
         {
-            venv_manager.set_status(
-                "ready",
-                "Environment is ready. Download models to proceed.",
-            );
+            venv_manager.set_status("ready", "Environment is ready. Download models to proceed.");
         } else {
             venv_manager.set_status(
                 "failed",
@@ -2109,7 +2054,10 @@ pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool,
         } else {
             state.venv_manager.set_status(
                 "ready",
-                &format!("Venv ready. Missing modules: {}; will repair on startup.", missing_runtime_modules.join(", ")),
+                &format!(
+                    "Venv ready. Missing modules: {}; will repair on startup.",
+                    missing_runtime_modules.join(", ")
+                ),
             );
         }
 
@@ -2119,11 +2067,7 @@ pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool,
     Ok(exists)
 }
 
-// --- Progress Parsing Helpers ---
-
-/// Parse percentage from output like tqdm progress bars.
 fn parse_percentage_from_line(line: &str) -> Option<f64> {
-    // Search for the last occurrence of `<digits>%`
     let mut last_pct: Option<f64> = None;
     for (i, _) in line.match_indices('%') {
         let before = &line[..i];
@@ -2144,34 +2088,30 @@ fn parse_percentage_from_line(line: &str) -> Option<f64> {
     last_pct
 }
 
-/// Strip ANSI escape sequences and progress bar glyphs.
 fn clean_terminal_output(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(ch) = chars.next() {
-        // Skip ANSI escape sequences: ESC [ ... final_byte
-            if ch == '\x1b' {
-                if chars.peek() == Some(&'[') {
+        if ch == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&c) = chars.peek() {
                     chars.next();
-                    while let Some(&c) = chars.peek() {
-                        chars.next();
-                        if c.is_ascii_alphabetic() {
-                            break;
-                        }
+                    if c.is_ascii_alphabetic() {
+                        break;
                     }
                 }
-                continue;
             }
+            continue;
+        }
         if ch.is_ascii() || ch >= '\u{4E00}' {
             out.push(ch);
         }
     }
-    // Collapse leftover empty bar separators like "| |" or "||" after block removal
     out = out.replace("| |", " ").replace("||", " ");
     out
 }
 
-/// Read a piped stream from the download process and parse progress updates.
 async fn read_download_progress<R: tokio::io::AsyncRead + Unpin>(
     mut stream: R,
     model_manager: &MinerUModelManager,
@@ -2184,14 +2124,12 @@ async fn read_download_progress<R: tokio::io::AsyncRead + Unpin>(
         match stream.read(&mut buf).await {
             Ok(0) => break,
             Ok(n) => {
-
                 let data = if utf8_remainder.is_empty() {
                     &buf[..n]
                 } else {
                     utf8_remainder.extend_from_slice(&buf[..n]);
                     utf8_remainder.as_slice()
                 };
-
 
                 let (valid, remainder) = match std::str::from_utf8(data) {
                     Ok(s) => (s.to_string(), Vec::new()),
@@ -2238,8 +2176,6 @@ async fn read_download_progress<R: tokio::io::AsyncRead + Unpin>(
     }
 }
 
-// --- Model Download Commands ---
-
 #[tauri::command]
 pub async fn download_mineru_models(
     app: AppHandle,
@@ -2266,7 +2202,6 @@ pub async fn download_mineru_models(
         (use_venv == "true", model_source, parse_backend)
     };
 
-    // Default models dir to app_data_dir/mineru_models for clean uninstall
     let models_dir = {
         let dir = get_setting_value(&state.settings, "mineru.models_dir").unwrap_or_default();
         resolve_models_dir(&app_dir, &model_source, &dir)
@@ -2275,7 +2210,6 @@ pub async fn download_mineru_models(
             .to_string()
     };
 
-    // Resolve the mineru-models-download binary
     let download_bin = if use_venv {
         let bin = venv_script_path(&venv_dir, "mineru-models-download");
         if !bin.exists() {
@@ -2296,7 +2230,6 @@ pub async fn download_mineru_models(
     let model_manager = std::sync::Arc::clone(&state.model_manager);
 
     tauri::async_runtime::spawn(async move {
-
         let models_path = std::path::Path::new(&models_dir);
         if !models_path.exists() {
             if let Err(e) = std::fs::create_dir_all(models_path) {
@@ -2337,7 +2270,6 @@ pub async fn download_mineru_models(
         if model_source != "huggingface" {
             command.env("MINERU_MODEL_SOURCE", &model_source);
         }
-        // Redirect model cache to app data directory
         command.env("HF_HOME", &models_dir);
         command.env("MODELSCOPE_CACHE", &models_dir);
 
@@ -2346,7 +2278,6 @@ pub async fn download_mineru_models(
             model_manager.set_status("failed", &error);
             return;
         }
-
 
         command.stdin(std::process::Stdio::null());
         command
@@ -2357,7 +2288,6 @@ pub async fn download_mineru_models(
 
         match command.spawn() {
             Ok(mut child) => {
-        
                 let mm_stderr = std::sync::Arc::clone(&model_manager);
                 let stderr_handle = if let Some(stderr) = child.stderr.take() {
                     Some(tauri::async_runtime::spawn(async move {
@@ -2367,7 +2297,6 @@ pub async fn download_mineru_models(
                     None
                 };
 
-        
                 let mm_stdout = std::sync::Arc::clone(&model_manager);
                 let stdout_handle = if let Some(stdout) = child.stdout.take() {
                     Some(tauri::async_runtime::spawn(async move {
@@ -2379,14 +2308,12 @@ pub async fn download_mineru_models(
 
                 let status = child.wait().await;
 
-
                 if let Some(h) = stderr_handle {
                     let _ = h.await;
                 }
                 if let Some(h) = stdout_handle {
                     let _ = h.await;
                 }
-
 
                 let output_tail = model_manager.get_output_tail();
 

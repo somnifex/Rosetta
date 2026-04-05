@@ -3,14 +3,13 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-/// Backup file envelope
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupEnvelope {
     pub version: u32,
     #[serde(rename = "createdAt")]
     pub created_at: String,
-    pub scope: String,  // "full" | "config"
-    pub source: String, // "local-export" | "webdav-sync"
+    pub scope: String,
+    pub source: String,
     #[serde(rename = "appInfo")]
     pub app_info: AppInfo,
     pub payload: BackupPayload,
@@ -25,11 +24,8 @@ pub struct AppInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupPayload {
-    /// Always present: app_settings rows
     pub app_settings: Vec<SettingRow>,
-    /// Always present: localStorage-backed config (passed from frontend)
     pub local_config: serde_json::Value,
-    /// Only in "full" scope
     pub documents: Option<Vec<serde_json::Value>>,
     pub categories: Option<Vec<serde_json::Value>>,
     pub folders: Option<Vec<serde_json::Value>>,
@@ -49,8 +45,6 @@ pub struct SettingRow {
     pub value: String,
 }
 
-// ---- Collect backup data from DB ----
-
 #[tauri::command]
 pub fn collect_backup_data(
     state: State<AppState>,
@@ -61,7 +55,6 @@ pub fn collect_backup_data(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
 
-    // Always collect settings from settings.json manager.
     let mut app_settings: Vec<SettingRow> = state
         .settings
         .get_all()
@@ -117,8 +110,6 @@ pub fn collect_backup_data(
     serde_json::to_string_pretty(&envelope).map_err(|e| e.to_string())
 }
 
-// ---- Apply backup data to DB ----
-
 #[tauri::command]
 pub fn apply_backup_data(
     state: State<AppState>,
@@ -149,8 +140,6 @@ pub fn apply_backup_data(
     if envelope.scope == "full" {
         crate::content_store::clear_all_document_dirs(&state.app_dir)?;
 
-        // Restore full data - clear and re-insert
-        // Order matters due to foreign keys
         conn.execute_batch("DELETE FROM document_tags; DELETE FROM document_folders; DELETE FROM chunks; DELETE FROM translated_contents; DELETE FROM parsed_contents; DELETE FROM documents; DELETE FROM folders; DELETE FROM categories; DELETE FROM tags; DELETE FROM provider_models; DELETE FROM providers;")
             .map_err(|e| format!("Failed to clear tables: {}", e))?;
 
@@ -208,15 +197,12 @@ pub fn apply_backup_data(
         }
     }
 
-    // Return the local_config so frontend can restore localStorage
     Ok(serde_json::json!({
         "scope": envelope.scope,
         "local_config": envelope.payload.local_config,
         "created_at": envelope.created_at,
     }))
 }
-
-// ---- Validate backup file without applying ----
 
 #[tauri::command]
 pub fn validate_backup(backup_json: String) -> Result<serde_json::Value, String> {
@@ -256,8 +242,6 @@ pub fn validate_backup(backup_json: String) -> Result<serde_json::Value, String>
     }))
 }
 
-// ---- WebDAV sync operations ----
-
 #[tauri::command]
 pub async fn webdav_upload_backup(
     state: State<'_, AppState>,
@@ -268,7 +252,6 @@ pub async fn webdav_upload_backup(
     scope: String,
     local_config: serde_json::Value,
 ) -> Result<String, String> {
-    // Collect data
     let backup_json = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
@@ -328,7 +311,6 @@ pub async fn webdav_upload_backup(
         serde_json::to_string(&envelope).map_err(|e| e.to_string())?
     };
 
-    // Upload via WebDAV
     let filename = if scope == "full" {
         "pdftranslate-sync-full.json"
     } else {
@@ -338,7 +320,6 @@ pub async fn webdav_upload_backup(
 
     let client = crate::webdav::WebDAVClient::new(base_url, username, password);
 
-    // Try to create the remote directory (ignore errors if it exists)
     let _ = client.create_directory(&remote_path).await;
 
     client
@@ -367,8 +348,6 @@ pub async fn webdav_download_backup(
     let data = client.download_file(&full_path).await?;
     String::from_utf8(data).map_err(|e| format!("Invalid UTF-8 in backup file: {}", e))
 }
-
-// ---- Helper: query a table and return rows as Vec<serde_json::Value> ----
 
 fn query_table_as_json(
     conn: &rusqlite::Connection,
@@ -649,8 +628,6 @@ fn base64_encode(data: &[u8]) -> String {
     }
     result
 }
-
-// ---- Helper: insert a JSON object as a row ----
 
 fn insert_json_row(
     conn: &rusqlite::Connection,

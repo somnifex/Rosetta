@@ -249,7 +249,6 @@ export default function MineruTab() {
         <CardDescription>{t("mineru.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Mode selector */}
         <div className="space-y-3">
           <Label>{t("mineru.mode_label")}</Label>
           <div className="flex flex-wrap gap-4">
@@ -299,7 +298,6 @@ export default function MineruTab() {
               <p className="text-xs text-muted-foreground">{t("mineru.builtin.description")}</p>
             </div>
 
-            {/* Status */}
             <div className="flex items-center gap-2">
               <Label>{t("mineru.builtin.status_label")}</Label>
               {mineruStatus?.status === "running" ? (
@@ -328,7 +326,6 @@ export default function MineruTab() {
               )}
             </div>
 
-            {/* Python path */}
             <div className="space-y-2">
               <Label>{t("mineru.builtin.python_path_label")}</Label>
               <Input
@@ -343,7 +340,6 @@ export default function MineruTab() {
               )}
             </div>
 
-            {/* Port */}
             <div className="space-y-2">
               <Label>{t("mineru.builtin.port_label")}</Label>
               <Input
@@ -355,7 +351,6 @@ export default function MineruTab() {
               />
             </div>
 
-            {/* Parse Backend */}
             <div className="space-y-2">
               <Label>{t("mineru.builtin.parse_backend_label")}</Label>
               <select
@@ -371,14 +366,12 @@ export default function MineruTab() {
               <p className="text-xs text-muted-foreground">{t("mineru.builtin.parse_backend_hint")}</p>
             </div>
 
-            {/* Python Environment Setup */}
             <div className="space-y-3 border rounded-lg p-4 bg-background/50">
               <div>
                 <p className="font-medium text-sm">{t("mineru.venv.title")}</p>
                 <p className="text-xs text-muted-foreground">{t("mineru.venv.description")}</p>
               </div>
 
-              {/* Venv status badge */}
               <div className="flex items-center gap-2">
                 <Label>{t("mineru.builtin.status_label")}</Label>
                 {venvStatus === "ready" ? (
@@ -395,7 +388,6 @@ export default function MineruTab() {
                 )}
               </div>
 
-              {/* Progress / error message */}
               {venvStatus === "creating" && venvStatusData?.message && (
                 <p className="text-xs text-muted-foreground">{venvStatusData.message}</p>
               )}
@@ -403,7 +395,6 @@ export default function MineruTab() {
                 <p className="text-xs text-destructive font-mono break-all">{venvStatusData.message}</p>
               )}
 
-              {/* Use venv toggle */}
               {venvStatus === "ready" && (
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{t("mineru.venv.use_venv_label")}</p>
@@ -415,7 +406,6 @@ export default function MineruTab() {
                 </div>
               )}
 
-              {/* Installation Method */}
               <div className="space-y-2">
                 <Label>{t("mineru.venv.install_method_label")}</Label>
                 <div className="flex gap-4">
@@ -449,7 +439,6 @@ export default function MineruTab() {
                 <p className="text-xs text-muted-foreground">{t("mineru.venv.install_method_hint")}</p>
               </div>
 
-              {/* Clone URL (only for git method) */}
               {mineruInstallMethod === "git" && (
               <div className="space-y-2">
                 <Label>{t("mineru.venv.clone_url_label")}</Label>
@@ -476,7 +465,6 @@ export default function MineruTab() {
                 <p className="text-xs text-muted-foreground">{t("mineru.venv.pip_index_url_hint")}</p>
               </div>
 
-              {/* Setup button */}
               <Button
                 variant="outline"
                 size="sm"
@@ -492,7 +480,6 @@ export default function MineruTab() {
               </Button>
             </div>
 
-            {/* Model Files */}
             <div className="space-y-3 border rounded-lg p-4 bg-background/50">
               <div>
                 <p className="font-medium text-sm">{t("mineru.models.title")}</p>
@@ -527,7 +514,6 @@ export default function MineruTab() {
                 </div>
               )}
 
-              {/* Download status */}
               <div className="flex items-center gap-2">
                 <Label>{t("mineru.builtin.status_label")}</Label>
                 {modelDownloadStatusData?.status === "completed" ? (
@@ -589,7 +575,6 @@ export default function MineruTab() {
               )}
             </div>
 
-            {/* Auto-start */}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">{t("mineru.builtin.auto_start_label")}</p>
@@ -602,7 +587,6 @@ export default function MineruTab() {
               />
             </div>
 
-            {/* Stability & Performance */}
             <div className="space-y-4 border rounded-lg p-4 bg-background/50">
               <div>
                 <p className="font-medium text-sm">{t("mineru.builtin.stability.title")}</p>
@@ -658,7 +642,6 @@ export default function MineruTab() {
               </div>
             </div>
 
-            {/* Start/Stop buttons */}
             <div className="flex gap-2">
               <Button
                 onClick={handleStartMineru}
@@ -856,7 +839,6 @@ export default function MineruTab() {
           </div>
         )}
 
-        {/* Save button */}
         <Button
           onClick={() => saveMineruSettingsMutation.mutate()}
           disabled={saveMineruSettingsMutation.isPending}

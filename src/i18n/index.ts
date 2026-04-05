@@ -3,7 +3,6 @@ import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { mergeLocale } from './mergeLocale'
 
-// zh-CN
 import zhCNCommon from './locales/zh-CN/common'
 import zhCNDashboard from './locales/zh-CN/dashboard'
 import zhCNLibrary from './locales/zh-CN/library'
@@ -15,7 +14,6 @@ import zhCNChat from './locales/zh-CN/chat'
 import zhCNSettingsExtraction from './locales/zh-CN/settings-extraction'
 import zhCNLibraryExtraction from './locales/zh-CN/library-extraction'
 
-// en
 import enCommon from './locales/en/common'
 import enDashboard from './locales/en/dashboard'
 import enLibrary from './locales/en/library'
@@ -25,7 +23,6 @@ import enTasks from './locales/en/tasks'
 import enSettings from './locales/en/settings'
 import enChat from './locales/en/chat'
 
-// es
 import esCommon from './locales/es/common'
 import esDashboard from './locales/es/dashboard'
 import esLibrary from './locales/es/library'
@@ -35,7 +32,6 @@ import esTasks from './locales/es/tasks'
 import esSettings from './locales/es/settings'
 import esChat from './locales/es/chat'
 
-// fr
 import frCommon from './locales/fr/common'
 import frDashboard from './locales/fr/dashboard'
 import frLibrary from './locales/fr/library'
@@ -45,7 +41,6 @@ import frTasks from './locales/fr/tasks'
 import frSettings from './locales/fr/settings'
 import frChat from './locales/fr/chat'
 
-// ar
 import arCommon from './locales/ar/common'
 import arDashboard from './locales/ar/dashboard'
 import arLibrary from './locales/ar/library'
@@ -55,7 +50,6 @@ import arTasks from './locales/ar/tasks'
 import arSettings from './locales/ar/settings'
 import arChat from './locales/ar/chat'
 
-// ru
 import ruCommon from './locales/ru/common'
 import ruDashboard from './locales/ru/dashboard'
 import ruLibrary from './locales/ru/library'

@@ -88,7 +88,6 @@ function getProgressBadge(
   return <Badge variant="outline">{status}</Badge>
 }
 
-/* Small status dot for the header row */
 function StatusDot({ status }: { status: string }) {
   if (status === "completed") return <Check className="h-3 w-3 text-emerald-500" />
   if (status === "failed") return <AlertTriangle className="h-3 w-3 text-destructive" />
@@ -537,9 +536,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
         <DialogContent className="h-[88vh] max-h-[88vh] max-w-[820px] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:rounded-xl [&>button]:hidden">
           <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
 
-            {/* ── Header: Preview + Metadata ── */}
             <div className="flex gap-5 border-b border-border px-6 py-5">
-              {/* PDF Thumbnail — compact */}
               <div className="flex h-[160px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/45">
                 {isPdf && !document.is_file_missing ? (
                   <PdfPreview fileUrl={document.file_path} onLoad={setThumbnailPages} width={112} />
@@ -548,7 +545,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                 )}
               </div>
 
-              {/* Document info */}
               <div className="flex min-w-0 flex-1 flex-col justify-between">
                 <div className="min-w-0">
                   <div className="flex items-start justify-between gap-3">
@@ -582,7 +578,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     </div>
                   </div>
 
-                  {/* Meta row */}
                   <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatDate(document.created_at)}</span>
                     <span className="text-muted-foreground/45">|</span>
@@ -594,7 +589,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                   </div>
                 </div>
 
-                {/* Status pills */}
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={document.parse_status} />
@@ -614,7 +608,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
               </div>
             </div>
 
-            {/* ── Recommended Action Banner ── */}
             <div className="flex items-center justify-between gap-4 border-b border-border bg-muted/30 px-6 py-3">
               <div className="flex items-center gap-2 text-sm">
                 <Sparkles className="h-4 w-4 shrink-0 text-primary" />
@@ -627,10 +620,8 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
               </Button>
             </div>
 
-            {/* ── Scrollable body ── */}
             <div className="min-h-0 flex-1 overflow-y-auto">
 
-              {/* ── Reading Entries (horizontal) ── */}
               <div className="border-b border-border px-6 py-5">
                 <h3 className="mb-3 text-sm font-semibold text-foreground">{t("document_info.sections.reading_entries")}</h3>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
@@ -658,7 +649,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                 </div>
               </div>
 
-              {/* ── Tabbed sections ── */}
               <div className="px-6 py-5">
                 <Tabs defaultValue="outputs" className="w-full">
                   <TabsList className="w-full justify-start rounded-lg">
@@ -668,9 +658,7 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     <TabsTrigger value="advanced" className="rounded-md text-xs">{t("document_info.sections.advanced")}</TabsTrigger>
                   </TabsList>
 
-                  {/* ── Tab: Outputs ── */}
                   <TabsContent value="outputs" className="mt-4 space-y-3">
-                    {/* Original PDF */}
                     <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3.5">
                       <div className="flex items-center gap-3 min-w-0">
                         <FileOutput className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -685,7 +673,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       </Button>
                     </div>
 
-                    {/* Translated PDF */}
                     <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3.5">
                       <div className="flex items-center gap-3 min-w-0">
                         <Languages className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -703,7 +690,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       </div>
                     </div>
 
-                    {/* Markdown */}
                     <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3.5">
                       <div className="flex items-center gap-3 min-w-0">
                         <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -787,7 +773,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                       )}
                     </div>
 
-                    {/* Pipeline status row */}
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       <div className="rounded-lg border border-border p-3">
                         <p className="text-xs font-medium text-muted-foreground">{t("document_info.pipeline.parse_result")}</p>
@@ -826,7 +811,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     </div>
                   </TabsContent>
 
-                  {/* ── Tab: Archive ── */}
                   <TabsContent value="metadata" className="mt-4">
                     <DocumentMetadataPanel
                       documentId={document.id}
@@ -875,7 +859,6 @@ export function DocumentInfoDialog({ documentId, open, onOpenChange }: DocumentI
                     </div>
                   </TabsContent>
 
-                  {/* ── Tab: Advanced ── */}
                   <TabsContent value="advanced" className="mt-4 space-y-4">
                     <div>
                       <h4 className="text-sm font-semibold">{t("document_info.advanced.maintenance_title")}</h4>

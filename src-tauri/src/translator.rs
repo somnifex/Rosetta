@@ -40,19 +40,13 @@ struct Choice {
     message: Message,
 }
 
-/// 翻译结果，包含分片的元数据
 #[derive(Debug, Clone)]
 pub struct TranslationResult {
-    /// 分片的索引
     pub chunk_index: usize,
-    /// 翻译后的文本
     pub translated_text: String,
-    /// 原始文本位置
     pub start_pos: usize,
     pub end_pos: usize,
-    /// 翻译是否成功
     pub success: bool,
-    /// 失败原因（如果有）
     pub error: Option<String>,
 }
 
@@ -98,26 +92,22 @@ impl Translator {
         }
     }
 
-    /// 配置重试策略
     pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
         self
     }
 
-    /// 配置分片策略
     pub fn with_chunking_config(mut self, config: ChunkingConfig) -> Self {
         self.chunking_config = config;
         self
     }
 
-    /// 配置速率限制和并发
     pub fn with_rate_limit_config(mut self, config: RateLimitConfig) -> Self {
         self.rate_limit_config = config.clone();
         self.request_limiter = Arc::new(RequestLimiter::new(config));
         self
     }
 
-    /// 为翻译过程注入术语和大意等一致性上下文
     pub fn with_consistency_context(mut self, context: String) -> Self {
         let trimmed = context.trim();
         if trimmed.is_empty() {
@@ -128,17 +118,14 @@ impl Translator {
         self
     }
 
-    /// 获取当前速率限制配置
     pub fn rate_limit_config(&self) -> &RateLimitConfig {
         &self.rate_limit_config
     }
 
-    /// 获取当前限制器状态
     pub fn limiter_status(&self) -> crate::rate_limiter::LimiterStatus {
         self.request_limiter.status()
     }
 
-    /// 使用 chat 模型提炼术语和全文大意，供分片翻译统一风格与术语
     pub async fn build_consistency_context(
         &self,
         chat_model: &str,
@@ -223,7 +210,6 @@ impl Translator {
         Ok(limit_context_size(&context, 4000))
     }
 
-    /// 原始translate方法（向后兼容，但已添加重试）
     pub async fn translate(
         &self,
         text: &str,
@@ -299,7 +285,6 @@ impl Translator {
         Ok(result)
     }
 
-    /// 智能翻译（增量版）：自动分片长文本，在每个分片完成时回调结果以支持持久化
     #[allow(dead_code)]
     pub async fn translate_with_chunks_incremental<F>(
         &self,
@@ -432,7 +417,6 @@ impl Translator {
             results.push(result);
         }
 
-        // Retry failed chunks
         let failed_chunks: Vec<_> = results.iter().filter(|r| !r.success).collect();
 
         if !failed_chunks.is_empty() {
@@ -468,7 +452,6 @@ impl Translator {
         Ok(results)
     }
 
-    /// 仅翻译指定的分片列表（用于断点续传和重试失败分片）
     pub async fn translate_specific_chunks<F>(
         &self,
         chunks: Vec<Chunk>,
@@ -542,7 +525,6 @@ impl Translator {
         Ok(results)
     }
 
-    /// 智能翻译：自动分片长文本，并在每个分片完成时回调进度
     #[allow(dead_code)]
     pub async fn translate_with_chunks_progress<F>(
         &self,
@@ -595,7 +577,6 @@ impl Translator {
             .map(|chunk| (chunk.index, chunk))
             .collect();
 
-        // 转换为可处理的格式
         let mut translation_tasks = FuturesUnordered::new();
 
         for chunk in chunks {
@@ -605,7 +586,6 @@ impl Translator {
             let request_limiter = Arc::clone(&self.request_limiter);
 
             translation_tasks.push(async move {
-                // 使用请求限制器控制并发和速率
                 let result = request_limiter
                     .execute(|| async {
                         translator
@@ -635,7 +615,6 @@ impl Translator {
             });
         }
 
-        // 并发执行并在每个分片完成后回调进度
         let mut completed_chunks = 0usize;
         let mut results: Vec<TranslationResult> = Vec::with_capacity(total_chunks);
         while let Some(result) = translation_tasks.next().await {
@@ -644,7 +623,6 @@ impl Translator {
             results.push(result);
         }
 
-        // 检查是否有失败的分片
         let failed_chunks: Vec<_> = results.iter().filter(|r| !r.success).collect();
 
         if !failed_chunks.is_empty() {
@@ -683,7 +661,6 @@ impl Translator {
         Ok(results)
     }
 
-    /// 克隆translator所需的参数（用于并发处理）
     fn clone_params(&self) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
@@ -704,7 +681,6 @@ impl Translator {
         }
     }
 
-    /// 翻译单个分片（内部方法，带重试）
     async fn translate_chunk(
         &self,
         chunk: &Chunk,
@@ -799,7 +775,6 @@ impl Translator {
         }
     }
 
-    /// 重试失败的翻译分片
     pub async fn retry_failed_chunks(
         &self,
         failed_results: Vec<TranslationResult>,
@@ -829,13 +804,11 @@ impl Translator {
         Ok(retried_results)
     }
 
-    /// 拼接翻译结果为完整文本
     pub fn merge_translation_results(results: &[TranslationResult]) -> Result<String, String> {
         if results.is_empty() {
             return Ok(String::new());
         }
 
-        // 检查是否所有翻译都成功
         for result in results {
             if !result.success {
                 return Err(format!(
@@ -849,7 +822,6 @@ impl Translator {
             }
         }
 
-        // 按chunk_index排序后拼接
         let mut sorted_results = results.to_vec();
         sorted_results.sort_by_key(|r| (r.start_pos, r.chunk_index));
 

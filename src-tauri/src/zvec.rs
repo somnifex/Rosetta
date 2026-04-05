@@ -9,8 +9,6 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
-/// Apply `CREATE_NO_WINDOW` on Windows to prevent console window flashes.
-/// Works with both `std::process::Command` and `tokio::process::Command`.
 macro_rules! hide_console_window {
     ($cmd:expr) => {{
         #[cfg(target_os = "windows")]
@@ -123,8 +121,6 @@ pub fn platform_supported() -> bool {
     cfg!(target_os = "linux") || cfg!(target_os = "macos")
 }
 
-// --- Zvec runtime availability cache ---
-
 pub struct ZvecAvailabilityCache {
     cached: Mutex<Option<bool>>,
     last_checked: Mutex<Option<std::time::Instant>>,
@@ -181,7 +177,6 @@ impl ZvecAvailabilityCache {
     }
 }
 
-/// Check if zvec should actually be used: configured + platform + runtime availability.
 pub fn should_use_zvec(
     rag_settings: &RagSettings,
     app_dir: &Path,
@@ -320,8 +315,6 @@ pub fn collection_key_for_model(model: &str, dimension: usize) -> String {
 pub fn collection_path(settings: &ZvecSettings, collection_key: &str) -> PathBuf {
     settings.collections_dir.join(collection_key)
 }
-
-// --- sqlite-vec (vec0) helpers ---
 
 pub fn vec0_table_name(dimension: usize) -> String {
     format!("vec_embeddings_{}", dimension)
@@ -745,8 +738,6 @@ pub fn search_embeddings(
     Ok(response.hits)
 }
 
-/// Resolve the Python path for dependency operations (probe, install, download).
-/// Always prefers the zvec venv when it exists, regardless of the `use_venv` toggle.
 fn resolve_python_for_deps(app_dir: &Path, conn: &Connection) -> Result<String, String> {
     let venv_dir = zvec_venv_dir(app_dir);
     let venv_python = zvec_venv_python_path(&venv_dir);
@@ -814,8 +805,6 @@ pub async fn install_reranker_deps(
 
     Ok("sentence-transformers installed successfully".to_string())
 }
-
-// --- Reranker Model Manager ---
 
 pub struct RerankerModelManager {
     status: Mutex<String>,
@@ -921,7 +910,6 @@ pub async fn download_reranker_model(
             }
         };
 
-        // Write payload to stdin
         if let Some(mut stdin) = child.stdin.take() {
             use tokio::io::AsyncWriteExt;
             let body = serde_json::to_vec(&payload).unwrap_or_default();
@@ -929,7 +917,6 @@ pub async fn download_reranker_model(
             drop(stdin);
         }
 
-        // Read stderr for progress messages
         let mm_stderr = std::sync::Arc::clone(&manager);
         let stderr_handle = if let Some(stderr) = child.stderr.take() {
             Some(tauri::async_runtime::spawn(async move {
@@ -979,8 +966,6 @@ pub fn get_reranker_model_status(
 ) -> Result<RerankerModelStatusResponse, String> {
     state.reranker_model_manager.get_status()
 }
-
-// --- Zvec Venv Manager ---
 
 pub struct ZvecVenvManager {
     status: Mutex<String>,
@@ -1032,7 +1017,6 @@ fn zvec_venv_dir(app_dir: &Path) -> PathBuf {
     crate::app_dirs::zvec_venv_dir(app_dir)
 }
 
-/// Run a pip command in the zvec venv. Returns Ok on success, Err with message on failure.
 async fn run_venv_pip(
     app_dir: &Path,
     python: &str,
@@ -1048,7 +1032,6 @@ async fn run_venv_pip(
 
     let mut command = tokio::process::Command::new(python);
     command.args(&cmd_args);
-    // Isolate from user pip config
     command.env(
         "PIP_CONFIG_FILE",
         if cfg!(windows) { "NUL" } else { "/dev/null" },
@@ -1073,7 +1056,6 @@ async fn run_venv_pip(
         } else {
             "pip install failed with no output".to_string()
         };
-        // Truncate long messages
         let truncated = if msg.len() > 1500 {
             &msg[msg.len() - 1500..]
         } else {
@@ -1118,7 +1100,6 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
     let manager = std::sync::Arc::clone(&state.zvec_venv_manager);
 
     tauri::async_runtime::spawn(async move {
-        // Validate system Python
         manager.set_status("creating", "Checking Python version...");
         let mut py_cmd = tokio::process::Command::new(&system_python);
         py_cmd.args(["--version"]);
@@ -1144,7 +1125,6 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
             }
         }
 
-        // Remove old venv if exists
         if venv_dir.exists() {
             manager.set_status("creating", "Removing previous virtual environment...");
             if let Err(e) = std::fs::remove_dir_all(&venv_dir) {
@@ -1153,7 +1133,6 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
             }
         }
 
-        // Step 1: Create venv
         manager.set_status("creating", "Creating virtual environment...");
         let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
         let mut venv_cmd = tokio::process::Command::new(&system_python);
@@ -1181,7 +1160,6 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
         let venv_python = zvec_venv_python_path(&venv_dir);
         let venv_python_str = venv_python.to_str().unwrap_or_default().to_string();
 
-        // Step 2: Upgrade pip
         manager.set_status("creating", "Upgrading pip...");
         if let Err(e) = run_venv_pip(
             &app_dir,
@@ -1194,14 +1172,12 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
             log::warn!("pip upgrade warning (continuing): {e}");
         }
 
-        // Step 3: Install zvec
         manager.set_status("creating", "Installing zvec...");
         if let Err(e) = run_venv_pip(&app_dir, &venv_python_str, &["zvec"], &pip_index_url).await {
             manager.set_status("failed", &format!("Failed to install zvec: {e}"));
             return;
         }
 
-        // Step 4: Install sentence-transformers (for local reranker)
         manager.set_status("creating", "Installing sentence-transformers...");
         if let Err(e) = run_venv_pip(
             &app_dir,
@@ -1218,7 +1194,6 @@ pub async fn setup_zvec_venv(app: AppHandle, state: State<'_, AppState>) -> Resu
             return;
         }
 
-        // Verify
         let mut verify_cmd = tokio::process::Command::new(&venv_python_str);
         verify_cmd.args(["-c", "import zvec; print(zvec.__version__)"]);
         if let Err(e) = apply_managed_cache_env_tokio(&mut verify_cmd, &app_dir) {
@@ -1260,7 +1235,6 @@ pub fn check_zvec_venv_exists(app: AppHandle, state: State<'_, AppState>) -> Res
     if exists {
         let python_cmd = python_exe.to_string_lossy().to_string();
 
-        // Check if zvec can be imported
         let mut cmd = std::process::Command::new(&python_cmd);
         cmd.args(["-c", "import zvec"])
             .stderr(std::process::Stdio::null());

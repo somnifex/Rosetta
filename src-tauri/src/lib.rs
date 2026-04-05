@@ -111,7 +111,6 @@ pub fn run() {
 
             let settings_manager = Arc::new(settings::SettingsManager::new(&app_dir));
 
-            // Migrate legacy settings from DB
             {
                 let conn = db.get_connection();
                 if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM app_settings") {
@@ -153,7 +152,6 @@ pub fn run() {
 
             let mut needs_vacuum = false;
 
-            // Migrate legacy parsed/translated large TEXT blobs into file storage once.
             {
                 let conn = db.get_connection();
                 match commands::migrate_legacy_mineru_processed_storage(conn, &app_dir) {
@@ -210,7 +208,6 @@ pub fn run() {
                 }
             }
 
-            // Optional hard-close compaction (rebuild light tables + drop legacy settings/log tables).
             {
                 let compact_enabled = settings_manager
                     .get("storage.compact_legacy_tables")
@@ -287,7 +284,6 @@ pub fn run() {
 
             window_appearance::sync_main_window_theme(app.handle(), settings_manager.as_ref());
 
-            // First-launch optimal window sizing
             {
                 let state_marker = app_dir.join(".window-initialized");
                 if !state_marker.exists() {
@@ -331,7 +327,6 @@ pub fn run() {
                 }
             });
 
-            // Background health monitor for MinerU
             let manager_for_health = Arc::clone(&mineru_manager);
             let settings_for_health = Arc::clone(&settings_manager);
             let app_handle_for_health = app.handle().clone();
@@ -448,7 +443,6 @@ pub fn run() {
                 }
             });
 
-            // System tray setup
             let quit_item = tauri::menu::MenuItem::with_id(app, "quit", "Quit Rosetta", true, None::<&str>)?;
             let show_item = tauri::menu::MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show_item, &quit_item])?;
@@ -487,7 +481,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Intercept window close: minimize to tray when tasks are active
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
@@ -522,7 +515,6 @@ pub fn run() {
                 });
             }
 
-            // Silent start: hide window if the setting is enabled
             {
                 let start_silent = settings_manager.get_with_default("general.start_silent", "false");
 

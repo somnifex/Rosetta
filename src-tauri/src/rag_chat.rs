@@ -354,7 +354,6 @@ async fn ensure_documents_indexed(
 
         if needs_index {
             let auto_job_id = uuid::Uuid::new_v4().to_string();
-            // Create an index_jobs row for auto-indexing during RAG chat
             {
                 let db = state.db.lock().map_err(|e| e.to_string())?;
                 let conn = db.get_connection();
@@ -458,7 +457,6 @@ fn search_sqlite_chunks(
         .flat_map(|f| f.to_le_bytes())
         .collect();
 
-    // Try vec0 KNN search first
     if let Ok(hits) =
         crate::zvec::vec0_search(conn, dimension, &query_bytes, embedding_model, fetch_limit)
     {
@@ -490,7 +488,6 @@ fn search_sqlite_chunks(
         }
     }
 
-    // Fallback: brute-force cosine similarity over embeddings BLOB
     log::info!("vec0 search returned no results, falling back to brute-force cosine similarity");
 
     let mut stmt = conn

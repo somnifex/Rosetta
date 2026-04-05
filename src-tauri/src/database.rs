@@ -104,7 +104,6 @@ impl Database {
             [],
         )?;
 
-        // Mark interrupted translation jobs with completed chunks as 'partial' (resumable)
         self.conn.execute(
             "UPDATE translation_jobs
              SET status = 'partial',
@@ -116,7 +115,6 @@ impl Database {
             [],
         )?;
 
-        // Mark interrupted translation jobs with NO completed chunks as 'failed'
         self.conn.execute(
             "UPDATE translation_jobs
              SET status = 'failed',
@@ -152,7 +150,6 @@ impl Database {
             [],
         )?;
 
-        // Mark interrupted index jobs with completed chunks as 'partial' (resumable)
         self.conn.execute(
             "UPDATE index_jobs
              SET status = 'partial',
@@ -164,7 +161,6 @@ impl Database {
             [],
         )?;
 
-        // Mark interrupted index jobs with NO completed chunks as 'failed'
         self.conn.execute(
             "UPDATE index_jobs
              SET status = 'failed',
@@ -191,7 +187,6 @@ impl Database {
 
         let tx = self.conn.unchecked_transaction()?;
 
-        // Rebuild parsed_contents/translated_contents to reclaim pages left by old large TEXT rows.
         if table_exists(&tx, "parsed_contents")? {
             tx.execute_batch(
                 "CREATE TABLE parsed_contents_new (
@@ -234,7 +229,6 @@ impl Database {
             )?;
         }
 
-        // These tables are now migrated to file/system settings and can be removed.
         tx.execute_batch("DROP TABLE IF EXISTS app_settings; DROP TABLE IF EXISTS logs;")?;
 
         let now = chrono::Utc::now().to_rfc3339();

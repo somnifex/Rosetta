@@ -50,7 +50,6 @@ export function TagPicker({ documentId }: TagPickerProps) {
 
   return (
     <div className="space-y-2.5">
-      {/* Current tags */}
       <div className="flex items-center gap-1.5 flex-wrap min-h-[28px]">
         {documentTags.map((tag) => (
           <Badge
@@ -84,7 +83,6 @@ export function TagPicker({ documentId }: TagPickerProps) {
         </Button>
       </div>
 
-      {/* Tag picker dropdown */}
       {isOpen && (
         <div className="rounded-lg border border-border bg-background p-2 space-y-2 shadow-sm">
           <div className="relative">

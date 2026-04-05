@@ -115,7 +115,6 @@ export default function WebDAVTab() {
 
   return (
     <div className="space-y-4">
-      {/* A. WebDAV Configuration */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -219,14 +218,12 @@ export default function WebDAVTab() {
         </CardContent>
       </Card>
 
-      {/* B. Sync Behavior */}
       <Card>
         <CardHeader>
           <CardTitle>{t("webdav.section_sync")}</CardTitle>
           <CardDescription>{t("webdav.section_sync_desc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {/* Sync Mode */}
           <div className="space-y-2">
             <Label>{t("webdav.sync_mode")}</Label>
             <div className="grid gap-2 md:grid-cols-3">
@@ -252,7 +249,6 @@ export default function WebDAVTab() {
             </div>
           </div>
 
-          {/* Sync Scope */}
           <div className="space-y-2">
             <Label>{t("webdav.sync_scope")}</Label>
             <div className="grid gap-2 md:grid-cols-2">
@@ -278,7 +274,6 @@ export default function WebDAVTab() {
             </div>
           </div>
 
-          {/* Execute Sync */}
           <Button
             disabled={syncMutation.isPending}
             onClick={() => {
@@ -313,7 +308,6 @@ export default function WebDAVTab() {
             </span>
           </Button>
 
-          {/* Last Sync Info */}
           {lastSync && (
             <div className="rounded-lg border p-3 bg-muted/30 text-sm space-y-1">
               <div className="flex items-center gap-2 font-medium">
@@ -344,14 +338,12 @@ export default function WebDAVTab() {
         </CardContent>
       </Card>
 
-      {/* C. Local Backup */}
       <Card>
         <CardHeader>
           <CardTitle>{t("webdav.section_backup")}</CardTitle>
           <CardDescription>{t("webdav.section_backup_desc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Export */}
           <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
@@ -371,7 +363,6 @@ export default function WebDAVTab() {
             </Button>
           </div>
 
-          {/* Import */}
           <div>
             <input
               ref={fileInputRef}
@@ -390,7 +381,6 @@ export default function WebDAVTab() {
                 } catch (err: any) {
                   toast({ title: t("webdav.import_invalid"), description: err.message, variant: "destructive" })
                 } finally {
-                  // Reset file input
                   if (fileInputRef.current) fileInputRef.current.value = ""
                 }
               }}
@@ -407,7 +397,6 @@ export default function WebDAVTab() {
         </CardContent>
       </Card>
 
-      {/* Confirm Dialog (shared for sync/import) */}
       <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}>
         <DialogContent>
           <DialogHeader>
@@ -425,7 +414,6 @@ export default function WebDAVTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Import Preview Dialog */}
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogContent>
           <DialogHeader>

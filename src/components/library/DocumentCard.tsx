@@ -140,7 +140,6 @@ export function DocumentCard({
           selected && "border-primary shadow-sm ring-1 ring-primary"
         )}
       >
-      {/* Selection checkbox */}
       <button
         type="button"
         className="absolute left-2.5 top-2.5 z-10 h-5 w-5 rounded border border-border bg-background/90 flex items-center justify-center"
@@ -162,7 +161,6 @@ export function DocumentCard({
           onOpen()
         }}
       >
-        {/* A4 Preview — portrait ratio */}
         <div className="relative aspect-[3/4] overflow-hidden border-b border-border bg-muted/45">
           {isPdf && !document.is_file_missing ? (
             <PdfThumbnail filePath={document.file_path} />
@@ -172,7 +170,6 @@ export function DocumentCard({
             </div>
           )}
 
-          {/* Hover action overlay - bottom strip */}
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-end gap-1.5 px-2.5 pb-2 pt-6 bg-gradient-to-t from-black/20 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
             {!inTrash ? (
               <>
@@ -212,9 +209,7 @@ export function DocumentCard({
           </div>
         </div>
 
-        {/* Info section — compact 2-line layout */}
         <div className="px-3 py-2.5 space-y-1.5">
-          {/* Row 1: Title + status */}
           <div className="flex items-center gap-2 min-w-0">
             <h3 className="truncate text-sm font-medium leading-5 flex-1">{document.title}</h3>
             {document.is_file_missing && (
@@ -234,7 +229,6 @@ export function DocumentCard({
             )}
           </div>
 
-          {/* Row 2: filename + date + size */}
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="truncate flex-1">{document.filename}</span>
             <span className="shrink-0">{formatDate(inTrash ? document.deleted_at : document.updated_at)}</span>

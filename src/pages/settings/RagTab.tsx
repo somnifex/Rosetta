@@ -240,7 +240,6 @@ export default function RagTab() {
           </div>
           )}
 
-          {/* Zvec Venv Setup */}
           {ragVectorBackend === "zvec" && (
           <div className="space-y-3 border rounded-lg p-4 bg-background/50">
             <div>
@@ -396,14 +395,12 @@ export default function RagTab() {
         </CardContent>
       </Card>
 
-      {/* Reranker Configuration */}
       <Card>
         <CardHeader>
           <CardTitle>{t("rag.reranker.title")}</CardTitle>
           <CardDescription>{t("rag.reranker.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Mode selector */}
           <div className="space-y-3">
             <Label>{t("rag.reranker.mode_label")}</Label>
             <div className="flex gap-4">
@@ -446,7 +443,6 @@ export default function RagTab() {
             </div>
           </div>
 
-          {/* Local mode sub-panel */}
           {ragRerankerMode === "local" && (
             <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
               <div>
@@ -494,7 +490,6 @@ export default function RagTab() {
                 )}
               </div>
 
-              {/* Model download section */}
               <div className="space-y-2 border-t pt-3">
                 <p className="font-medium text-sm">{t("rag.reranker.model_title")}</p>
                 <p className="text-xs text-muted-foreground">{t("rag.reranker.model_description")}</p>
@@ -552,7 +547,6 @@ export default function RagTab() {
             </div>
           )}
 
-          {/* Remote mode sub-panel */}
           {ragRerankerMode === "remote" && (
             <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
               <div>
@@ -569,7 +563,6 @@ export default function RagTab() {
             </div>
           )}
 
-          {/* Top N setting */}
           {ragRerankerMode !== "disabled" && (
             <div className="space-y-2">
               <Label>{t("rag.reranker.top_n")}</Label>

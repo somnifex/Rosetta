@@ -22,7 +22,6 @@ export function TextSelectionToolbar({
   const handleSelectionChange = useCallback(() => {
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || !selection.toString().trim()) {
-      // Delay hiding to allow clicking toolbar buttons
       setTimeout(() => {
         const sel = window.getSelection()
         if (!sel || sel.isCollapsed) {
@@ -36,7 +35,6 @@ export function TextSelectionToolbar({
     const text = selection.toString().trim()
     if (!text) return
 
-    // Check if selection is within our container
     const container = containerRef.current
     if (!container) return
 

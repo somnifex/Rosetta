@@ -26,16 +26,11 @@ struct EmbeddingData {
     embedding: Vec<f32>,
 }
 
-/// Embed结果，包含分片的元数据
 #[derive(Debug, Clone)]
 pub struct EmbedResult {
-    /// 分片的索引
     pub chunk_index: usize,
-    /// 分片文本
     pub text: String,
-    /// 嵌入向量
     pub embedding: Vec<f32>,
-    /// 原始文本位置
     pub start_pos: usize,
     pub end_pos: usize,
 }
@@ -80,36 +75,30 @@ impl Embedder {
         }
     }
 
-    /// 配置重试策略
     pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
         self
     }
 
-    /// 配置分片策略
     pub fn with_chunking_config(mut self, config: ChunkingConfig) -> Self {
         self.chunking_config = config;
         self
     }
 
-    /// 配置速率限制和并发
     pub fn with_rate_limit_config(mut self, config: RateLimitConfig) -> Self {
         self.rate_limit_config = config.clone();
         self.request_limiter = Arc::new(RequestLimiter::new(config));
         self
     }
 
-    /// 获取当前速率限制配置
     pub fn rate_limit_config(&self) -> &RateLimitConfig {
         &self.rate_limit_config
     }
 
-    /// 获取当前限制器状态
     pub fn limiter_status(&self) -> crate::rate_limiter::LimiterStatus {
         self.request_limiter.status()
     }
 
-    /// 原始embed方法（向后兼容，但已添加重试）
     pub async fn embed(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, String> {
         let request = EmbeddingRequest {
             model: self.model.clone(),
@@ -167,7 +156,6 @@ impl Embedder {
         Ok(result)
     }
 
-    /// 智能embed（增量版）：在每个分片完成时回调结果以支持持久化
     pub async fn embed_with_chunks_incremental<F>(
         &self,
         text: &str,
@@ -258,7 +246,6 @@ impl Embedder {
         Ok(results)
     }
 
-    /// 仅嵌入指定的分片列表（用于断点续传和重试失败分片）
     #[allow(dead_code)]
     pub async fn embed_specific_chunks<F>(
         &self,
@@ -332,8 +319,6 @@ impl Embedder {
         Ok(results)
     }
 
-    /// 智能embed：自动分片长文本，返回带位置的embed结果
-    /// 支持并发处理和速率限制
     #[allow(dead_code)]
     pub async fn embed_with_chunks(&self, text: &str) -> Result<Vec<EmbedResult>, String> {
         if text.is_empty() {
@@ -365,7 +350,6 @@ impl Embedder {
             self.chunking_config.tokens_per_char_estimate
         );
 
-        // 转换为可处理的格式
         let mut embed_tasks = Vec::new();
 
         for chunk in chunks {
@@ -373,7 +357,6 @@ impl Embedder {
             let request_limiter = Arc::clone(&self.request_limiter);
 
             embed_tasks.push(async move {
-                // 使用请求限制器控制并发和速率
                 let result = request_limiter
                     .execute(|| async { embedder.embed_chunk(&chunk).await })
                     .await;
@@ -400,10 +383,8 @@ impl Embedder {
             });
         }
 
-        // 并发执行所有任务
         let results: Vec<EmbedResult> = futures::future::join_all(embed_tasks).await;
 
-        // 检查是否有失败的任务（空embedding）
         let failed_embeds: Vec<_> = results.iter().filter(|r| r.embedding.is_empty()).collect();
 
         if !failed_embeds.is_empty() {
@@ -418,7 +399,6 @@ impl Embedder {
         Ok(results)
     }
 
-    /// 克隆embedder所需的参数（用于并发处理）
     fn clone_params(&self) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(120))
@@ -438,7 +418,6 @@ impl Embedder {
         }
     }
 
-    /// 嵌入单个分片（内部方法，带重试）
     async fn embed_chunk(&self, chunk: &Chunk) -> Result<Vec<f32>, String> {
         let request = EmbeddingRequest {
             model: self.model.clone(),

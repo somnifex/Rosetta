@@ -89,7 +89,6 @@ export function DocumentList({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
-      {/* Table header */}
       <div className={cn("grid gap-3 border-b px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground", COL_TEMPLATE)}>
         <span />
         <span>{t("table.document")}</span>
@@ -100,7 +99,6 @@ export function DocumentList({
         <span className="text-center">{t("table.actions")}</span>
       </div>
 
-      {/* Table rows */}
       <div className="divide-y divide-border">
         {documents.map((document) => {
           const Icon = getFileIcon(document.filename)
@@ -118,7 +116,6 @@ export function DocumentList({
                     isSelected && "bg-primary/5"
                   )}
                 >
-              {/* Checkbox */}
               <button
                 type="button"
                 className="h-5 w-5 shrink-0 rounded border border-border bg-background flex items-center justify-center"
@@ -127,7 +124,6 @@ export function DocumentList({
                 {isSelected && <div className="h-3 w-3 rounded-sm bg-primary" />}
               </button>
 
-              {/* Document info */}
               <div
                 className="flex min-w-0 cursor-pointer items-center gap-2.5"
                 onClick={(event) => {
@@ -155,30 +151,25 @@ export function DocumentList({
                 </div>
               </div>
 
-              {/* Category / Folder */}
               <div className="min-w-0">
                 <p className="truncate text-sm">{document.category_name || t("fields.uncategorized")}</p>
                 <p className="truncate text-xs text-muted-foreground">{document.folder_name || t("fields.root_folder")}</p>
               </div>
 
-              {/* Status */}
               <div className="flex justify-center">
                 <Badge variant="outline" className="rounded-full shadow-none font-normal text-[11px] px-2 py-0">
                   {statusLabel(document)}
                 </Badge>
               </div>
 
-              {/* Size */}
               <div className="text-right text-sm text-muted-foreground">
                 {formatBytes(document.file_size)}
               </div>
 
-              {/* Date */}
               <div className="text-sm text-muted-foreground">
                 {formatDate(inTrash ? document.deleted_at : document.updated_at)}
               </div>
 
-              {/* Actions */}
               <div className="flex items-center justify-center gap-0.5">
                 {!inTrash ? (
                   <>

@@ -11,16 +11,10 @@ const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const TASK_STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const TASK_RESULT_TIMEOUT: Duration = Duration::from_secs(3600);
 
-/// Timeout for submitting a task via POST. MinerU's single-threaded FastAPI
-/// server blocks all endpoints while processing a task, so submissions can
-/// stall for the duration of the current parse. We use a generous timeout
-/// and retry logic to ride out these busy windows.
 const TASK_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const TASK_SUBMIT_MAX_RETRIES: u32 = 3;
 const TASK_SUBMIT_RETRY_DELAY: Duration = Duration::from_secs(15);
 
-/// Timeout for the synchronous /file_parse endpoint. This blocks for the
-/// entire parse duration which can be very long for large documents.
 const FILE_PARSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Deserialize)]
@@ -93,9 +87,7 @@ pub struct MinerUClient {
 
 impl MinerUClient {
     pub fn new(base_url: String) -> Self {
-        let client = Client::builder()
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        let client = Client::builder().build().unwrap_or_else(|_| Client::new());
 
         Self {
             base_url,
@@ -194,8 +186,6 @@ impl MinerUClient {
     ) -> Result<Option<ParseExecution>, String> {
         let url = format!("{}/tasks", self.base_url.trim_end_matches('/'));
 
-        // Retry loop: MinerU's single-threaded server blocks all endpoints
-        // while processing a task, so submission POSTs can stall and time out.
         let mut last_error: Option<String> = None;
         let mut response = None;
         for attempt in 0..=TASK_SUBMIT_MAX_RETRIES {
@@ -230,7 +220,8 @@ impl MinerUClient {
             }
         }
         let response = response.ok_or_else(|| {
-            last_error.unwrap_or_else(|| "MinerU /tasks submission failed after retries".to_string())
+            last_error
+                .unwrap_or_else(|| "MinerU /tasks submission failed after retries".to_string())
         })?;
 
         if matches!(
@@ -496,8 +487,6 @@ async fn build_modern_parse_form(file_path: &Path, backend: Option<&str>) -> Res
         .text("return_model_output", "true")
         .text("return_content_list", "true")
         .text("return_images", "true")
-        // Ask mineru-api for the full parse archive so image assets and sidecar files
-        // come from MinerU's own output tree instead of being reconstructed client-side.
         .text("response_format_zip", "true");
     if let Some(backend) = backend {
         form = form.text("backend", backend.to_string());

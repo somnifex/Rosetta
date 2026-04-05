@@ -97,7 +97,6 @@ export function LibraryBatchBar({
     <>
       <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 animate-in slide-in-from-bottom-4 fade-in duration-200">
         <div className="flex items-center gap-3 rounded-xl border border-border bg-background/95 px-4 py-2.5 shadow-xl backdrop-blur-sm">
-          {/* Selection info */}
           <div className="flex items-center gap-2 border-r border-border pr-3">
             <div className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-medium text-primary">
               <CheckSquare className="h-3.5 w-3.5" />
@@ -108,10 +107,8 @@ export function LibraryBatchBar({
             </Button>
           </div>
 
-          {/* Actions */}
           {activeSection === "library" ? (
             <div className="flex items-center gap-2">
-              {/* Pipeline actions */}
               <Button
                 variant="outline"
                 size="sm"
@@ -145,7 +142,6 @@ export function LibraryBatchBar({
 
               <div className="mx-1 h-5 w-px bg-border" />
 
-              {/* Category & Folder */}
               <Select value={categoryDraft} onValueChange={setCategoryDraft}>
                 <SelectTrigger className="h-8 w-[140px] text-xs">
                   <SelectValue placeholder={t("batch.set_category")} />
@@ -196,7 +192,6 @@ export function LibraryBatchBar({
 
               <div className="mx-1 h-5 w-px bg-border" />
 
-              {/* More dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
@@ -251,7 +246,6 @@ export function LibraryBatchBar({
             </div>
           )}
 
-          {/* Close */}
           <div className="border-l border-border pl-2">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClear}>
               <X className="h-3.5 w-3.5" />
@@ -260,7 +254,6 @@ export function LibraryBatchBar({
         </div>
       </div>
 
-      {/* Dialogs */}
       <BatchTagDialog
         open={tagDialogMode !== null}
         mode={tagDialogMode ?? "add"}

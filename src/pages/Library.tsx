@@ -202,7 +202,6 @@ export default function Library() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders"] })
       invalidateLibraryQueries()
-      // If we deleted the currently selected folder or a parent of it
       setSelectedFolderId(null)
       toast({ title: t("toast.folder_deleted") })
     },
@@ -777,7 +776,6 @@ export default function Library() {
             </div>
           )}
 
-          {/* Folder breadcrumb with back navigation */}
           {activeSection === "library" && selectedFolderId && (() => {
             const buildBreadcrumb = () => {
               const crumbs: { id: string | null; name: string }[] = [{ id: null, name: t("breadcrumb.root") }]

@@ -1,16 +1,11 @@
-/// 分片策略配置
 use serde_json::Value;
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone)]
 pub struct ChunkingConfig {
-    /// 单个分片的最大tokens（估算值）
     pub max_tokens_per_chunk: usize,
-    /// 分片间的重叠tokens
     pub overlap_tokens: usize,
-    /// 是否保留句子边界
     pub preserve_sentences: bool,
-    /// 估算的平均tokens/字符比例
     pub tokens_per_char_estimate: f32,
 }
 
@@ -20,13 +15,12 @@ impl Default for ChunkingConfig {
             max_tokens_per_chunk: 2048,
             overlap_tokens: 128,
             preserve_sentences: true,
-            tokens_per_char_estimate: 0.25, // 平均每个字符约0.25个tokens
+            tokens_per_char_estimate: 0.25,
         }
     }
 }
 
 impl ChunkingConfig {
-    /// 创建用于translate的配置（保守估计，防止超长请求）
     pub fn for_translate() -> Self {
         Self {
             max_tokens_per_chunk: 4000,
@@ -36,7 +30,6 @@ impl ChunkingConfig {
         }
     }
 
-    /// 创建用于embed的配置
     pub fn for_embed() -> Self {
         Self {
             max_tokens_per_chunk: 8192,
@@ -47,7 +40,6 @@ impl ChunkingConfig {
     }
 }
 
-/// 分片结果，包含序号用于追踪
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TranslationChunkStrategy {
     Token,
@@ -532,25 +524,19 @@ fn value_f64(value: &Value) -> Option<f64> {
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    /// 分片的序号
     pub index: usize,
-    /// 分片的文本内容
     pub text: String,
-    /// 从原文本的起始位置
     pub start_pos: usize,
-    /// 在原文本的结束位置
     pub end_pos: usize,
 }
 
 impl Chunk {
-    /// 估算该分片的tokens数
     #[allow(dead_code)]
     pub fn estimate_tokens(&self, tokens_per_char: f32) -> usize {
         (self.text.len() as f32 * tokens_per_char).ceil() as usize
     }
 }
 
-/// 智能文本分片器
 pub struct TextChunker {
     config: ChunkingConfig,
 }
@@ -566,7 +552,6 @@ impl TextChunker {
         Self { config }
     }
 
-    /// 根据tokens大小分片文本，保留句子边界
     pub fn chunk(&self, text: &str) -> Vec<Chunk> {
         if text.is_empty() {
             return Vec::new();
@@ -577,7 +562,6 @@ impl TextChunker {
             / self.config.tokens_per_char_estimate)
             .ceil() as usize;
 
-        // 确定合理的字符级分片大小
         let target_chunk_chars = estimated_total_chars.max(256);
         let overlap_chars = (self.config.overlap_tokens as f32
             / self.config.tokens_per_char_estimate)
@@ -592,7 +576,6 @@ impl TextChunker {
         chunks
     }
 
-    /// 按字符分片（简单方式）
     fn chunk_by_chars(
         &self,
         text: &str,
@@ -626,7 +609,6 @@ impl TextChunker {
         }
     }
 
-    /// 按句子分片，尝试保留句子边界
     fn chunk_with_sentences(
         &self,
         text: &str,
@@ -666,7 +648,6 @@ impl TextChunker {
             }
         }
 
-        // 保存最后一个chunk
         if !current_chunk.is_empty() {
             let end_pos = current_start_pos + current_chunk.len();
             chunks.push(Chunk {
@@ -678,7 +659,6 @@ impl TextChunker {
         }
     }
 
-    /// 将原文拆成结构化单元，避免拆断表格/图片/公式等内容
     fn split_structural_units(&self, text: &str) -> Vec<TextUnit> {
         let mut units = Vec::new();
         let mut prose = String::new();
@@ -843,7 +823,6 @@ impl TextChunker {
             return vec![unit.text.clone()];
         }
 
-        // 结构化内容优先按换行处切分，普通段落按软边界切分
         if unit.protected {
             return self.split_with_soft_boundaries(&unit.text, chunk_chars, true);
         }

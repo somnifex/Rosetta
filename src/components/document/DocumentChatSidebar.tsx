@@ -195,7 +195,6 @@ export function DocumentChatSidebar({
         )}
         onPointerDown={startResize}
       />
-      {/* Header */}
       <div className="flex items-center justify-between px-4 h-12 border-b shrink-0">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <MessageSquare className="h-4 w-4" />
@@ -213,7 +212,6 @@ export function DocumentChatSidebar({
         </div>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-auto">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
@@ -256,7 +254,6 @@ export function DocumentChatSidebar({
         )}
       </div>
 
-      {/* Input */}
       <div className="p-3 border-t shrink-0">
         <div className="flex items-end gap-0 rounded-lg border bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring">
           <textarea

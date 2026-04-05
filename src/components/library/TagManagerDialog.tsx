@@ -86,7 +86,6 @@ export function TagManagerDialog({ open, onOpenChange }: TagManagerDialogProps) 
         </DialogHeader>
 
         <div className="space-y-5 pt-1">
-          {/* Create new tag */}
           <div className="rounded-lg border border-border bg-muted/30 p-3">
             <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t("tags.new_section")}</p>
             <div className="flex items-center gap-2">
@@ -112,7 +111,6 @@ export function TagManagerDialog({ open, onOpenChange }: TagManagerDialogProps) 
             </div>
           </div>
 
-          {/* Tag list */}
           <div>
             <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("tags.existing", { count: tags.length })}

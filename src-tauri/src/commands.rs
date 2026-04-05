@@ -2809,7 +2809,6 @@ fn cancel_index_job_internal(
         )
         .map_err(|e| e.to_string())?;
 
-    // Also cancel any active index_jobs for this document
     conn.execute(
         "UPDATE index_jobs SET status = 'failed', error_message = 'Cancelled by user', completed_at = ?1, updated_at = ?1 WHERE document_id = ?2 AND status IN ('pending', 'indexing')",
         (&now, document_id),
@@ -2906,7 +2905,6 @@ pub fn update_document(
         }
 
         if updates.is_empty() {
-            // no-op, just fall through to get_document_by_id
         } else {
             updates.push("updated_at = ?");
             params.push(Box::new(now));
@@ -4563,9 +4561,6 @@ fn resolve_builtin_parse_backend(
     }
 }
 
-/// Errors containing any of these substrings are considered transient and
-/// eligible for automatic retry (e.g. MinerU is starting up or temporarily
-/// busy processing another task).
 const TRANSIENT_PARSE_ERROR_HINTS: &[&str] = &[
     "not running",
     "not responding",
@@ -4618,7 +4613,6 @@ async fn execute_parse_job(
     };
     let file_path = PathBuf::from(file_path);
 
-    // Retry loop for transient MinerU errors (not running, busy, connection issues).
     let mut last_error: Option<String> = None;
     for attempt in 0..=PARSE_JOB_MAX_RETRIES {
         if attempt > 0 {
@@ -4641,7 +4635,12 @@ async fn execute_parse_job(
                 let conn = db.get_connection();
                 let now = Utc::now().to_rfc3339();
                 return persist_parse_job_success(
-                    conn, app_dir, job_id, document_id, execution, &now,
+                    conn,
+                    app_dir,
+                    job_id,
+                    document_id,
+                    execution,
+                    &now,
                 );
             }
             Err(error) => {
@@ -4666,7 +4665,6 @@ async fn execute_parse_job(
         }
     }
 
-    // Should not reach here, but handle gracefully
     let error = last_error.unwrap_or_else(|| "Parse job exhausted retries".to_string());
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.get_connection();
@@ -5736,7 +5734,6 @@ async fn execute_translation_job(
     )
 }
 
-/// Finalize a translation job after all chunks have been processed
 fn finalize_translation_job(
     state: &AppState,
     app_dir: Option<&Path>,
@@ -5757,7 +5754,6 @@ fn finalize_translation_job(
             let failed_chunks = total_chunks - completed_chunks;
 
             if failed_chunks > 0 {
-                // Partial success — mark as partial, don't merge yet
                 let progress = if total_chunks > 0 {
                     (completed_chunks as f64 / total_chunks as f64) * 100.0
                 } else {
@@ -6203,7 +6199,6 @@ async fn resume_translation_job_start(
     Ok(job)
 }
 
-/// Gather all translation chunk results for a job (for merge after resume)
 fn gather_all_translation_chunks(
     state: &AppState,
     job_id: &str,
@@ -6787,7 +6782,6 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
     }
 
     if failed_count > 0 {
-        // Partial success
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let conn = db.get_connection();
         let now = Utc::now().to_rfc3339();
@@ -6806,7 +6800,6 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
         return Err(error_msg);
     }
 
-    // All succeeded — write to final tables
     let mut sorted_embeddings = successful_embeddings;
     sorted_embeddings.sort_by_key(|chunk| chunk.chunk_index);
 
@@ -6933,7 +6926,6 @@ pub(crate) async fn execute_index_job_with_embedding_provider(
             crate::zvec::upsert_embeddings(app_dir, &zvec_settings, collection_key, &vectors)
         {
             log::warn!("ZVEC upsert failed, sqlite-vec fallback data retained: {error}");
-            // Downgrade index record to sqlite since sqlite-vec data is already written
             crate::zvec::upsert_document_index_record(
                 conn,
                 document_id,
@@ -7122,8 +7114,6 @@ async fn resume_index_job_internal(
         ).map_err(|e| e.to_string())?;
     }
 
-    // For index resume, we re-run the full index job since embeddings need to be written atomically
-    // to the final tables (chunks, embeddings, vec0). The index_chunks table tracks progress.
     let doc_id_clone = document_id.clone();
     let state_clone = state.clone();
     let app_dir_clone = app_dir.clone();

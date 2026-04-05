@@ -281,7 +281,6 @@ export default function TranslationTab() {
         </CardContent>
       </Card>
 
-      {/* Variable reference */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("prompt.variables.title")}</CardTitle>

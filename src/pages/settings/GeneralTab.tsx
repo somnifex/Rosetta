@@ -143,7 +143,6 @@ export default function GeneralTab() {
       await api.setAppSetting("general.theme", normalizedTheme)
       setStoredTheme(normalizedTheme)
 
-      // Autostart
       try {
         if (autostart) {
           await enableAutostart()
@@ -154,7 +153,6 @@ export default function GeneralTab() {
         // autostart plugin may not be available in dev/browser mode
       }
 
-      // Silent start
       await api.setAppSetting("general.start_silent", startSilent ? "true" : "false")
       await api.setAppSetting(
         "general.check_updates_on_startup",

@@ -77,7 +77,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
     onChange(channels.map((c) => (c.id === id ? { ...c, maxRetries: value } : c)))
   }
 
-  // Drag and drop
   const handleDragStart = (index: number) => {
     dragItem.current = index
   }
@@ -148,7 +147,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Add Form */}
         {showForm && (
           <div className="border rounded-lg p-4 bg-muted/30 space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
@@ -223,7 +221,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
           </div>
         )}
 
-        {/* Channel List */}
         {channels.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
             {t("channel.empty")}
@@ -246,13 +243,11 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
                   dragOverIndex === index ? "border-primary bg-primary/5 scale-[1.01]" : ""
                 } ${!ch.isActive ? "opacity-50" : ""}`}
               >
-                {/* Drag Handle + Priority */}
                 <div className="flex items-center gap-1 text-muted-foreground shrink-0">
                   <GripVertical className="h-4 w-4" />
                   <span className="text-xs font-mono w-4 text-center">{index + 1}</span>
                 </div>
 
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm truncate">{ch.name}</span>
@@ -269,7 +264,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
                   <p className="text-xs text-muted-foreground truncate">{ch.baseUrl}</p>
                 </div>
 
-                {/* Retry */}
                 <div className="flex items-center gap-1 shrink-0 text-xs text-muted-foreground" title={t("channel.form.retries")}>
                   <RotateCcw className="h-3 w-3" />
                   <Input
@@ -283,7 +277,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
                   />
                 </div>
 
-                {/* Vision Toggle */}
                 {(channelType === "chat" || channelType === "translate") && (
                   <div className="shrink-0" title={ch.supportsVision ? t("channel.vision_enabled") : t("channel.vision_disabled")}>
                     <Switch
@@ -293,7 +286,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
                   </div>
                 )}
 
-                {/* Active Toggle */}
                 <div className="shrink-0" title={ch.isActive ? t("channel.enabled") : t("channel.disabled")}>
                   <Switch
                     checked={ch.isActive}
@@ -301,7 +293,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
                   />
                 </div>
 
-                {/* Move Buttons */}
                 <div className="flex flex-col shrink-0">
                   <button
                     className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
@@ -321,7 +312,6 @@ export function ChannelSection({ title, description, icon, channels, onChange, c
                   </button>
                 </div>
 
-                {/* Delete */}
                 <Button
                   variant="ghost"
                   size="icon"

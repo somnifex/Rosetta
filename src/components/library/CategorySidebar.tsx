@@ -170,7 +170,6 @@ export function CategorySidebar({
         <h3 className="text-sm font-semibold text-foreground">{t("categories.title")}</h3>
       </div>
       <div className="flex-1 overflow-auto p-2 space-y-0.5">
-        {/* All Documents */}
         <div
           className={cn(
             "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm cursor-pointer transition-colors",
@@ -185,10 +184,8 @@ export function CategorySidebar({
           <span className="text-xs text-muted-foreground">{totalDocuments}</span>
         </div>
 
-        {/* Category tree */}
         {tree.roots.map((cat) => renderCategory(cat))}
 
-        {/* Create new */}
         {isCreating ? (
           <div className="flex items-center gap-1 px-2 py-1">
             <Input

@@ -224,7 +224,6 @@ export default function Tasks() {
     refetchInterval: 3000,
   })
 
-  // Build unified task list
   const parseTasks: UnifiedTask[] = parseJobs.map((j) => ({
     id: j.id,
     documentId: j.document_id,
