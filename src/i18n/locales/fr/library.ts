@@ -303,6 +303,7 @@ export default {
     sections: {
       reading_entries: "Entrées de lecture",
       outputs: "Sorties et export",
+      metadata: "Métadonnées",
       archive: "Archivage et étiquettes",
       advanced: "Actions avancées",
     },
@@ -378,6 +379,7 @@ export default {
     remove_from_folder: "Retirer du dossier",
     apply: "Appliquer",
     parse: "Analyser",
+    extract: "Extraire les champs",
     translate: "Traduire",
     more: "Plus",
     index: "Créer l'index",
@@ -441,5 +443,50 @@ export default {
     empty_trash_success: "Corbeille vidée",
     empty_trash_partial: "Corbeille partiellement vidée",
     empty_trash_error: "Impossible de vider la corbeille",
+  },
+  extraction: {
+    dialog: {
+      single_title: "Extraire les champs de métadonnées",
+      batch_title: "Extraire les métadonnées pour {{count}} documents",
+      single_description:
+        "Exécutez les modèles de métadonnées sélectionnés sur le contenu analysé de ce document.",
+      batch_description:
+        "Exécutez les modèles de métadonnées sélectionnés sur le contenu analysé des documents sélectionnés.",
+      provider_label: "Fournisseur",
+      provider_placeholder: "Sélectionner un fournisseur",
+      provider_hint: "{{provider}} sera utilisé pour cette extraction.",
+      provider_empty: "Aucun fournisseur Chat actif n'est disponible.",
+      fields_label: "Champs",
+      fields_hint:
+        "Seuls les modèles activés apparaissent ici. Chaque modèle extrait un champ de métadonnées.",
+      select_all: "Tout sélectionner",
+      clear: "Effacer",
+      no_templates:
+        "Aucun modèle d'extraction activé n'est disponible. Activez-en un dans les Paramètres d'abord.",
+      running: "Extraction en cours...",
+      confirm: "Lancer l'extraction",
+    },
+    metadata: {
+      title: "Métadonnées extraites",
+      description:
+        "Ces valeurs sont stockées dans la base de données de la bibliothèque et synchronisées dans le fichier meta.json du document.",
+      extract: "Extraire les champs",
+      empty_title: "Aucune métadonnée extraite pour l'instant",
+      empty_description:
+        "Lancez l'extraction pour enregistrer des champs tels que les auteurs, le DOI ou la revue dans les métadonnées du document.",
+      extracted_at: "Mis à jour {{time}}",
+      not_found:
+        "Aucune valeur n'a été trouvée pour ce champ dans le résultat d'extraction actuel.",
+    },
+    toast: {
+      single_success: "Extraction de métadonnées terminée",
+      single_success_desc: "{{count}} résultats de champs ont été mis à jour.",
+      batch_success: "Extraction de métadonnées par lot terminée",
+      batch_partial:
+        "L'extraction de métadonnées par lot s'est terminée avec des erreurs",
+      run_error: "L'extraction de métadonnées a échoué",
+      field_deleted: "Champ de métadonnées supprimé",
+      field_delete_error: "Impossible de supprimer le champ de métadonnées",
+    },
   },
 }

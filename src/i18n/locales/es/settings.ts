@@ -5,6 +5,7 @@ export default {
     general: "General",
     providers: "Proveedores LLM",
     translation: "Prompt de traducción",
+    extraction: "Extracción de campos",
     mineru: "Análisis de PDF",
     webdav: "Sincronización y copia de seguridad",
     rag: "RAG e indexación",
@@ -76,6 +77,11 @@ export default {
     auto_update: "Actualizar automáticamente",
     auto_update_desc:
       "Si la comprobación al iniciar encuentra una nueva versión, se descargará e instalará automáticamente. Si es necesario reiniciar la aplicación, primero se mostrará un cuadro de confirmación.",
+    accept_prerelease_updates: "Aceptar actualizaciones de prelanzamiento",
+    accept_prerelease_updates_desc:
+      "Incluir versiones beta, alpha, rc y otras de prelanzamiento al buscar actualizaciones",
+    accept_prerelease_updates_risk:
+      "Las versiones de prelanzamiento pueden contener funciones incompletas o problemas de estabilidad. Si la comprobación al iniciar y la descarga automática están activadas, las actualizaciones de prelanzamiento también podrían descargarse automáticamente.",
     chat_behavior_saved: "Configuración de comportamiento del chat guardada",
     chat_behavior_save_error: "No se pudo guardar la configuración de comportamiento del chat",
     update: "Buscar actualizaciones",
@@ -84,6 +90,7 @@ export default {
     update_available: "Hay una nueva versión {{version}} disponible",
     update_available_desc:
       "Abre Configuración para revisar las notas de la versión e instalar la actualización.",
+    update_prerelease_notice: "Esta actualización es una versión de prelanzamiento.",
     update_downloading: "Descargando actualización... {{progress}}%",
     update_installing: "Instalando actualización...",
     update_ready_to_restart:
@@ -251,12 +258,12 @@ export default {
       python_path_label: "Ejecutable de Python",
       python_path_placeholder: "python3",
       port_label: "Puerto",
-      parse_backend_label: "Parse Backend",
-      parse_backend_vlm: "VLM (recommended)",
+      parse_backend_label: "Motor de análisis",
+      parse_backend_vlm: "VLM (recomendado)",
       parse_backend_pipeline: "Pipeline",
-      parse_backend_auto: "Auto (hardware detection)",
+      parse_backend_auto: "Auto (detección de hardware)",
       parse_backend_hint:
-        "VLM uses vision language models for higher accuracy. Pipeline uses traditional layout analysis. Auto selects based on hardware capabilities.",
+        "VLM usa modelos de lenguaje con visión para mayor precisión. Pipeline usa el análisis de diseño tradicional. Auto selecciona según las capacidades del hardware.",
       auto_start_label: "Iniciar automáticamente al abrir",
       auto_start_description: "Inicia MinerU automáticamente al abrir la aplicación",
       status_label: "Estado",
@@ -613,6 +620,62 @@ export default {
       text: "Fragmento de texto actual a traducir",
       filename: "Nombre del archivo del documento actual",
       chunk_index: "Índice actual del fragmento (empezando en 1)",
+    },
+  },
+  extraction: {
+    provider: {
+      title: "Proveedor de extracción",
+      description:
+        "La extracción de campos usa modelos de Chat y prefiere la salida JSON compatible con OpenAI, con un respaldo de texto sin formato cuando es necesario.",
+      label: "Proveedor predeterminado",
+      auto: "Seleccionar automáticamente el primer proveedor de chat activo",
+      hint: "Este proveedor se usa como opción predeterminada para la extracción manual.",
+      empty:
+        "Aún no hay ningún proveedor de chat activo. Configura uno en la pestaña Proveedores primero.",
+    },
+    builtin: {
+      title: "Plantillas integradas",
+      description:
+        "Cada plantilla extrae un campo. Activa las que quieras que aparezcan en los diálogos de extracción por defecto.",
+      no_description: "Sin descripción.",
+    },
+    custom: {
+      title: "Plantillas personalizadas",
+      description:
+        "Crea prompts reutilizables de un solo campo para los metadatos que quieras guardar en meta.json y en la biblioteca de documentos.",
+      add: "Nueva plantilla",
+      empty: "Aún no hay plantillas personalizadas.",
+    },
+    dialog: {
+      create_title: "Crear plantilla personalizada",
+      edit_title: "Editar plantilla personalizada",
+      description:
+        "Cada plantilla debe centrarse en un único campo de metadatos. El extractor añadirá automáticamente la instrucción de salida JSON.",
+      name: "Nombre de la plantilla",
+      name_placeholder: "Por ejemplo: Autor de correspondencia",
+      field_key: "Clave del campo",
+      field_key_placeholder: "por ejemplo: corresponding_author",
+      field_key_hint:
+        "Usa una clave estable en snake_case. Esta se convierte en la clave de metadatos almacenada en meta.json.",
+      field_key_locked:
+        "Las claves de campo quedan bloqueadas tras la creación para que los metadatos existentes no pierdan su referencia.",
+      description_label: "Descripción",
+      description_placeholder: "Explica qué debe capturar este campo",
+      system_prompt: "System Prompt",
+      user_prompt: "User Prompt",
+      user_prompt_hint:
+        "Usa {{document_text}} para controlar dónde aparece el texto del documento analizado en tu prompt.",
+      enabled_title: "Activar esta plantilla",
+      enabled_description:
+        "Las plantillas desactivadas se mantienen guardadas, pero no aparecen en los diálogos de extracción por defecto.",
+    },
+    toast: {
+      provider_saved: "Proveedor de extracción guardado",
+      provider_save_error: "No se pudo guardar el proveedor de extracción",
+      template_saved: "Plantilla de extracción guardada",
+      template_save_error: "No se pudo guardar la plantilla de extracción",
+      template_deleted: "Plantilla de extracción eliminada",
+      template_delete_error: "No se pudo eliminar la plantilla de extracción",
     },
   },
 }

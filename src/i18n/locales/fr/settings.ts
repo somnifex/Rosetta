@@ -5,6 +5,7 @@ export default {
     general: "Général",
     providers: "Fournisseurs LLM",
     translation: "Prompt de traduction",
+    extraction: "Extraction de champs",
     mineru: "Analyse PDF",
     webdav: "Sync & Sauvegarde",
     rag: "RAG et indexation",
@@ -76,6 +77,11 @@ export default {
     auto_update: "Mettre à jour automatiquement",
     auto_update_desc:
       "Si la vérification au démarrage trouve une nouvelle version, elle sera téléchargée et installée automatiquement. Si un redémarrage est nécessaire, une boîte de dialogue de confirmation s'affichera d'abord.",
+    accept_prerelease_updates: "Accepter les mises à jour préliminaires",
+    accept_prerelease_updates_desc:
+      "Inclure les versions bêta, alpha, rc et autres préliminaires lors de la recherche de mises à jour",
+    accept_prerelease_updates_risk:
+      "Les versions préliminaires peuvent contenir des fonctionnalités incomplètes ou des problèmes de stabilité. Si la vérification au démarrage et le téléchargement automatique sont activés, les mises à jour préliminaires peuvent également être téléchargées automatiquement.",
     chat_behavior_saved: "Paramètres de comportement du chat enregistrés",
     chat_behavior_save_error: "Impossible d'enregistrer les paramètres de comportement du chat",
     update: "Vérifier les mises à jour",
@@ -84,6 +90,7 @@ export default {
     update_available: "Nouvelle version {{version}} disponible",
     update_available_desc:
       "Ouvrez les paramètres pour consulter les notes de version et installer la mise à jour.",
+    update_prerelease_notice: "Cette mise à jour est une version préliminaire.",
     update_downloading: "Téléchargement de la mise à jour... {{progress}}%",
     update_installing: "Installation de la mise à jour...",
     update_ready_to_restart:
@@ -250,12 +257,12 @@ export default {
       python_path_label: "Exécutable Python",
       python_path_placeholder: "python3",
       port_label: "Port",
-      parse_backend_label: "Parse Backend",
-      parse_backend_vlm: "VLM (recommended)",
+      parse_backend_label: "Moteur d'analyse",
+      parse_backend_vlm: "VLM (recommandé)",
       parse_backend_pipeline: "Pipeline",
-      parse_backend_auto: "Auto (hardware detection)",
+      parse_backend_auto: "Auto (détection matérielle)",
       parse_backend_hint:
-        "VLM uses vision language models for higher accuracy. Pipeline uses traditional layout analysis. Auto selects based on hardware capabilities.",
+        "VLM utilise des modèles de langage visuels pour une meilleure précision. Pipeline utilise l'analyse de mise en page traditionnelle. Auto sélectionne en fonction des capacités matérielles.",
       auto_start_label: "Démarrage automatique au lancement",
       auto_start_description: "Démarrer MinerU automatiquement à l'ouverture de l'application",
       status_label: "Statut",
@@ -602,6 +609,62 @@ export default {
       text: "Fragment de texte actuel à traduire",
       filename: "Nom du fichier du document actuel",
       chunk_index: "Index du fragment actuel (à partir de 1)",
+    },
+  },
+  extraction: {
+    provider: {
+      title: "Fournisseur d'extraction",
+      description:
+        "L'extraction de champs utilise des modèles Chat et préfère la sortie JSON compatible OpenAI, avec un repli en texte brut si nécessaire.",
+      label: "Fournisseur par défaut",
+      auto: "Sélectionner automatiquement le premier fournisseur Chat actif",
+      hint: "Ce fournisseur est utilisé par défaut pour l'extraction manuelle.",
+      empty:
+        "Aucun fournisseur Chat actif n'est encore disponible. Configurez-en un dans l'onglet Fournisseurs d'abord.",
+    },
+    builtin: {
+      title: "Modèles intégrés",
+      description:
+        "Chaque modèle extrait un seul champ. Activez ceux que vous souhaitez voir apparaître par défaut dans les boîtes de dialogue d'extraction.",
+      no_description: "Aucune description fournie.",
+    },
+    custom: {
+      title: "Modèles personnalisés",
+      description:
+        "Créez des prompts réutilisables à champ unique pour les métadonnées que vous souhaitez enregistrer dans meta.json et la bibliothèque de documents.",
+      add: "Nouveau modèle",
+      empty: "Aucun modèle personnalisé pour l'instant.",
+    },
+    dialog: {
+      create_title: "Créer un modèle personnalisé",
+      edit_title: "Modifier le modèle personnalisé",
+      description:
+        "Chaque modèle doit se concentrer sur un seul champ de métadonnées. L'extracteur ajoutera automatiquement l'instruction de sortie JSON.",
+      name: "Nom du modèle",
+      name_placeholder: "Par exemple : Auteur correspondant",
+      field_key: "Clé de champ",
+      field_key_placeholder: "par exemple : corresponding_author",
+      field_key_hint:
+        "Utilisez une clé stable en snake_case. Elle devient la clé de métadonnées stockée dans meta.json.",
+      field_key_locked:
+        "Les clés de champ sont verrouillées après création afin que les métadonnées existantes restent stables.",
+      description_label: "Description",
+      description_placeholder: "Expliquez ce que ce champ doit capturer",
+      system_prompt: "Prompt système",
+      user_prompt: "Prompt utilisateur",
+      user_prompt_hint:
+        "Utilisez {{document_text}} pour contrôler l'emplacement d'insertion du texte analysé dans votre prompt.",
+      enabled_title: "Activer ce modèle",
+      enabled_description:
+        "Les modèles désactivés restent enregistrés, mais sont masqués des boîtes de dialogue d'extraction par défaut.",
+    },
+    toast: {
+      provider_saved: "Fournisseur d'extraction enregistré",
+      provider_save_error: "Impossible d'enregistrer le fournisseur d'extraction",
+      template_saved: "Modèle d'extraction enregistré",
+      template_save_error: "Impossible d'enregistrer le modèle d'extraction",
+      template_deleted: "Modèle d'extraction supprimé",
+      template_delete_error: "Impossible de supprimer le modèle d'extraction",
     },
   },
 }

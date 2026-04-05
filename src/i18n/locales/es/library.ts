@@ -303,6 +303,7 @@ export default {
     sections: {
       reading_entries: "Entradas de lectura",
       outputs: "Salidas y exportación",
+      metadata: "Metadatos",
       archive: "Archivo y etiquetas",
       advanced: "Acciones avanzadas",
     },
@@ -378,6 +379,7 @@ export default {
     remove_from_folder: "Quitar de carpeta",
     apply: "Aplicar",
     parse: "Analizar",
+    extract: "Extraer campos",
     translate: "Traducir",
     more: "Más",
     index: "Crear índice",
@@ -441,5 +443,50 @@ export default {
     empty_trash_success: "Papelera vaciada",
     empty_trash_partial: "La papelera se vació parcialmente",
     empty_trash_error: "No se pudo vaciar la papelera",
+  },
+  extraction: {
+    dialog: {
+      single_title: "Extraer campos de metadatos",
+      batch_title: "Extraer metadatos para {{count}} documentos",
+      single_description:
+        "Ejecuta las plantillas de metadatos seleccionadas sobre el contenido analizado de este documento.",
+      batch_description:
+        "Ejecuta las plantillas de metadatos seleccionadas sobre el contenido analizado de los documentos seleccionados.",
+      provider_label: "Proveedor",
+      provider_placeholder: "Selecciona un proveedor",
+      provider_hint: "Se usará {{provider}} para esta extracción.",
+      provider_empty: "No hay ningún proveedor de chat activo disponible.",
+      fields_label: "Campos",
+      fields_hint:
+        "Aquí solo aparecen las plantillas activas. Cada plantilla extrae un campo de metadatos.",
+      select_all: "Seleccionar todo",
+      clear: "Limpiar",
+      no_templates:
+        "No hay plantillas de extracción activas. Activa una en la Configuración primero.",
+      running: "Extrayendo...",
+      confirm: "Ejecutar extracción",
+    },
+    metadata: {
+      title: "Metadatos extraídos",
+      description:
+        "Estos valores se almacenan en la base de datos de la biblioteca y se sincronizan con el archivo meta.json del documento.",
+      extract: "Extraer campos",
+      empty_title: "Aún no se han extraído metadatos",
+      empty_description:
+        "Ejecuta la extracción para guardar campos como autores, DOI o revista en los metadatos del documento.",
+      extracted_at: "Actualizado {{time}}",
+      not_found:
+        "No se encontró ningún valor para este campo en el resultado de extracción actual.",
+    },
+    toast: {
+      single_success: "Extracción de metadatos completada",
+      single_success_desc: "Se actualizaron {{count}} resultados de campos.",
+      batch_success: "Extracción de metadatos por lotes completada",
+      batch_partial:
+        "La extracción de metadatos por lotes terminó con errores",
+      run_error: "La extracción de metadatos falló",
+      field_deleted: "Campo de metadatos eliminado",
+      field_delete_error: "No se pudo eliminar el campo de metadatos",
+    },
   },
 }

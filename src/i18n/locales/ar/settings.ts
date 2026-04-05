@@ -5,6 +5,7 @@ export default {
     general: "عام",
     providers: "مزودو LLM",
     translation: "موجه الترجمة",
+    extraction: "استخراج الحقول",
     mineru: "تحليل PDF",
     webdav: "المزامنة والنسخ الاحتياطي",
     rag: "RAG والفهرسة",
@@ -76,6 +77,11 @@ export default {
     auto_update: "التحديث التلقائي",
     auto_update_desc:
       "إذا عثر التحقق عند التشغيل على إصدار جديد، فسيتم تنزيله وتثبيته تلقائياً. وإذا كان يلزم إعادة تشغيل التطبيق، فسيظهر مربع تأكيد أولاً.",
+    accept_prerelease_updates: "قبول تحديثات ما قبل الإصدار",
+    accept_prerelease_updates_desc:
+      "تضمين إصدارات بيتا وألفا وrc وغيرها من إصدارات ما قبل الإصدار عند التحقق من التحديثات",
+    accept_prerelease_updates_risk:
+      "قد تحتوي إصدارات ما قبل الإصدار على ميزات غير مكتملة أو مشكلات في الاستقرار. إذا كان التحقق عند التشغيل والتنزيل التلقائي ممكّنَين، فقد يتم أيضاً تنزيل تحديثات ما قبل الإصدار تلقائياً.",
     chat_behavior_saved: "تم حفظ إعدادات سلوك المحادثة",
     chat_behavior_save_error: "تعذر حفظ إعدادات سلوك المحادثة",
     update: "التحقق من التحديثات",
@@ -84,6 +90,7 @@ export default {
     update_available: "إصدار جديد {{version}} متاح",
     update_available_desc:
       "افتح الإعدادات لمراجعة ملاحظات الإصدار وتثبيت التحديث.",
+    update_prerelease_notice: "هذا التحديث هو إصدار تجريبي مبكر.",
     update_downloading: "جارٍ تنزيل التحديث... {{progress}}%",
     update_installing: "جارٍ تثبيت التحديث...",
     update_ready_to_restart:
@@ -250,12 +257,12 @@ export default {
       python_path_label: "ملف Python التنفيذي",
       python_path_placeholder: "python3",
       port_label: "المنفذ",
-      parse_backend_label: "Parse Backend",
-      parse_backend_vlm: "VLM (recommended)",
+      parse_backend_label: "محرك التحليل",
+      parse_backend_vlm: "VLM (موصى به)",
       parse_backend_pipeline: "Pipeline",
-      parse_backend_auto: "Auto (hardware detection)",
+      parse_backend_auto: "تلقائي (اكتشاف الأجهزة)",
       parse_backend_hint:
-        "VLM uses vision language models for higher accuracy. Pipeline uses traditional layout analysis. Auto selects based on hardware capabilities.",
+        "يستخدم VLM نماذج اللغة البصرية لدقة أعلى. يستخدم Pipeline تحليل التخطيط التقليدي. يختار الوضع التلقائي بناءً على إمكانات الأجهزة.",
       auto_start_label: "بدء تلقائي عند الفتح",
       auto_start_description: "بدء MinerU تلقائياً عند فتح التطبيق",
       status_label: "الحالة",
@@ -601,6 +608,62 @@ export default {
       text: "جزء النص الحالي المراد ترجمته",
       filename: "اسم ملف المستند الحالي",
       chunk_index: "فهرس الجزء الحالي (بدءاً من 1)",
+    },
+  },
+  extraction: {
+    provider: {
+      title: "مزود الاستخراج",
+      description:
+        "يستخدم استخراج الحقول نماذج Chat ويفضل إخراج JSON المتوافق مع OpenAI، مع خيار احتياطي بالنص العادي عند الحاجة.",
+      label: "المزود الافتراضي",
+      auto: "اختيار أول مزود Chat نشط تلقائياً",
+      hint: "يُستخدم هذا المزود كخيار افتراضي للاستخراج اليدوي.",
+      empty:
+        "لا يوجد مزود Chat نشط بعد. قم بتكوين أحدهم في تبويب المزودين أولاً.",
+    },
+    builtin: {
+      title: "القوالب المضمّنة",
+      description:
+        "يستخرج كل قالب حقلاً واحداً. فعّل القوالب التي تريد ظهورها افتراضياً في مربعات حوار الاستخراج.",
+      no_description: "لا يوجد وصف.",
+    },
+    custom: {
+      title: "القوالب المخصصة",
+      description:
+        "أنشئ موجهات قابلة لإعادة الاستخدام لحقل واحد للبيانات الوصفية التي تريد حفظها في meta.json ومكتبة المستندات.",
+      add: "قالب جديد",
+      empty: "لا توجد قوالب مخصصة بعد.",
+    },
+    dialog: {
+      create_title: "إنشاء قالب مخصص",
+      edit_title: "تعديل القالب المخصص",
+      description:
+        "يجب أن يركز كل قالب على حقل بيانات وصفية واحد. سيضيف المستخرج تعليمة إخراج JSON تلقائياً.",
+      name: "اسم القالب",
+      name_placeholder: "مثال: المؤلف المراسل",
+      field_key: "مفتاح الحقل",
+      field_key_placeholder: "مثال: corresponding_author",
+      field_key_hint:
+        "استخدم مفتاحاً ثابتاً بصيغة snake_case. يصبح هذا هو مفتاح البيانات الوصفية المخزّن في meta.json.",
+      field_key_locked:
+        "تُقفل مفاتيح الحقول بعد الإنشاء للحفاظ على استقرار البيانات الوصفية الموجودة.",
+      description_label: "الوصف",
+      description_placeholder: "اشرح ما يجب أن يلتقطه هذا الحقل",
+      system_prompt: "موجه النظام",
+      user_prompt: "موجه المستخدم",
+      user_prompt_hint:
+        "استخدم {{document_text}} للتحكم في مكان ظهور نص المستند المحلل في موجهك.",
+      enabled_title: "تفعيل هذا القالب",
+      enabled_description:
+        "تبقى القوالب المعطلة محفوظة، لكنها مخفية من مربعات حوار الاستخراج افتراضياً.",
+    },
+    toast: {
+      provider_saved: "تم حفظ مزود الاستخراج",
+      provider_save_error: "تعذر حفظ مزود الاستخراج",
+      template_saved: "تم حفظ قالب الاستخراج",
+      template_save_error: "تعذر حفظ قالب الاستخراج",
+      template_deleted: "تم حذف قالب الاستخراج",
+      template_delete_error: "تعذر حذف قالب الاستخراج",
     },
   },
 }
