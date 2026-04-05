@@ -9,8 +9,7 @@ use tauri::{AppHandle, State};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
-/// Apply `CREATE_NO_WINDOW` on Windows to prevent console window flashes.
-/// Works with both `std::process::Command` and `tokio::process::Command`.
+/// Hide console window on Windows.
 macro_rules! hide_console_window {
     ($cmd:expr) => {{
         #[cfg(target_os = "windows")]
@@ -135,7 +134,7 @@ pub struct MinerUModelManager {
     status: Mutex<String>,
     message: Mutex<String>,
     progress: Mutex<f64>,
-    /// Accumulates the tail of process output for error reporting.
+    /// Accumulates process output tail for error reporting.
     output_tail: Mutex<String>,
 }
 
@@ -222,7 +221,7 @@ impl MinerUModelManager {
         }
     }
 
-    /// Append a line to the output tail buffer (kept for error reporting).
+    /// Append output line to buffer (last ~2000 chars retained).
     pub fn append_output(&self, line: &str) {
         if let Ok(mut t) = self.output_tail.lock() {
             if !t.is_empty() {
@@ -237,7 +236,7 @@ impl MinerUModelManager {
         }
     }
 
-    /// Get the accumulated output tail.
+    /// Get accumulated buffered output.
     pub fn get_output_tail(&self) -> String {
         self.output_tail
             .lock()
@@ -288,23 +287,23 @@ impl MinerUProcessManager {
         model_source: &str,
         models_dir: &str,
     ) -> Result<u16, String> {
-        // Check if already running or starting
-        {
-            let status = self.status.lock().map_err(|e| e.to_string())?;
-            if *status == "running" || *status == "starting" {
-                return Err("MinerU is already running or starting".to_string());
-            }
+    // Check if already running
+    {
+        let status = self.status.lock().map_err(|e| e.to_string())?;
+        if *status == "running" || *status == "starting" {
+            return Err("MinerU is already running or starting".to_string());
         }
+    }
 
-        // Set status to starting
-        {
-            let mut status = self.status.lock().map_err(|e| e.to_string())?;
-            *status = "starting".to_string();
-            let mut error = self.error.lock().map_err(|e| e.to_string())?;
-            *error = None;
-            let mut runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
-            *runtime_profile = None;
-        }
+    // Set status to starting
+    {
+        let mut status = self.status.lock().map_err(|e| e.to_string())?;
+        *status = "starting".to_string();
+        let mut error = self.error.lock().map_err(|e| e.to_string())?;
+        *error = None;
+        let mut runtime_profile = self.runtime_profile.lock().map_err(|e| e.to_string())?;
+        *runtime_profile = None;
+    }
 
         let runtime_profile = detect_mineru_runtime_profile(python_path);
         log::info!(
@@ -330,8 +329,6 @@ impl MinerUProcessManager {
             *profile = Some(runtime_profile.clone());
         }
 
-        // Resolve the command: use the venv entry point when available, otherwise
-        // start the API from the exact Python environment we just validated.
         let (cmd, args): (String, Vec<String>) = if use_venv {
             let api_bin = venv_script_path(venv_dir.unwrap(), "mineru-api");
             if api_bin.exists() {
@@ -370,7 +367,7 @@ impl MinerUProcessManager {
             )
         };
 
-        // Build the command
+        // Build and spawn command
         let mut command = Command::new(&cmd);
         command
             .args(&args)
@@ -399,13 +396,12 @@ impl MinerUProcessManager {
         command.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
         apply_managed_cache_env(&mut command, app_dir)?;
 
-        // Spawn, with fallback for non-venv case
+        // Fallback to Python interpreter if entry point missing
         let child = match command.spawn() {
             Ok(c) => c,
             Err(e) => {
                 if use_venv && cmd != python_path {
-                    // Fallback to the validated Python interpreter if the venv entry
-                    // point is missing or not executable.
+                    // Fallback to Python if venv entry point missing
                     let mut fallback = Command::new(python_path);
                     fallback
                         .args([
@@ -459,8 +455,30 @@ impl MinerUProcessManager {
             }
         };
 
-        // Store the child process
+        // Take stderr handle immediately to prevent buffer deadlock during model loading.
+        let early_exit_stderr: std::sync::Arc<Mutex<String>> =
+            std::sync::Arc::new(Mutex::new(String::new()));
         {
+            let mut child = child;
+            if let Some(stderr) = child.stderr.take() {
+                let shared_buf = std::sync::Arc::clone(&early_exit_stderr);
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncBufReadExt, BufReader};
+                    let reader = BufReader::new(stderr);
+                    let mut lines = reader.lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        log::debug!("[MinerU stderr] {}", line);
+                        if let Ok(mut buf) = shared_buf.lock() {
+                            if buf.len() > 8192 {
+                                let drain = buf.len() - 4096;
+                                buf.drain(..drain);
+                            }
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                    }
+                });
+            }
             let mut proc = self.process.lock().map_err(|e| e.to_string())?;
             *proc = Some(child);
             let mut port = self.port.lock().map_err(|e| e.to_string())?;
@@ -478,18 +496,13 @@ impl MinerUProcessManager {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
             // Check if process is still alive
-            // Extract stderr handle and exit info while holding the lock, then drop lock before await
-            let exited_info: Option<(
-                std::process::ExitStatus,
-                Option<tokio::process::ChildStderr>,
-            )> = {
+            let exited_info: Option<std::process::ExitStatus> = {
                 let mut proc = self.process.lock().map_err(|e| e.to_string())?;
                 if let Some(ref mut child) = *proc {
                     match child.try_wait() {
                         Ok(Some(exit_status)) => {
-                            let stderr_handle = child.stderr.take();
                             *proc = None;
-                            Some((exit_status, stderr_handle))
+                            Some(exit_status)
                         }
                         Ok(None) => None, // Still running
                         Err(e) => {
@@ -500,18 +513,15 @@ impl MinerUProcessManager {
                 } else {
                     None
                 }
-            }; // lock dropped here
+            };
 
-            if let Some((exit_status, stderr_handle)) = exited_info {
-                // Now safe to await — no lock held
-                let stderr_output = if let Some(mut stderr) = stderr_handle {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = Vec::new();
-                    let _ = stderr.read_to_end(&mut buf).await;
-                    String::from_utf8_lossy(&buf).to_string()
-                } else {
-                    String::new()
-                };
+            if let Some(exit_status) = exited_info {
+                // Give the stderr drain task a moment to flush.
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let stderr_output = early_exit_stderr
+                    .lock()
+                    .map(|buf| buf.clone())
+                    .unwrap_or_default();
 
                 let err_detail = if stderr_output.trim().is_empty() {
                     format!("Process exited with {}", exit_status)
@@ -767,11 +777,6 @@ impl MinerUProcessManager {
 
                 if status == "running" {
                     if let Some(port) = current_port {
-                        // Trust the manager status. MinerU's FastAPI server blocks
-                        // /health while processing tasks, so a synchronous health
-                        // check here would cause false negatives and fail parse jobs
-                        // that could otherwise succeed. The background health monitor
-                        // already detects genuinely unhealthy MinerU instances.
                         return Ok(local_mineru_base_url(port));
                     }
                 }
@@ -782,7 +787,7 @@ impl MinerUProcessManager {
                     }
                 }
 
-                Err("Built-in MinerU is not running. Start it in Settings first, or switch MinerU mode to External.".to_string())
+                Err("Built-in MinerU is not running. Start it in Settings first.".to_string())
             }
             "external" => {
                 let url = get_setting_value(settings, "mineru.external_url").unwrap_or_else(|| {
@@ -866,17 +871,13 @@ fn detect_mineru_runtime_profile(python_cmd: &str) -> MinerURuntimeProfile {
         Ok(probe) => classify_mineru_runtime(&probe),
         Err(err) => {
             log::warn!(
-                "Failed to probe MinerU runtime with '{}', falling back to pipeline/cpu: {}",
-                python_cmd,
-                err
+                "Failed to probe MinerU runtime with '{}': {}; using CPU pipeline",
+                python_cmd, err
             );
             MinerURuntimeProfile {
                 backend: "pipeline".to_string(),
                 device_mode: Some("cpu".to_string()),
-                reason: format!(
-                    "Failed to detect a compatible accelerator from the selected Python environment; using CPU pipeline. {}",
-                    err
-                ),
+                reason: format!("Failed to detect accelerator; using CPU. {}", err),
             }
         }
     }
@@ -992,18 +993,15 @@ print(json.dumps(result))
 fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimeProfile {
     let max_vram_gib = bytes_to_gib(probe.max_vram_bytes);
     let total_memory_gib = probe.total_memory_bytes.map(bytes_to_gib);
-    let primary_device_name = probe
+    let primary_device = probe
         .device_names
         .first()
         .map(String::as_str)
         .unwrap_or("GPU");
     let cuda_device_label = if probe.cuda_device_count > 1 {
-        format!(
-            "{} ({} CUDA devices available)",
-            primary_device_name, probe.cuda_device_count
-        )
+        format!("{} ({} devices)", primary_device, probe.cuda_device_count)
     } else {
-        primary_device_name.to_string()
+        primary_device.to_string()
     };
 
     if probe.cuda_available {
@@ -1012,9 +1010,8 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
                 backend: "hybrid-auto-engine".to_string(),
                 device_mode: Some("cuda".to_string()),
                 reason: format!(
-                    "Detected CUDA device {} with {:.1} GiB VRAM, meeting the documented auto-engine threshold; using hybrid-auto-engine.",
-                    cuda_device_label,
-                    max_vram_gib
+                    "CUDA device {} with {:.1} GiB VRAM (auto-engine threshold met).",
+                    cuda_device_label, max_vram_gib
                 ),
             };
         }
@@ -1024,9 +1021,8 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
                 backend: "pipeline".to_string(),
                 device_mode: Some("cuda".to_string()),
                 reason: format!(
-                    "Detected CUDA device {} with {:.1} GiB VRAM, below the documented auto-engine threshold; using pipeline with CUDA.",
-                    cuda_device_label,
-                    max_vram_gib
+                    "CUDA device {} with {:.1} GiB VRAM; using pipeline with CUDA.",
+                    cuda_device_label, max_vram_gib
                 ),
             };
         }
@@ -1035,9 +1031,8 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
             backend: "pipeline".to_string(),
             device_mode: Some("cpu".to_string()),
             reason: format!(
-                "Detected CUDA device {} with only {:.1} GiB VRAM, below the documented pipeline acceleration threshold; using pipeline on CPU.",
-                cuda_device_label,
-                max_vram_gib
+                "CUDA device {} has insufficient VRAM ({:.1} GiB); using CPU pipeline.",
+                cuda_device_label, max_vram_gib
             ),
         };
     }
@@ -1048,7 +1043,7 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
                 backend: "hybrid-auto-engine".to_string(),
                 device_mode: Some("mps".to_string()),
                 reason: format!(
-                    "Detected Apple Silicon / MPS with approximately {:.1} GiB unified memory; using hybrid-auto-engine.",
+                    "Apple Silicon / MPS with {:.1} GiB unified memory; using hybrid-auto-engine.",
                     total_memory_gib.unwrap_or(0.0)
                 ),
             };
@@ -1058,7 +1053,7 @@ fn classify_mineru_runtime(probe: &MinerUPythonRuntimeProbe) -> MinerURuntimePro
             backend: "pipeline".to_string(),
             device_mode: Some("mps".to_string()),
             reason: format!(
-                "Detected Apple Silicon / MPS with approximately {:.1} GiB unified memory, but it did not clearly meet the documented auto-engine threshold; using pipeline with MPS.",
+                "Apple Silicon / MPS with {:.1} GiB unified memory; using pipeline with MPS.",
                 total_memory_gib.unwrap_or(0.0)
             ),
         };
@@ -1227,13 +1222,10 @@ fn normalize_python_startup_error(python_cmd: &str, message: String) -> String {
     let lower = message.to_ascii_lowercase();
     if lower.contains("did not find executable at") {
         return format!(
-            "The selected MinerU Python environment is broken because its base interpreter is missing. \
-             Recreate the environment with a working Python installation, then run Setup Environment again. \
-             Interpreter: {}. Details: {}",
+            "Selected Python environment is broken (base interpreter missing). Reinstall and try Setup Environment again. Interpreter: {}. Details: {}",
             python_cmd, message
         );
     }
-
     message
 }
 
@@ -1467,7 +1459,7 @@ async fn upgrade_to_cuda_torch_if_needed(
         return false;
     }
 
-    log::info!("NVIDIA GPU detected but PyTorch is CPU-only. Upgrading to CUDA build...");
+    log::info!("NVIDIA GPU detected; upgrading PyTorch to CUDA build...");
 
     let cuda_args = vec![
         "-m".to_string(),
@@ -1529,7 +1521,7 @@ fn check_python_version(python_cmd: &str) -> Result<String, String> {
     if !output.status.success() {
         return Err(normalize_python_startup_error(
             python_cmd,
-            command_output_message(&output, "Failed to detect the configured Python version"),
+            command_output_message(&output, "Failed to detect Python version"),
         ));
     }
 
@@ -1551,10 +1543,9 @@ fn check_python_version(python_cmd: &str) -> Result<String, String> {
 
     if major != 3 || !supported_range.contains(&minor) {
         return Err(format!(
-            "MinerU requires Python 3.10-{} on this platform, but '{}' resolved to Python {}. Please choose a compatible interpreter and try again.",
+            "MinerU requires Python 3.10-{} on this platform, but '{}' resolved to Python {}.",
             if cfg!(windows) { 12 } else { 13 },
-            python_cmd,
-            version
+            python_cmd, version
         ));
     }
 
@@ -1648,16 +1639,12 @@ pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
         .map_err(|_| "Invalid port number".to_string())?;
 
     check_python_version(&python_path).map_err(|e| {
-        format!(
-            "The selected Python environment could not be started correctly: {}",
-            e
-        )
+        format!("Selected Python environment cannot start: {}", e)
     })?;
 
     if !python_has_module(&python_path, "mineru") {
         return Err(
-            "MinerU is not installed in the selected Python environment. Run Setup Environment or install MinerU manually first."
-                .to_string(),
+            "MinerU is not installed in the selected Python environment.".to_string(),
         );
     }
 
@@ -1676,16 +1663,11 @@ pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
             )
             .await
             .map_err(|error| {
-                format!(
-                    "{}. Run Setup Environment again if the built-in MinerU environment is still broken.",
-                    error
-                )
+                format!("{}", error)
             })?;
 
             required_mineru_modules_ready(&python_path).map_err(|error| {
-                format!(
-                    "{error}. Automatic repair finished, but the built-in MinerU environment is still incomplete."
-                )
+                format!("{}", error)
             })?;
         } else {
             return Err(format!(
@@ -1741,25 +1723,17 @@ pub fn get_mineru_status(state: State<AppState>) -> Result<MinerUStatusResponse,
 
 #[tauri::command]
 pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Guard against double-setup
-    {
-        let status = state
-            .venv_manager
-            .status
-            .lock()
-            .map_err(|e| e.to_string())?;
+    if let Ok(status) = state.venv_manager.status.lock() {
         if *status == "creating" {
             return Err("Setup already in progress".to_string());
         }
     }
 
-    {
-        let mineru_status = state.mineru_manager.get_status()?;
-        if matches!(mineru_status.status.as_str(), "running" | "starting") {
-            return Err(
-                "Stop MinerU before setting up or reinstalling the environment.".to_string(),
-            );
-        }
+    let mineru_status = state.mineru_manager.get_status()?;
+    if matches!(mineru_status.status.as_str(), "running" | "starting") {
+        return Err(
+            "Stop MinerU before setting up or reinstalling the environment.".to_string(),
+        );
     }
 
     let app_dir = crate::app_dirs::runtime_app_dir(&app)?;
@@ -1816,13 +1790,10 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             }
         }
 
-        // Step 1: Create venv
+        // Create venv
         venv_manager.set_status(
             "creating",
-            &format!(
-                "Creating virtual environment with Python {}...",
-                python_version
-            ),
+            &format!("Creating venv with Python {}...", python_version),
         );
         let venv_dir_str = venv_dir.to_str().unwrap_or_default().to_string();
         let mut venv_cmd = Command::new(&system_python);
@@ -1847,7 +1818,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             _ => {}
         }
 
-        // Step 2: Git clone or pull MinerU (only for git install method)
+        // Git clone or pull MinerU
         if install_method == "git" {
             let repo_dir_str = repo_dir.to_str().unwrap_or_default().to_string();
             if repo_dir.join(".git").exists() {
@@ -1894,9 +1865,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         let venv_python = venv_python_path(&venv_dir);
         let venv_python_str = venv_python.to_str().unwrap_or_default().to_string();
 
-        // Step 3: Prepare build tooling inside the venv.
-        // Python 3.12+ no longer seeds setuptools in new venvs, and MinerU's
-        // pyproject currently requires setuptools >= 61 to build.
+        // Prepare build tools (setuptools required for Python 3.12+)
         venv_manager.set_status("creating", "Preparing Python build tools...");
 
         let mut build_tool_args = vec![
@@ -1955,7 +1924,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             Ok(_) => {}
         }
 
-        // Step 4: Install MinerU.
+        // Install MinerU
         venv_manager.set_status(
             "creating",
             "Installing MinerU (this may take several minutes)...",
@@ -2024,7 +1993,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
             }
         }
 
-        // Step 4.5: If NVIDIA GPU is available but torch is CPU-only, reinstall with CUDA support.
+        // Upgrade to CUDA PyTorch if needed
         if has_nvidia_gpu() && torch_is_cpu_only(&venv_python_str) {
             venv_manager.set_status(
                 "creating",
@@ -2090,7 +2059,7 @@ pub async fn setup_mineru_venv(app: AppHandle, state: State<'_, AppState>) -> Re
         {
             venv_manager.set_status(
                 "ready",
-                "Environment is ready. Download model files before starting MinerU.",
+                "Environment is ready. Download models to proceed.",
             );
         } else {
             venv_manager.set_status(
@@ -2119,10 +2088,7 @@ pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool,
         if let Err(error) = check_python_version(&python_cmd) {
             state.venv_manager.set_status(
                 "failed",
-                &format!(
-                    "Virtual environment exists, but its Python executable could not be started correctly: {}",
-                    error
-                ),
+                &format!("Venv exists but Python cannot start: {}", error),
             );
             return Ok(false);
         }
@@ -2130,7 +2096,7 @@ pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool,
         if !python_has_module(&python_cmd, "mineru") {
             state.venv_manager.set_status(
                 "failed",
-                "Virtual environment exists, but MinerU is not installed correctly. Run Setup Environment to repair it.",
+                "Venv exists but MinerU is not installed. Run Setup Environment to repair.",
             );
             return Ok(false);
         }
@@ -2143,10 +2109,7 @@ pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool,
         } else {
             state.venv_manager.set_status(
                 "ready",
-                &format!(
-                    "Environment is ready. Missing runtime modules ({}) will be repaired automatically when MinerU starts.",
-                    missing_runtime_modules.join(", ")
-                ),
+                &format!("Venv ready. Missing modules: {}; will repair on startup.", missing_runtime_modules.join(", ")),
             );
         }
 
@@ -2158,7 +2121,7 @@ pub fn check_venv_exists(app: AppHandle, state: State<AppState>) -> Result<bool,
 
 // --- Progress Parsing Helpers ---
 
-/// Parse a percentage value from a line containing `XX%` (e.g. tqdm output).
+/// Parse percentage from output like tqdm progress bars.
 fn parse_percentage_from_line(line: &str) -> Option<f64> {
     // Search for the last occurrence of `<digits>%`
     let mut last_pct: Option<f64> = None;
@@ -2181,31 +2144,27 @@ fn parse_percentage_from_line(line: &str) -> Option<f64> {
     last_pct
 }
 
-/// Strip ANSI escape sequences and tqdm progress bar block characters from a line.
+/// Strip ANSI escape sequences and progress bar glyphs.
 fn clean_terminal_output(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(ch) = chars.next() {
         // Skip ANSI escape sequences: ESC [ ... final_byte
-        if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                              // consume until ASCII letter (the final byte of the CSI sequence)
-                while let Some(&c) = chars.peek() {
+            if ch == '\x1b' {
+                if chars.peek() == Some(&'[') {
                     chars.next();
-                    if c.is_ascii_alphabetic() {
-                        break;
+                    while let Some(&c) = chars.peek() {
+                        chars.next();
+                        if c.is_ascii_alphabetic() {
+                            break;
+                        }
                     }
                 }
+                continue;
             }
-            continue;
-        }
-        // Replace tqdm bar block characters (█▏▎▍▌▋▊▉░▓) and other non-ASCII with nothing,
-        // but keep common printable ASCII and CJK ranges.
         if ch.is_ascii() || ch >= '\u{4E00}' {
             out.push(ch);
         }
-        // else: skip (progress bar glyphs, misc Unicode symbols)
     }
     // Collapse leftover empty bar separators like "| |" or "||" after block removal
     out = out.replace("| |", " ").replace("||", " ");
@@ -2219,14 +2178,13 @@ async fn read_download_progress<R: tokio::io::AsyncRead + Unpin>(
 ) {
     let mut buf = [0u8; 4096];
     let mut line_buf = String::new();
-    // Buffer for incomplete UTF-8 sequences across reads
     let mut utf8_remainder = Vec::new();
 
     loop {
         match stream.read(&mut buf).await {
             Ok(0) => break,
             Ok(n) => {
-                // Prepend any leftover bytes from the previous read
+
                 let data = if utf8_remainder.is_empty() {
                     &buf[..n]
                 } else {
@@ -2234,7 +2192,7 @@ async fn read_download_progress<R: tokio::io::AsyncRead + Unpin>(
                     utf8_remainder.as_slice()
                 };
 
-                // Find the longest valid UTF-8 prefix
+
                 let (valid, remainder) = match std::str::from_utf8(data) {
                     Ok(s) => (s.to_string(), Vec::new()),
                     Err(e) => {
@@ -2272,7 +2230,6 @@ async fn read_download_progress<R: tokio::io::AsyncRead + Unpin>(
         }
     }
 
-    // Process any remaining content
     let cleaned = clean_terminal_output(line_buf.trim());
     if !cleaned.is_empty() {
         if let Some(pct) = parse_percentage_from_line(&cleaned) {
@@ -2288,13 +2245,7 @@ pub async fn download_mineru_models(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Guard against double-download
-    {
-        let status = state
-            .model_manager
-            .status
-            .lock()
-            .map_err(|e| e.to_string())?;
+    if let Ok(status) = state.model_manager.status.lock() {
         if *status == "downloading" {
             return Err("Model download already in progress".to_string());
         }
@@ -2345,7 +2296,7 @@ pub async fn download_mineru_models(
     let model_manager = std::sync::Arc::clone(&state.model_manager);
 
     tauri::async_runtime::spawn(async move {
-        // Ensure models directory exists before download
+
         let models_path = std::path::Path::new(&models_dir);
         if !models_path.exists() {
             if let Err(e) = std::fs::create_dir_all(models_path) {
@@ -2370,7 +2321,7 @@ pub async fn download_mineru_models(
         );
 
         let mut command = Command::new(&download_bin);
-        // Pass source via CLI arg to avoid interactive prompt that aborts on null stdin
+
         let effective_source = if model_source == "local" || model_source.is_empty() {
             "huggingface"
         } else {
@@ -2382,21 +2333,21 @@ pub async fn download_mineru_models(
             "pipeline"
         };
         command.args(["--source", effective_source, "--model_type", model_type]);
-        // Also set env var for older MinerU versions that read it
+
         if model_source != "huggingface" {
             command.env("MINERU_MODEL_SOURCE", &model_source);
         }
         // Redirect model cache to app data directory
         command.env("HF_HOME", &models_dir);
         command.env("MODELSCOPE_CACHE", &models_dir);
-        // Suppress noisy Windows symlink warning from huggingface_hub
+
         command.env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
         if let Err(error) = apply_managed_cache_env(&mut command, &app_dir) {
             model_manager.set_status("failed", &error);
             return;
         }
 
-        // Prevent the process from blocking on stdin prompts (e.g. HuggingFace token)
+
         command.stdin(std::process::Stdio::null());
         command
             .stdout(std::process::Stdio::piped())
@@ -2406,7 +2357,7 @@ pub async fn download_mineru_models(
 
         match command.spawn() {
             Ok(mut child) => {
-                // Read stderr in a background task for progress parsing
+        
                 let mm_stderr = std::sync::Arc::clone(&model_manager);
                 let stderr_handle = if let Some(stderr) = child.stderr.take() {
                     Some(tauri::async_runtime::spawn(async move {
@@ -2416,7 +2367,7 @@ pub async fn download_mineru_models(
                     None
                 };
 
-                // Read stdout too — some tools write progress to stdout
+        
                 let mm_stdout = std::sync::Arc::clone(&model_manager);
                 let stdout_handle = if let Some(stdout) = child.stdout.take() {
                     Some(tauri::async_runtime::spawn(async move {
@@ -2428,7 +2379,7 @@ pub async fn download_mineru_models(
 
                 let status = child.wait().await;
 
-                // Wait for reader tasks to finish
+
                 if let Some(h) = stderr_handle {
                     let _ = h.await;
                 }
@@ -2436,7 +2387,7 @@ pub async fn download_mineru_models(
                     let _ = h.await;
                 }
 
-                // Grab all accumulated output for error reporting
+
                 let output_tail = model_manager.get_output_tail();
 
                 match status {
