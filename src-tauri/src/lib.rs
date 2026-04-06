@@ -378,6 +378,28 @@ pub fn run() {
 
                     if is_healthy {
                         let _ = manager_for_health.reset_consecutive_health_failures();
+
+                        // Idle unload: stop MinerU if no parse jobs and idle too long
+                        if active_parse_jobs == 0 {
+                            let idle_minutes = settings_for_health
+                                .get("mineru.idle_unload_minutes")
+                                .and_then(|v| v.parse::<u64>().ok())
+                                .unwrap_or(0);
+                            if idle_minutes > 0 {
+                                if let Some(idle) = manager_for_health.idle_duration() {
+                                    if idle >= std::time::Duration::from_secs(idle_minutes * 60) {
+                                        log::info!(
+                                            "MinerU on port {} has been idle for {} minutes (threshold={}). Stopping to free VRAM.",
+                                            port,
+                                            idle.as_secs() / 60,
+                                            idle_minutes
+                                        );
+                                        let _ = manager_for_health.stop();
+                                    }
+                                }
+                            }
+                        }
+
                         continue;
                     }
 

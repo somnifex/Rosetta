@@ -283,6 +283,9 @@ export default {
         auto_restart_max_retries_label: "最大自动重启次数",
         auto_restart_max_retries_hint:
           "MinerU崩溃后自动重启的最大次数。设置为0禁用自动重启。",
+        idle_unload_minutes_label: "空闲卸载时间（分钟）",
+        idle_unload_minutes_hint:
+          "超过指定分钟数无解析任务后，自动停止MinerU以释放显存。设置为0则不卸载。新的解析任务到达时会自动重新启动。",
       },
     },
     external: {

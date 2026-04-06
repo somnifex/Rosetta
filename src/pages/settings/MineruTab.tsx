@@ -48,6 +48,7 @@ export default function MineruTab() {
   const [mineruMaxConcurrentJobs, setMineruMaxConcurrentJobs] = useState("2")
   const [mineruHealthCheckInterval, setMineruHealthCheckInterval] = useState("30")
   const [mineruAutoRestartMaxRetries, setMineruAutoRestartMaxRetries] = useState("3")
+  const [mineruIdleUnloadMinutes, setMineruIdleUnloadMinutes] = useState("0")
   const [mineruParseBackend, setMineruParseBackend] = useState("vlm")
 
   const { data: appSettings } = useQuery({
@@ -83,6 +84,7 @@ export default function MineruTab() {
       setMineruMaxConcurrentJobs(settingsMap.get("mineru.max_concurrent_parse_jobs") || "2")
       setMineruHealthCheckInterval(settingsMap.get("mineru.health_check_interval_secs") || "30")
       setMineruAutoRestartMaxRetries(settingsMap.get("mineru.auto_restart_max_retries") || "3")
+      setMineruIdleUnloadMinutes(settingsMap.get("mineru.idle_unload_minutes") || "0")
       setMineruParseBackend(settingsMap.get("mineru.parse_backend") || "vlm")
       setMineruSettingsLoaded(true)
     }
@@ -155,6 +157,7 @@ export default function MineruTab() {
       await api.setAppSetting("mineru.max_concurrent_parse_jobs", mineruMaxConcurrentJobs)
       await api.setAppSetting("mineru.health_check_interval_secs", mineruHealthCheckInterval)
       await api.setAppSetting("mineru.auto_restart_max_retries", mineruAutoRestartMaxRetries)
+      await api.setAppSetting("mineru.idle_unload_minutes", mineruIdleUnloadMinutes)
       await api.setAppSetting("mineru.parse_backend", mineruParseBackend)
     },
     onSuccess: () => {
@@ -638,6 +641,22 @@ export default function MineruTab() {
                 />
                 <p className="text-xs text-muted-foreground">
                   {t("mineru.builtin.stability.auto_restart_max_retries_hint")}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("mineru.builtin.stability.idle_unload_minutes_label")}</Label>
+                <Input
+                  data-setting-key="mineru.idle_unload_minutes"
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={mineruIdleUnloadMinutes}
+                  onChange={(e) => setMineruIdleUnloadMinutes(e.target.value)}
+                  className="w-24"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("mineru.builtin.stability.idle_unload_minutes_hint")}
                 </p>
               </div>
             </div>

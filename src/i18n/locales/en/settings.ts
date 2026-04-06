@@ -278,6 +278,9 @@ export default {
         auto_restart_max_retries_label: "Auto-restart Max Retries",
         auto_restart_max_retries_hint:
           "Maximum number of times MinerU will be automatically restarted after a crash. Set to 0 to disable auto-restart.",
+        idle_unload_minutes_label: "Idle Unload Time (minutes)",
+        idle_unload_minutes_hint:
+          "Stop MinerU automatically after the specified minutes of inactivity to free VRAM. Set to 0 to keep it running. New parse jobs will auto-restart it.",
       },
     },
     external: {

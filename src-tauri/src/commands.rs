@@ -4622,6 +4622,27 @@ async fn execute_parse_job(
     };
     let file_path = PathBuf::from(file_path);
 
+    // Auto-start MinerU if it was idle-stopped
+    {
+        let mineru_mode = normalize_optional_string(
+            get_setting_value(state.settings.as_ref(), "mineru.mode")
+                .ok()
+                .flatten(),
+        )
+        .unwrap_or_else(|| "builtin".to_string());
+        if mineru_mode == "builtin" {
+            if let Ok(status) = state.mineru_manager.get_status() {
+                if status.status == "stopped" {
+                    log::info!("MinerU is stopped (idle unload). Auto-starting before parse job {}.", job_id);
+                    match crate::mineru_process::start_mineru_with_state(state).await {
+                        Ok(port) => log::info!("MinerU auto-started on port {} for parse job {}", port, job_id),
+                        Err(e) => log::error!("Failed to auto-start MinerU for parse job {}: {}", job_id, e),
+                    }
+                }
+            }
+        }
+    }
+
     let mut last_error: Option<String> = None;
     for attempt in 0..=PARSE_JOB_MAX_RETRIES {
         if attempt > 0 {
@@ -4664,6 +4685,7 @@ async fn execute_parse_job(
         match execute_parse_job_with_selected_backend(state, job_id, document_id, &file_path).await
         {
             Ok(execution) => {
+                state.mineru_manager.touch_activity();
                 let db = state.db.lock().map_err(|e| e.to_string())?;
                 let conn = db.get_connection();
                 let now = Utc::now().to_rfc3339();
@@ -4677,6 +4699,7 @@ async fn execute_parse_job(
                 );
             }
             Err(error) => {
+                state.mineru_manager.touch_activity();
                 if attempt < PARSE_JOB_MAX_RETRIES && is_transient_parse_error(&error) {
                     last_error = Some(error);
                     continue;

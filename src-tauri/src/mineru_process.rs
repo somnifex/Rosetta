@@ -70,6 +70,7 @@ pub struct MinerUProcessManager {
     restart_count: Mutex<u32>,
     last_start_params: Mutex<Option<MinerUStartParams>>,
     consecutive_health_failures: Mutex<u32>,
+    last_activity: Mutex<Option<std::time::Instant>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -269,6 +270,7 @@ impl MinerUProcessManager {
             restart_count: Mutex::new(0),
             last_start_params: Mutex::new(None),
             consecutive_health_failures: Mutex::new(0),
+            last_activity: Mutex::new(None),
         }
     }
 
@@ -288,6 +290,19 @@ impl MinerUProcessManager {
             .map_err(|e| e.to_string())?;
         *count = 0;
         Ok(())
+    }
+
+    pub fn touch_activity(&self) {
+        if let Ok(mut ts) = self.last_activity.lock() {
+            *ts = Some(std::time::Instant::now());
+        }
+    }
+
+    pub fn idle_duration(&self) -> Option<std::time::Duration> {
+        self.last_activity
+            .lock()
+            .ok()
+            .and_then(|ts| ts.map(|t| t.elapsed()))
     }
 
     pub async fn start(
@@ -338,52 +353,41 @@ impl MinerUProcessManager {
             *profile = Some(runtime_profile.clone());
         }
 
-        let needs_vlm_preload = matches!(
-            runtime_profile.backend.as_str(),
-            "hybrid-auto-engine" | "vlm" | "auto-engine"
-        );
-
         let (cmd, args): (String, Vec<String>) = if use_venv {
             let api_bin = venv_script_path(venv_dir.unwrap(), "mineru-api");
             if api_bin.exists() {
-                let mut args = vec![
+                (
+                    api_bin.to_str().unwrap().to_string(),
+                    vec![
+                        "--host".to_string(),
+                        "127.0.0.1".to_string(),
+                        "--port".to_string(),
+                        port_str.clone(),
+                    ],
+                )
+            } else {
+                (
+                    python_path.to_string(),
+                    vec![
+                        "-m".to_string(),
+                        "mineru.cli.fast_api".to_string(),
+                        "--port".to_string(),
+                        port_str.clone(),
+                    ],
+                )
+            }
+        } else {
+            (
+                python_path.to_string(),
+                vec![
+                    "-m".to_string(),
+                    "mineru.cli.fast_api".to_string(),
                     "--host".to_string(),
                     "127.0.0.1".to_string(),
                     "--port".to_string(),
                     port_str.clone(),
-                ];
-                if needs_vlm_preload {
-                    args.push("--enable-vlm-preload".to_string());
-                    args.push("true".to_string());
-                }
-                (api_bin.to_str().unwrap().to_string(), args)
-            } else {
-                let mut args = vec![
-                    "-m".to_string(),
-                    "mineru.cli.fast_api".to_string(),
-                    "--port".to_string(),
-                    port_str.clone(),
-                ];
-                if needs_vlm_preload {
-                    args.push("--enable-vlm-preload".to_string());
-                    args.push("true".to_string());
-                }
-                (python_path.to_string(), args)
-            }
-        } else {
-            let mut args = vec![
-                "-m".to_string(),
-                "mineru.cli.fast_api".to_string(),
-                "--host".to_string(),
-                "127.0.0.1".to_string(),
-                "--port".to_string(),
-                port_str.clone(),
-            ];
-            if needs_vlm_preload {
-                args.push("--enable-vlm-preload".to_string());
-                args.push("true".to_string());
-            }
-            (python_path.to_string(), args)
+                ],
+            )
         };
 
         let mut command = Command::new(&cmd);
@@ -417,20 +421,15 @@ impl MinerUProcessManager {
             Err(e) => {
                 if use_venv && cmd != python_path {
                     let mut fallback = Command::new(python_path);
-                    let mut fallback_args = vec![
-                        "-m",
-                        "mineru.cli.fast_api",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        &port_str,
-                    ];
-                    if needs_vlm_preload {
-                        fallback_args.push("--enable-vlm-preload");
-                        fallback_args.push("true");
-                    }
                     fallback
-                        .args(&fallback_args)
+                        .args([
+                            "-m",
+                            "mineru.cli.fast_api",
+                            "--host",
+                            "127.0.0.1",
+                            "--port",
+                            &port_str,
+                        ])
                         .stdin(std::process::Stdio::piped())
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::piped())
@@ -508,7 +507,7 @@ impl MinerUProcessManager {
         let base_url = format!("http://127.0.0.1:{}", actual_port);
         let client = crate::mineru::MinerUClient::new(base_url);
 
-        let max_health_wait = if needs_vlm_preload { 120 } else { 30 };
+        let max_health_wait = 30;
         let mut healthy = false;
         for _ in 0..max_health_wait {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -584,6 +583,7 @@ impl MinerUProcessManager {
             if let Ok(mut count) = self.restart_count.lock() {
                 *count = 0;
             }
+            self.touch_activity();
             Ok(actual_port)
         } else {
             self.stop_internal()?;
@@ -2303,10 +2303,13 @@ pub async fn download_mineru_models(
         } else {
             &model_source
         };
-        let model_type = if parse_backend == "vlm" {
-            "vlm"
-        } else {
+        // hybrid-auto-engine (triggered by parse_backend="vlm") needs both VLM and Pipeline models
+        let model_type = if parse_backend == "vlm" || parse_backend == "auto" {
+            "all"
+        } else if parse_backend == "pipeline" {
             "pipeline"
+        } else {
+            "all" // safe default: download both model types
         };
         command.args(["--source", effective_source, "--model_type", model_type]);
 

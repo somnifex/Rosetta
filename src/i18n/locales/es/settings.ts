@@ -286,6 +286,9 @@ export default {
         auto_restart_max_retries_label: "Reintentos máximos de reinicio automático",
         auto_restart_max_retries_hint:
           "Número máximo de veces que MinerU se reiniciará automáticamente tras un fallo. Establecer en 0 para desactivar.",
+        idle_unload_minutes_label: "Descarga por inactividad (minutos)",
+        idle_unload_minutes_hint:
+          "Detiene MinerU automáticamente tras los minutos de inactividad especificados para liberar VRAM. Establecer en 0 para mantenerlo activo. Las nuevas tareas lo reiniciarán automáticamente.",
       },
     },
     external: {

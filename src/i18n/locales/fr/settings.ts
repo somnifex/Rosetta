@@ -285,6 +285,9 @@ export default {
         auto_restart_max_retries_label: "Tentatives max de redémarrage automatique",
         auto_restart_max_retries_hint:
           "Nombre maximum de fois que MinerU redémarrera automatiquement après un plantage. Réglez sur 0 pour désactiver.",
+        idle_unload_minutes_label: "Déchargement après inactivité (minutes)",
+        idle_unload_minutes_hint:
+          "Arrête MinerU automatiquement après le nombre de minutes d'inactivité spécifié pour libérer la VRAM. Réglez sur 0 pour le maintenir en fonctionnement. Les nouvelles tâches le redémarreront automatiquement.",
       },
     },
     external: {
