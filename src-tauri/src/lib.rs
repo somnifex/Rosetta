@@ -35,6 +35,8 @@ use tauri::{Manager, RunEvent};
 const DEFAULT_MINERU_MAX_CONCURRENT_PARSE_JOBS: usize = 2;
 const DEFAULT_HEALTH_CHECK_INTERVAL_SECS: u64 = 30;
 const DEFAULT_AUTO_RESTART_MAX_RETRIES: u32 = 3;
+const MAX_CONSECUTIVE_HEALTH_FAILURES: u32 = 5;
+const MAX_CONSECUTIVE_HEALTH_FAILURES_DURING_PARSE: u32 = 10;
 
 pub struct AppState {
     pub app_dir: PathBuf,
@@ -369,41 +371,36 @@ pub fn run() {
                         })
                         .unwrap_or(0);
 
-                    if active_parse_jobs > 0 {
-                        log::debug!(
-                            "Skipping MinerU background health probe on port {} because {} parse job(s) are active.",
-                            port,
-                            active_parse_jobs
-                        );
-                        continue;
-                    }
-
                     let is_healthy = mineru_process::local_mineru_health_check_pub(
                         port,
                         std::time::Duration::from_millis(1500),
                     );
 
-                    if !is_healthy {
-                        let process_alive = match manager_for_health.managed_process_is_alive() {
-                            Ok(alive) => alive,
-                            Err(error) => {
-                                log::warn!(
-                                    "Periodic health check could not inspect the managed MinerU process on port {}: {}",
-                                    port,
-                                    error
-                                );
-                                continue;
-                            }
-                        };
+                    if is_healthy {
+                        let _ = manager_for_health.reset_consecutive_health_failures();
+                        continue;
+                    }
 
-                        if process_alive {
+                    let failure_threshold = if active_parse_jobs > 0 {
+                        MAX_CONSECUTIVE_HEALTH_FAILURES_DURING_PARSE
+                    } else {
+                        MAX_CONSECUTIVE_HEALTH_FAILURES
+                    };
+
+                    let process_alive = match manager_for_health.managed_process_is_alive() {
+                        Ok(alive) => alive,
+                        Err(error) => {
                             log::warn!(
-                                "Periodic health check: MinerU on port {} did not answer /health, but its managed process is still running. Skipping auto-restart while the process remains alive.",
-                                port
+                                "Periodic health check could not inspect the managed MinerU process on port {}: {}",
+                                port,
+                                error
                             );
                             continue;
                         }
+                    };
 
+                    if !process_alive {
+                        let _ = manager_for_health.reset_consecutive_health_failures();
                         log::warn!(
                             "Periodic health check: MinerU on port {} is not responding and its managed process is no longer running.",
                             port
@@ -420,6 +417,50 @@ pub fn run() {
                         } else {
                             log::warn!("Auto-restart is disabled (max_retries=0). MinerU remains in failed state.");
                         }
+                        continue;
+                    }
+
+                    // Process is alive but not responding to health checks.
+                    let failures = match manager_for_health.increment_consecutive_health_failures() {
+                        Ok(f) => f,
+                        Err(_) => continue,
+                    };
+
+                    if failures >= failure_threshold {
+                        log::warn!(
+                            "MinerU on port {} has failed {} consecutive health checks while process is alive (threshold={}). Force-restarting.",
+                            port,
+                            failures,
+                            failure_threshold
+                        );
+                        let _ = manager_for_health.reset_consecutive_health_failures();
+                        manager_for_health.stop().ok();
+
+                        let max_retries = settings_for_health
+                            .get("mineru.auto_restart_max_retries")
+                            .and_then(|v| v.parse::<u32>().ok())
+                            .unwrap_or(DEFAULT_AUTO_RESTART_MAX_RETRIES)
+                            .clamp(0, 10);
+
+                        if max_retries > 0 {
+                            manager_for_health.attempt_auto_restart(max_retries).await;
+                        } else {
+                            log::warn!("Auto-restart is disabled (max_retries=0). MinerU remains in failed state.");
+                        }
+                    } else if active_parse_jobs > 0 {
+                        log::debug!(
+                            "Health check failed during active parse on port {} (failure {}/{}), not restarting yet.",
+                            port,
+                            failures,
+                            failure_threshold
+                        );
+                    } else {
+                        log::warn!(
+                            "MinerU on port {} did not answer /health (failure {}/{}), process is still running.",
+                            port,
+                            failures,
+                            failure_threshold
+                        );
                     }
                 }
             });

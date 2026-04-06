@@ -69,6 +69,7 @@ pub struct MinerUProcessManager {
     runtime_profile: Mutex<Option<MinerURuntimeProfile>>,
     restart_count: Mutex<u32>,
     last_start_params: Mutex<Option<MinerUStartParams>>,
+    consecutive_health_failures: Mutex<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -267,7 +268,26 @@ impl MinerUProcessManager {
             runtime_profile: Mutex::new(None),
             restart_count: Mutex::new(0),
             last_start_params: Mutex::new(None),
+            consecutive_health_failures: Mutex::new(0),
         }
+    }
+
+    pub fn increment_consecutive_health_failures(&self) -> Result<u32, String> {
+        let mut count = self
+            .consecutive_health_failures
+            .lock()
+            .map_err(|e| e.to_string())?;
+        *count += 1;
+        Ok(*count)
+    }
+
+    pub fn reset_consecutive_health_failures(&self) -> Result<(), String> {
+        let mut count = self
+            .consecutive_health_failures
+            .lock()
+            .map_err(|e| e.to_string())?;
+        *count = 0;
+        Ok(())
     }
 
     pub async fn start(
@@ -318,41 +338,52 @@ impl MinerUProcessManager {
             *profile = Some(runtime_profile.clone());
         }
 
+        let needs_vlm_preload = matches!(
+            runtime_profile.backend.as_str(),
+            "hybrid-auto-engine" | "vlm" | "auto-engine"
+        );
+
         let (cmd, args): (String, Vec<String>) = if use_venv {
             let api_bin = venv_script_path(venv_dir.unwrap(), "mineru-api");
             if api_bin.exists() {
-                (
-                    api_bin.to_str().unwrap().to_string(),
-                    vec![
-                        "--host".to_string(),
-                        "127.0.0.1".to_string(),
-                        "--port".to_string(),
-                        port_str.clone(),
-                    ],
-                )
-            } else {
-                (
-                    python_path.to_string(),
-                    vec![
-                        "-m".to_string(),
-                        "mineru.cli.fast_api".to_string(),
-                        "--port".to_string(),
-                        port_str.clone(),
-                    ],
-                )
-            }
-        } else {
-            (
-                python_path.to_string(),
-                vec![
-                    "-m".to_string(),
-                    "mineru.cli.fast_api".to_string(),
+                let mut args = vec![
                     "--host".to_string(),
                     "127.0.0.1".to_string(),
                     "--port".to_string(),
                     port_str.clone(),
-                ],
-            )
+                ];
+                if needs_vlm_preload {
+                    args.push("--enable-vlm-preload".to_string());
+                    args.push("true".to_string());
+                }
+                (api_bin.to_str().unwrap().to_string(), args)
+            } else {
+                let mut args = vec![
+                    "-m".to_string(),
+                    "mineru.cli.fast_api".to_string(),
+                    "--port".to_string(),
+                    port_str.clone(),
+                ];
+                if needs_vlm_preload {
+                    args.push("--enable-vlm-preload".to_string());
+                    args.push("true".to_string());
+                }
+                (python_path.to_string(), args)
+            }
+        } else {
+            let mut args = vec![
+                "-m".to_string(),
+                "mineru.cli.fast_api".to_string(),
+                "--host".to_string(),
+                "127.0.0.1".to_string(),
+                "--port".to_string(),
+                port_str.clone(),
+            ];
+            if needs_vlm_preload {
+                args.push("--enable-vlm-preload".to_string());
+                args.push("true".to_string());
+            }
+            (python_path.to_string(), args)
         };
 
         let mut command = Command::new(&cmd);
@@ -386,15 +417,20 @@ impl MinerUProcessManager {
             Err(e) => {
                 if use_venv && cmd != python_path {
                     let mut fallback = Command::new(python_path);
+                    let mut fallback_args = vec![
+                        "-m",
+                        "mineru.cli.fast_api",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        &port_str,
+                    ];
+                    if needs_vlm_preload {
+                        fallback_args.push("--enable-vlm-preload");
+                        fallback_args.push("true");
+                    }
                     fallback
-                        .args([
-                            "-m",
-                            "mineru.cli.fast_api",
-                            "--host",
-                            "127.0.0.1",
-                            "--port",
-                            &port_str,
-                        ])
+                        .args(&fallback_args)
                         .stdin(std::process::Stdio::piped())
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::piped())
@@ -472,8 +508,9 @@ impl MinerUProcessManager {
         let base_url = format!("http://127.0.0.1:{}", actual_port);
         let client = crate::mineru::MinerUClient::new(base_url);
 
+        let max_health_wait = if needs_vlm_preload { 120 } else { 30 };
         let mut healthy = false;
-        for _ in 0..30 {
+        for _ in 0..max_health_wait {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
             let exited_info: Option<std::process::ExitStatus> = {
@@ -553,8 +590,14 @@ impl MinerUProcessManager {
             let mut status = self.status.lock().map_err(|e| e.to_string())?;
             *status = "failed".to_string();
             let mut error = self.error.lock().map_err(|e| e.to_string())?;
-            *error = Some("MinerU did not become healthy within 30 seconds".to_string());
-            Err("MinerU did not become healthy within 30 seconds".to_string())
+            *error = Some(format!(
+                "MinerU did not become healthy within {} seconds",
+                max_health_wait
+            ));
+            Err(format!(
+                "MinerU did not become healthy within {} seconds",
+                max_health_wait
+            ))
         }
     }
 

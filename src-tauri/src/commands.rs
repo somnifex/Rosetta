@@ -4579,6 +4579,15 @@ fn is_transient_parse_error(error: &str) -> bool {
         .any(|hint| error.contains(hint))
 }
 
+fn is_connection_failure_error(error: &str) -> bool {
+    error.contains("connection refused")
+        || error.contains("Connection refused")
+        || error.contains("10061")
+        || error.contains("10054")
+        || error.contains("connection error")
+        || error.contains("connection reset")
+}
+
 async fn execute_parse_job(
     state: &AppState,
     app_dir: Option<&Path>,
@@ -4625,6 +4634,30 @@ async fn execute_parse_job(
                 last_error.as_deref().unwrap_or("unknown")
             );
             let _ = update_parse_job_runtime_progress(state, job_id, 1.0);
+
+            if is_connection_failure_error(last_error.as_deref().unwrap_or("")) {
+                let mineru_mode = normalize_optional_string(
+                    get_setting_value(state.settings.as_ref(), "mineru.mode")
+                        .ok()
+                        .flatten(),
+                )
+                .unwrap_or_else(|| "builtin".to_string());
+                if mineru_mode == "builtin" {
+                    log::warn!(
+                        "MinerU appears to have crashed (connection failure). Attempting restart before retry."
+                    );
+                    let _ = state.mineru_manager.stop();
+                    match crate::mineru_process::start_mineru_with_state(state).await {
+                        Ok(port) => {
+                            log::info!("MinerU restarted on port {} before retry", port)
+                        }
+                        Err(e) => {
+                            log::error!("Failed to restart MinerU before retry: {}", e)
+                        }
+                    }
+                }
+            }
+
             tokio::time::sleep(delay).await;
         }
 
