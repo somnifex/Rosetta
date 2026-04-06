@@ -395,7 +395,9 @@ export default function MineruTab() {
                 <p className="text-xs text-muted-foreground">{venvStatusData.message}</p>
               )}
               {venvStatus === "failed" && venvStatusData?.message && (
-                <p className="text-xs text-destructive font-mono break-all">{venvStatusData.message}</p>
+                <pre className="overflow-x-auto rounded-md bg-destructive/5 px-3 py-2 text-xs text-destructive font-mono whitespace-pre-wrap break-words">
+                  {venvStatusData.message}
+                </pre>
               )}
 
               {venvStatus === "ready" && (
@@ -552,7 +554,9 @@ export default function MineruTab() {
                 </p>
               )}
               {modelDownloadStatusData?.status === "failed" && modelDownloadStatusData.message && (
-                <p className="text-xs text-destructive font-mono break-all">{modelDownloadStatusData.message}</p>
+                <pre className="overflow-x-auto rounded-md bg-destructive/5 px-3 py-2 text-xs text-destructive font-mono whitespace-pre-wrap break-words">
+                  {modelDownloadStatusData.message}
+                </pre>
               )}
 
               {mineruModelSource !== "local" && (

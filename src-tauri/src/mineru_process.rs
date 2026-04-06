@@ -225,9 +225,9 @@ impl MinerUModelManager {
                 t.push('\n');
             }
             t.push_str(line);
-            if t.len() > 2000 {
-                let start = t.len() - 2000;
-                *t = t[start..].to_string();
+            if t.chars().count() > 2000 {
+                let truncated = truncate_tail(t.as_str(), 2000);
+                *t = truncated;
             }
         }
     }
@@ -1216,9 +1216,176 @@ fn remove_dir_all_with_retries(target: &Path) -> Result<(), String> {
         .unwrap_or_else(|| "Unknown error while removing directory".to_string()))
 }
 
+fn normalize_command_output_text(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw)
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .trim()
+        .to_string()
+}
+
+fn line_looks_like_package_list(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("successfully installed ")
+        || lower.starts_with("installing collected packages:")
+    {
+        return true;
+    }
+
+    let packages: Vec<&str> = trimmed
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+
+    packages.len() >= 8
+        && packages.iter().all(|part| {
+            part.chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        })
+}
+
+fn command_output_line_is_noise(line: &str) -> bool {
+    if line_looks_like_package_list(line) {
+        return true;
+    }
+
+    let lower = line.trim().to_ascii_lowercase();
+    lower.starts_with("collecting ")
+        || lower.starts_with("using cached ")
+        || lower.starts_with("downloading ")
+        || lower.starts_with("installing collected packages:")
+        || lower.starts_with("successfully installed ")
+        || lower.starts_with("building wheels for collected packages:")
+        || lower.starts_with("building wheel for ")
+        || lower.starts_with("created wheel for ")
+        || lower.starts_with("stored in directory:")
+        || lower.starts_with("preparing metadata")
+        || lower.starts_with("running command ")
+        || lower.starts_with("copying ")
+        || lower.starts_with("attempting uninstall:")
+        || lower.starts_with("found existing installation:")
+        || lower.starts_with("uninstalling ")
+        || lower.starts_with("removing file or directory ")
+        || lower.starts_with("requirement already satisfied:")
+}
+
+fn command_output_line_is_error_signal(line: &str) -> bool {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+
+    trimmed.starts_with('×')
+        || lower.starts_with("error:")
+        || lower.contains("traceback")
+        || lower.contains("exception")
+        || lower.contains("subprocess-exited-with-error")
+        || lower.contains("metadata-generation-failed")
+        || lower.contains("did not run successfully")
+        || lower.contains("exit code")
+        || lower.contains("failed")
+        || lower.contains("could not ")
+        || lower.contains("no matching distribution found")
+        || lower.contains("could not find a version")
+        || lower.contains("requires python")
+        || lower.contains("permission denied")
+        || lower.contains("access is denied")
+        || lower.contains("winerror")
+        || lower.contains("externally-managed-environment")
+        || lower.contains("command errored out")
+}
+
+fn push_unique_line(lines: &mut Vec<String>, line: &str) {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    if !lines.iter().any(|existing| existing == trimmed) {
+        lines.push(trimmed.to_string());
+    }
+}
+
+fn extract_command_output_summary(combined: &str) -> Option<String> {
+    let lines: Vec<&str> = combined
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    if lines.is_empty() {
+        return None;
+    }
+
+    let error_indexes: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| command_output_line_is_error_signal(line).then_some(index))
+        .collect();
+
+    let mut selected = Vec::new();
+
+    if !error_indexes.is_empty() {
+        for index in error_indexes.into_iter().take(4) {
+            let start = index.saturating_sub(1);
+            let end = usize::min(index + 2, lines.len().saturating_sub(1));
+
+            for candidate in &lines[start..=end] {
+                if command_output_line_is_noise(candidate)
+                    && !command_output_line_is_error_signal(candidate)
+                {
+                    continue;
+                }
+
+                push_unique_line(&mut selected, candidate);
+            }
+        }
+    } else {
+        let useful_lines: Vec<&&str> = lines
+            .iter()
+            .filter(|line| !command_output_line_is_noise(line))
+            .collect();
+
+        let start = useful_lines.len().saturating_sub(6);
+        for line in &useful_lines[start..] {
+            push_unique_line(&mut selected, line);
+        }
+    }
+
+    if selected.is_empty() {
+        None
+    } else {
+        Some(selected.join("\n"))
+    }
+}
+
+fn truncate_middle(s: &str, max_len: usize) -> String {
+    let trimmed = s.trim();
+    let chars: Vec<char> = trimmed.chars().collect();
+
+    if chars.len() <= max_len {
+        return trimmed.to_string();
+    }
+
+    if max_len <= 20 {
+        return chars.into_iter().take(max_len).collect();
+    }
+
+    let head_len = max_len / 2;
+    let tail_len = max_len.saturating_sub(head_len + 5);
+    let head: String = chars[..head_len].iter().collect();
+    let tail: String = chars[chars.len() - tail_len..].iter().collect();
+
+    format!("{head}\n...\n{tail}")
+}
+
 fn command_output_message(output: &std::process::Output, fallback: &str) -> String {
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = normalize_command_output_text(&output.stdout);
+    let stderr = normalize_command_output_text(&output.stderr);
 
     let combined = match (stdout.is_empty(), stderr.is_empty()) {
         (true, true) => String::new(),
@@ -1229,8 +1396,10 @@ fn command_output_message(output: &std::process::Output, fallback: &str) -> Stri
 
     if combined.is_empty() {
         format!("{} (exit code: {})", fallback, output.status)
+    } else if let Some(summary) = extract_command_output_summary(&combined) {
+        truncate_middle(&format!("{fallback}\n{summary}"), 1200)
     } else {
-        truncate_tail(&combined, 1200)
+        truncate_middle(&format!("{fallback}\n{combined}"), 1200)
     }
 }
 
@@ -1285,7 +1454,9 @@ fn expand_tilde_path(raw: &str) -> Option<PathBuf> {
         return Some(home);
     }
 
-    let suffix = trimmed.trim_start_matches('~').trim_start_matches(['/', '\\']);
+    let suffix = trimmed
+        .trim_start_matches('~')
+        .trim_start_matches(['/', '\\']);
     Some(home.join(suffix))
 }
 
@@ -2551,8 +2722,9 @@ pub fn get_model_download_status(
 
 fn truncate_tail(s: &str, max_len: usize) -> String {
     let trimmed = s.trim();
-    if trimmed.len() > max_len {
-        trimmed[trimmed.len() - max_len..].to_string()
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() > max_len {
+        chars[chars.len() - max_len..].iter().collect()
     } else {
         trimmed.to_string()
     }

@@ -4633,10 +4633,21 @@ async fn execute_parse_job(
         if mineru_mode == "builtin" {
             if let Ok(status) = state.mineru_manager.get_status() {
                 if status.status == "stopped" {
-                    log::info!("MinerU is stopped (idle unload). Auto-starting before parse job {}.", job_id);
+                    log::info!(
+                        "MinerU is stopped (idle unload). Auto-starting before parse job {}.",
+                        job_id
+                    );
                     match crate::mineru_process::start_mineru_with_state(state).await {
-                        Ok(port) => log::info!("MinerU auto-started on port {} for parse job {}", port, job_id),
-                        Err(e) => log::error!("Failed to auto-start MinerU for parse job {}: {}", job_id, e),
+                        Ok(port) => log::info!(
+                            "MinerU auto-started on port {} for parse job {}",
+                            port,
+                            job_id
+                        ),
+                        Err(e) => log::error!(
+                            "Failed to auto-start MinerU for parse job {}: {}",
+                            job_id,
+                            e
+                        ),
                     }
                 }
             }

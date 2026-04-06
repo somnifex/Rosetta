@@ -267,7 +267,9 @@ export default function RagTab() {
               <p className="text-xs text-muted-foreground">{zvecVenvStatusData.message}</p>
             )}
             {zvecVenvStatus === "failed" && zvecVenvStatusData?.message && (
-              <p className="text-xs text-destructive font-mono break-all">{zvecVenvStatusData.message}</p>
+              <pre className="overflow-x-auto rounded-md bg-destructive/5 px-3 py-2 text-xs text-destructive font-mono whitespace-pre-wrap break-words">
+                {zvecVenvStatusData.message}
+              </pre>
             )}
             {zvecVenvStatus === "ready" && zvecVenvStatusData?.message && (
               <p className="text-xs text-muted-foreground">{zvecVenvStatusData.message}</p>
@@ -516,7 +518,9 @@ export default function RagTab() {
                   </p>
                 )}
                 {rerankerModelStatus?.status === "failed" && rerankerModelStatus.message && (
-                  <p className="text-xs text-destructive font-mono break-all">{rerankerModelStatus.message}</p>
+                  <pre className="overflow-x-auto rounded-md bg-destructive/5 px-3 py-2 text-xs text-destructive font-mono whitespace-pre-wrap break-words">
+                    {rerankerModelStatus.message}
+                  </pre>
                 )}
                 {rerankerModelStatus?.status === "completed" && rerankerModelStatus.message && (
                   <p className="text-xs text-muted-foreground truncate" title={rerankerModelStatus.message}>
