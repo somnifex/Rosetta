@@ -1270,9 +1270,138 @@ fn default_models_dir(app_dir: &Path) -> PathBuf {
     crate::app_dirs::mineru_models_dir(app_dir)
 }
 
+fn expand_tilde_path(raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if !trimmed.starts_with('~') {
+        return Some(PathBuf::from(trimmed));
+    }
+
+    let home = dirs::home_dir()?;
+    if trimmed == "~" {
+        return Some(home);
+    }
+
+    let suffix = trimmed.trim_start_matches('~').trim_start_matches(['/', '\\']);
+    Some(home.join(suffix))
+}
+
+fn candidate_mineru_json_paths() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join("mineru.json"));
+        candidates.push(home.join(".mineru").join("mineru.json"));
+    }
+
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        let profile = PathBuf::from(user_profile);
+        candidates.push(profile.join("mineru.json"));
+        candidates.push(profile.join(".mineru").join("mineru.json"));
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|p| seen.insert(p.clone()))
+        .collect()
+}
+
+fn collect_model_paths_from_value(
+    value: &serde_json::Value,
+    current_key: Option<&str>,
+    output: &mut Vec<PathBuf>,
+) {
+    match value {
+        serde_json::Value::String(raw) => {
+            let Some(path) = expand_tilde_path(raw) else {
+                return;
+            };
+
+            let key = current_key.unwrap_or_default().to_ascii_lowercase();
+            let key_looks_like_model_path = key.contains("model")
+                && (key.contains("dir") || key.contains("path") || key.contains("cache"));
+
+            if !key_looks_like_model_path {
+                return;
+            }
+
+            if path.is_dir() {
+                output.push(path);
+            } else if path.is_file() {
+                if let Some(parent) = path.parent() {
+                    output.push(parent.to_path_buf());
+                }
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (key, nested) in map {
+                collect_model_paths_from_value(nested, Some(key), output);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for nested in items {
+                collect_model_paths_from_value(nested, current_key, output);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn resolve_models_dir_from_mineru_json() -> Option<PathBuf> {
+    for config_path in candidate_mineru_json_paths() {
+        if !config_path.exists() {
+            continue;
+        }
+
+        let raw = match std::fs::read_to_string(&config_path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+
+        let json = match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(json) => json,
+            Err(_) => continue,
+        };
+
+        let mut candidates = Vec::new();
+        collect_model_paths_from_value(&json, None, &mut candidates);
+
+        let mut seen = std::collections::HashSet::new();
+        let mut deduped: Vec<PathBuf> = candidates
+            .into_iter()
+            .filter(|path| seen.insert(path.clone()))
+            .collect();
+
+        deduped.sort_by_key(|path| {
+            if find_known_model_file(path).is_some() {
+                0u8
+            } else {
+                1u8
+            }
+        });
+
+        if let Some(path) = deduped.into_iter().next() {
+            log::info!(
+                "Using MinerU local models directory '{}' from {}",
+                path.display(),
+                config_path.display()
+            );
+            return Some(path);
+        }
+    }
+
+    None
+}
+
 fn resolve_models_dir(app_dir: &Path, model_source: &str, configured_dir: &str) -> PathBuf {
     if model_source.eq_ignore_ascii_case("local") && !configured_dir.trim().is_empty() {
         PathBuf::from(configured_dir.trim())
+    } else if model_source.eq_ignore_ascii_case("local") {
+        resolve_models_dir_from_mineru_json().unwrap_or_else(|| default_models_dir(app_dir))
     } else {
         default_models_dir(app_dir)
     }
@@ -1643,6 +1772,19 @@ pub async fn start_mineru_with_state(state: &AppState) -> Result<u16, String> {
         .to_str()
         .unwrap_or_default()
         .to_string();
+
+    if model_source.eq_ignore_ascii_case("local") {
+        let has_local_models = candidate_model_dirs(&app_dir, &model_source, &models_dir_raw)
+            .iter()
+            .any(|dir| find_known_model_file(dir).is_some());
+
+        if !has_local_models {
+            return Err(format!(
+                "Local model mode is enabled, but no model files were detected under '{}'. Run mineru-models-download first, or set mineru.models_dir to your existing model directory.",
+                models_dir
+            ));
+        }
+    }
 
     let port: u16 = port_str
         .parse()
