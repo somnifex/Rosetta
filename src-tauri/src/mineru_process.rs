@@ -427,6 +427,11 @@ impl MinerUProcessManager {
                 command.env("MINERU_MODEL_DIR", models_dir);
             }
         }
+        // lmdeploy turbomind on Windows requires CUDA_PATH to locate CUDA DLLs.
+        let resolved_cuda_path = resolve_cuda_path_for_lmdeploy(python_path, app_dir);
+        if let Some(ref cuda_path) = resolved_cuda_path {
+            command.env("CUDA_PATH", cuda_path);
+        }
         command.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
         apply_managed_cache_env(&mut command, app_dir)?;
 
@@ -461,6 +466,9 @@ impl MinerUProcessManager {
                         if runtime_model_source == "local" {
                             fallback.env("MINERU_MODEL_DIR", models_dir);
                         }
+                    }
+                    if let Some(ref cuda_path) = resolved_cuda_path {
+                        fallback.env("CUDA_PATH", cuda_path);
                     }
                     fallback.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
                     apply_managed_cache_env(&mut fallback, app_dir)?;
@@ -1125,6 +1133,92 @@ fn torch_is_cpu_only(python_cmd: &str) -> bool {
 
 fn bytes_to_gib(bytes: u64) -> f64 {
     bytes as f64 / 1024_f64 / 1024_f64 / 1024_f64
+}
+
+/// On Windows, lmdeploy's turbomind requires `CUDA_PATH` to be set so it can
+/// locate CUDA DLLs via `CUDA_PATH/bin`.  Many users only have the NVIDIA
+/// driver installed (no standalone CUDA Toolkit), so `CUDA_PATH` is empty.
+///
+/// When `CUDA_PATH` is unset we try to derive a compatible path from the CUDA
+/// DLLs bundled inside PyTorch (`torch/lib/`).  We create a directory junction
+/// `<app_dir>/cuda_compat/bin  ->  <venv>/Lib/site-packages/torch/lib` and
+/// return the `cuda_compat` directory as the effective `CUDA_PATH`.
+#[cfg(target_os = "windows")]
+fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<String> {
+    // Honour an existing CUDA_PATH (from the system or user environment).
+    if let Ok(existing) = std::env::var("CUDA_PATH") {
+        let existing = existing.trim().to_string();
+        if !existing.is_empty() && Path::new(&existing).is_dir() {
+            return Some(existing);
+        }
+    }
+
+    // Ask the Python that will run MinerU for the torch lib directory.
+    let mut cmd = std::process::Command::new(python_cmd);
+    cmd.args([
+        "-c",
+        "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))",
+    ]);
+    hide_console_window!(cmd);
+    let output = cmd.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let torch_lib = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if torch_lib.is_empty() || !Path::new(&torch_lib).is_dir() {
+        return None;
+    }
+
+    // Only useful when torch ships CUDA DLLs.
+    let has_cuda_dll = std::fs::read_dir(&torch_lib)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            e.file_name()
+                .to_str()
+                .map(|n| n.starts_with("cudart64") && n.ends_with(".dll"))
+                .unwrap_or(false)
+        });
+    if !has_cuda_dll {
+        return None;
+    }
+
+    let compat_dir = app_dir.join("cuda_compat");
+    let bin_junction = compat_dir.join("bin");
+
+    // If the junction already points to the right place we're done.
+    if bin_junction.is_dir() {
+        return Some(compat_dir.to_str()?.to_string());
+    }
+
+    // Create the junction: cuda_compat/bin  ->  torch/lib
+    let _ = std::fs::create_dir_all(&compat_dir);
+    let torch_lib_win = torch_lib.replace('/', "\\");
+    let bin_junction_win = bin_junction.to_str()?.replace('/', "\\");
+    let mut mklink = std::process::Command::new("cmd");
+    mklink.args(["/C", &format!("mklink /J \"{}\" \"{}\"", bin_junction_win, torch_lib_win)]);
+    hide_console_window!(mklink);
+    let link_result = mklink.status();
+    if link_result.map(|s| s.success()).unwrap_or(false) && bin_junction.is_dir() {
+        log::info!(
+            "Created CUDA_PATH compat junction: {} -> {}",
+            bin_junction_win,
+            torch_lib_win
+        );
+        Some(compat_dir.to_str()?.to_string())
+    } else {
+        log::warn!(
+            "Failed to create CUDA_PATH compat junction ({} -> {})",
+            bin_junction_win,
+            torch_lib_win
+        );
+        None
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_cuda_path_for_lmdeploy(_python_cmd: &str, _app_dir: &Path) -> Option<String> {
+    None // Only needed on Windows.
 }
 
 fn build_pip_index_args(index_url: &str) -> Vec<String> {
