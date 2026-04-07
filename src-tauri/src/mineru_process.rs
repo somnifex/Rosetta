@@ -400,8 +400,22 @@ impl MinerUProcessManager {
 
         hide_console_window!(command);
 
-        if !model_source.is_empty() && model_source != "huggingface" {
-            command.env("MINERU_MODEL_SOURCE", model_source);
+        // At runtime, use "local" when mineru.json already has valid model
+        // paths so that MinerU loads the pre-downloaded models directly
+        // instead of trying to re-download via HuggingFace / ModelScope.
+        let runtime_model_source = if model_source != "local" && mineru_json_has_valid_model_paths()
+        {
+            log::info!(
+                "mineru.json has valid model paths; overriding runtime MINERU_MODEL_SOURCE from '{}' to 'local'",
+                model_source
+            );
+            "local"
+        } else {
+            model_source
+        };
+
+        if !runtime_model_source.is_empty() {
+            command.env("MINERU_MODEL_SOURCE", runtime_model_source);
         }
         if let Some(device_mode) = runtime_profile.device_mode.as_deref() {
             command.env("MINERU_DEVICE_MODE", device_mode);
@@ -409,7 +423,7 @@ impl MinerUProcessManager {
         if !models_dir.is_empty() {
             command.env("HF_HOME", models_dir);
             command.env("MODELSCOPE_CACHE", models_dir);
-            if model_source == "local" {
+            if runtime_model_source == "local" {
                 command.env("MINERU_MODEL_DIR", models_dir);
             }
         }
@@ -435,8 +449,8 @@ impl MinerUProcessManager {
                         .stderr(std::process::Stdio::piped())
                         .kill_on_drop(false);
                     hide_console_window!(fallback);
-                    if !model_source.is_empty() && model_source != "huggingface" {
-                        fallback.env("MINERU_MODEL_SOURCE", model_source);
+                    if !runtime_model_source.is_empty() {
+                        fallback.env("MINERU_MODEL_SOURCE", runtime_model_source);
                     }
                     if let Some(device_mode) = runtime_profile.device_mode.as_deref() {
                         fallback.env("MINERU_DEVICE_MODE", device_mode);
@@ -444,7 +458,7 @@ impl MinerUProcessManager {
                     if !models_dir.is_empty() {
                         fallback.env("HF_HOME", models_dir);
                         fallback.env("MODELSCOPE_CACHE", models_dir);
-                        if model_source == "local" {
+                        if runtime_model_source == "local" {
                             fallback.env("MINERU_MODEL_DIR", models_dir);
                         }
                     }
@@ -1520,6 +1534,46 @@ fn collect_model_paths_from_value(
         }
         _ => {}
     }
+}
+
+/// Returns `true` when `mineru.json` already contains at least one `models-dir`
+/// entry pointing to a directory that holds recognisable model files.
+///
+/// When this is true the runtime should be started with
+/// `MINERU_MODEL_SOURCE=local` so that MinerU loads the already-downloaded
+/// models instead of trying to re-download them via HuggingFace / ModelScope.
+fn mineru_json_has_valid_model_paths() -> bool {
+    for config_path in candidate_mineru_json_paths() {
+        let raw = match std::fs::read_to_string(&config_path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+
+        let json: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(json) => json,
+            Err(_) => continue,
+        };
+
+        let models_dir = json.get("models-dir").and_then(|v| v.as_object());
+        let Some(models_dir) = models_dir else {
+            continue;
+        };
+
+        let all_valid = !models_dir.is_empty()
+            && models_dir.values().all(|v| {
+                v.as_str()
+                    .map(|s| {
+                        let p = PathBuf::from(s);
+                        p.is_dir() && find_known_model_file(&p).is_some()
+                    })
+                    .unwrap_or(false)
+            });
+
+        if all_valid {
+            return true;
+        }
+    }
+    false
 }
 
 fn resolve_models_dir_from_mineru_json() -> Option<PathBuf> {
