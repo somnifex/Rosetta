@@ -483,6 +483,8 @@ export default {
     zvec_python_path_hint: "请填写已安装 `zvec` 包的 Python 环境路径。",
     zvec_collections_dir: "ZVEC Collection 目录",
     zvec_collections_dir_hint: "该目录由应用统一管理，向量集合会持久化到应用用户数据目录内。",
+    zvec_rabitq_label: "RabitQ 量化",
+    zvec_rabitq_hint: "启用 RabitQ 量化以降低内存占用并保持高召回率。仅对新建的 Collection 生效，需要 ZVEC ≥ 0.3.0。",
     zvec_venv: {
       title: "Python 环境设置",
       description: "创建独立的 Python 虚拟环境并安装 zvec 和 sentence-transformers。如果系统 Python 未安装 zvec，推荐使用此方式。",

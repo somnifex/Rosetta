@@ -491,6 +491,8 @@ export default {
     zvec_python_path_hint: "Pointez-le vers un environnement Python où le paquet `zvec` est installé.",
     zvec_collections_dir: "Répertoire des collections ZVEC",
     zvec_collections_dir_hint: "Ce répertoire est géré automatiquement dans le dossier de données utilisateur de l'application.",
+    zvec_rabitq_label: "RabitQ Quantization",
+    zvec_rabitq_hint: "Enable RabitQ quantization for lower memory usage with high recall. Only applies to newly created collections. Requires ZVEC ≥ 0.3.0.",
     rerank: "Activer le reclassement",
     rerank_off: "Désactivé",
     rerank_on: "Activé",

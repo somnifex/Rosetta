@@ -490,6 +490,8 @@ export default {
     zvec_python_path_hint: "اضبطه على بيئة Python مثبّت فيها الحزمة `zvec`.",
     zvec_collections_dir: "دليل مجموعات ZVEC",
     zvec_collections_dir_hint: "تتم إدارة هذا الدليل تلقائياً داخل دليل بيانات المستخدم الخاص بالتطبيق.",
+    zvec_rabitq_label: "RabitQ Quantization",
+    zvec_rabitq_hint: "Enable RabitQ quantization for lower memory usage with high recall. Only applies to newly created collections. Requires ZVEC ≥ 0.3.0.",
     rerank: "تفعيل إعادة الترتيب",
     rerank_off: "معطل",
     rerank_on: "مفعل",

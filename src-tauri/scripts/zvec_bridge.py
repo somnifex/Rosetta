@@ -24,7 +24,13 @@ def import_zvec():
     return zvec
 
 
-def ensure_collection(zvec, collection_path: Path, collection_name: str, dimension: int):
+def _make_index_param(zvec, use_rabitq: bool):
+    if use_rabitq and hasattr(zvec, "HnswRabitqIndexParam"):
+        return zvec.HnswRabitqIndexParam(metric_type=zvec.MetricType.COSINE)
+    return zvec.HnswIndexParam(metric_type=zvec.MetricType.COSINE)
+
+
+def ensure_collection(zvec, collection_path: Path, collection_name: str, dimension: int, use_rabitq: bool = False):
     if collection_path.exists():
         return zvec.open(str(collection_path))
 
@@ -35,7 +41,7 @@ def ensure_collection(zvec, collection_path: Path, collection_name: str, dimensi
             "embedding",
             zvec.DataType.VECTOR_FP32,
             dimension,
-            index_param=zvec.HnswIndexParam(metric_type=zvec.MetricType.COSINE),
+            index_param=_make_index_param(zvec, use_rabitq),
         ),
     )
     return zvec.create_and_open(path=str(collection_path), schema=schema)
@@ -92,6 +98,7 @@ def cmd_upsert(payload):
         collection_path,
         payload["collection_name"],
         int(payload["dimension"]),
+        use_rabitq=bool(payload.get("use_rabitq", False)),
     )
 
     collection.upsert(
@@ -191,10 +198,15 @@ def cmd_search(payload):
 
     zvec = import_zvec()
     collection = zvec.open(str(collection_path))
-    results = collection.query(
+
+    query_kwargs = dict(
         vectors=zvec.VectorQuery("embedding", payload["vector"]),
         topk=int(payload["topk"]),
     )
+    if payload.get("use_rabitq") and hasattr(zvec, "HnswRabitqQueryParam"):
+        query_kwargs["param"] = zvec.HnswRabitqQueryParam(ef=300)
+
+    results = collection.query(**query_kwargs)
 
     hits = [
         {

@@ -487,6 +487,8 @@ export default {
     zvec_python_path_hint: "Set this to a Python environment where the `zvec` package is installed.",
     zvec_collections_dir: "ZVEC Collection Directory",
     zvec_collections_dir_hint: "This directory is managed automatically inside the app's user data directory.",
+    zvec_rabitq_label: "RabitQ Quantization",
+    zvec_rabitq_hint: "Enable RabitQ quantization for lower memory usage with high recall. Only applies to newly created collections. Requires ZVEC ≥ 0.3.0.",
     zvec_venv: {
       title: "Python Environment Setup",
       description: "Create an isolated Python environment with zvec and sentence-transformers installed. Recommended if zvec is not installed in your system Python.",

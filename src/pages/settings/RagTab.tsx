@@ -27,6 +27,7 @@ export default function RagTab() {
   const [zvecUseVenv, setZvecUseVenv] = useState(false)
   const [zvecSystemPython, setZvecSystemPython] = useState(defaultPythonPath)
   const [zvecPipIndexUrl, setZvecPipIndexUrl] = useState("https://pypi.org/simple")
+  const [zvecUseRabitq, setZvecUseRabitq] = useState(false)
   const [ragRerankerMode, setRagRerankerMode] = useState("disabled")
   const [ragRerankerTopN, setRagRerankerTopN] = useState("5")
 
@@ -45,6 +46,7 @@ export default function RagTab() {
       setZvecUseVenv((settingsMap.get("rag.zvec_use_venv") || "false") === "true")
       setZvecSystemPython(settingsMap.get("rag.zvec_system_python") || defaultPythonPath)
       setZvecPipIndexUrl(settingsMap.get("rag.zvec_pip_index_url") || "https://pypi.org/simple")
+      setZvecUseRabitq((settingsMap.get("rag.zvec_use_rabitq") || "false") === "true")
       setRagRerankerMode(settingsMap.get("rag.reranker_mode") || "disabled")
       setRagRerankerTopN(settingsMap.get("rag.reranker_top_n") || "5")
       setRagSettingsLoaded(true)
@@ -90,6 +92,7 @@ export default function RagTab() {
       await api.setAppSetting("rag.zvec_use_venv", zvecUseVenv ? "true" : "false")
       await api.setAppSetting("rag.zvec_system_python", zvecSystemPython.trim() || defaultPythonPath)
       await api.setAppSetting("rag.zvec_pip_index_url", zvecPipIndexUrl.trim() || "https://pypi.org/simple")
+      await api.setAppSetting("rag.zvec_use_rabitq", zvecUseRabitq ? "true" : "false")
       await api.setAppSetting("rag.reranker_mode", ragRerankerMode)
       await api.setAppSetting("rag.reranker_top_n", ragRerankerTopN.trim() || "5")
     },
@@ -352,6 +355,20 @@ export default function RagTab() {
               readOnly
             />
             <p className="text-xs text-muted-foreground">{t("rag.zvec_collections_dir_hint")}</p>
+          </div>
+          )}
+
+          {ragVectorBackend === "zvec" && (
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">{t("rag.zvec_rabitq_label")}</p>
+              <p className="text-xs text-muted-foreground">{t("rag.zvec_rabitq_hint")}</p>
+            </div>
+            <Switch
+              data-setting-key="rag.zvec_use_rabitq"
+              checked={zvecUseRabitq}
+              onCheckedChange={setZvecUseRabitq}
+            />
           </div>
           )}
 

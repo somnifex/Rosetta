@@ -490,6 +490,8 @@ export default {
     zvec_python_path_hint: "Укажите среду Python, в которой установлен пакет `zvec`.",
     zvec_collections_dir: "Каталог коллекций ZVEC",
     zvec_collections_dir_hint: "Этот каталог автоматически управляется внутри каталога пользовательских данных приложения.",
+    zvec_rabitq_label: "RabitQ Quantization",
+    zvec_rabitq_hint: "Enable RabitQ quantization for lower memory usage with high recall. Only applies to newly created collections. Requires ZVEC ≥ 0.3.0.",
     rerank: "Включить переранжирование",
     rerank_off: "Отключено",
     rerank_on: "Включено",

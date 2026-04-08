@@ -53,6 +53,7 @@ pub struct RagSettings {
 pub struct ZvecSettings {
     pub python_path: String,
     pub collections_dir: PathBuf,
+    pub use_rabitq: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -250,9 +251,14 @@ pub fn load_zvec_settings(_conn: &Connection, app_dir: &Path) -> Result<ZvecSett
 
     let collections_dir = default_collections_dir(app_dir);
 
+    let use_rabitq = get_setting(app_dir, "rag.zvec_use_rabitq")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
     Ok(ZvecSettings {
         python_path,
         collections_dir,
+        use_rabitq,
     })
 }
 
@@ -694,6 +700,7 @@ pub fn upsert_embeddings(
         "dimension": dimension,
         "docs": docs,
         "optimize": true,
+        "use_rabitq": settings.use_rabitq,
     });
 
     let _: serde_json::Value = run_bridge(app_dir, &settings.python_path, "upsert", Some(payload))?;
@@ -730,6 +737,7 @@ pub fn search_embeddings(
         "collection_path": collection_path(settings, collection_key),
         "vector": vector,
         "topk": topk,
+        "use_rabitq": settings.use_rabitq,
     });
 
     let response: SearchBridgeResponse =
