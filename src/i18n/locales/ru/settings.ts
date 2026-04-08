@@ -537,6 +537,8 @@ export default {
       local_description: "Использует DefaultLocalReRanker из zvec через Python-мост. Модель загружается автоматически при первом использовании (~80 МБ).",
       local_model: "Модель",
       local_model_hint: "Требуется установленный Python-пакет zvec и доступная среда выполнения.",
+      model_source_label: "Model Download Source",
+      model_source_hint: "Choose where to download the reranker model from.",
       remote_title: "Удалённый реранкер",
       remote_description: "Использует OpenAI-совместимый API реранкинга. Настройте каналы реранкинга на вкладке Провайдеры.",
       no_channels: "Каналы реранкинга не настроены. Перейдите на вкладку Провайдеры, чтобы добавить.",

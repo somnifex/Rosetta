@@ -30,6 +30,7 @@ export default function RagTab() {
   const [zvecUseRabitq, setZvecUseRabitq] = useState(false)
   const [ragRerankerMode, setRagRerankerMode] = useState("disabled")
   const [ragRerankerTopN, setRagRerankerTopN] = useState("5")
+  const [rerankerModelSource, setRerankerModelSource] = useState("huggingface")
 
   const { data: appSettings } = useQuery({
     queryKey: ["appSettings"],
@@ -49,6 +50,7 @@ export default function RagTab() {
       setZvecUseRabitq((settingsMap.get("rag.zvec_use_rabitq") || "false") === "true")
       setRagRerankerMode(settingsMap.get("rag.reranker_mode") || "disabled")
       setRagRerankerTopN(settingsMap.get("rag.reranker_top_n") || "5")
+      setRerankerModelSource(settingsMap.get("rag.reranker_model_source") || "huggingface")
       setRagSettingsLoaded(true)
     }
   }, [appSettings, defaultPythonPath, ragSettingsLoaded])
@@ -95,6 +97,7 @@ export default function RagTab() {
       await api.setAppSetting("rag.zvec_use_rabitq", zvecUseRabitq ? "true" : "false")
       await api.setAppSetting("rag.reranker_mode", ragRerankerMode)
       await api.setAppSetting("rag.reranker_top_n", ragRerankerTopN.trim() || "5")
+      await api.setAppSetting("rag.reranker_model_source", rerankerModelSource)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appSettings"] })
@@ -222,12 +225,12 @@ export default function RagTab() {
               </div>
               <Badge
                 variant={
-                  zvecStatus?.available && zvecStatus?.platform_supported
+                  zvecStatus?.available
                     ? "default"
                     : "destructive"
                 }
               >
-                {zvecStatus?.available && zvecStatus?.platform_supported
+                {zvecStatus?.available
                   ? t("rag.status_ready")
                   : t("rag.status_unavailable")}
               </Badge>
@@ -372,7 +375,7 @@ export default function RagTab() {
           </div>
           )}
 
-          {ragVectorBackend === "zvec" && zvecStatus != null && (!zvecStatus.platform_supported || !zvecStatus.available) && (
+          {ragVectorBackend === "zvec" && zvecStatus != null && !zvecStatus.available && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
@@ -473,16 +476,44 @@ export default function RagTab() {
                 <Badge variant="outline">cross-encoder/ms-marco-MiniLM-L6-v2</Badge>
               </div>
               <p className="text-xs text-muted-foreground">{t("rag.reranker.local_model_hint")}</p>
+              <div className="space-y-2">
+                <Label>{t("rag.reranker.model_source_label")}</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="rerankerModelSource"
+                      value="huggingface"
+                      checked={rerankerModelSource === "huggingface"}
+                      onChange={() => setRerankerModelSource("huggingface")}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm">Hugging Face</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="rerankerModelSource"
+                      value="modelscope"
+                      checked={rerankerModelSource === "modelscope"}
+                      onChange={() => setRerankerModelSource("modelscope")}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm">ModelScope</span>
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("rag.reranker.model_source_hint")}</p>
+              </div>
               <div className="flex items-center gap-2">
                 <Label>{t("mineru.builtin.status_label")}</Label>
                 <Badge
                   variant={
-                    zvecStatus?.available && zvecStatus?.platform_supported
+                    zvecStatus?.available
                       ? "default"
                       : "destructive"
                   }
                 >
-                  {zvecStatus?.available && zvecStatus?.platform_supported
+                  {zvecStatus?.available
                     ? t("rag.status_ready")
                     : t("rag.status_unavailable")}
                 </Badge>

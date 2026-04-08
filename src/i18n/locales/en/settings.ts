@@ -533,6 +533,8 @@ export default {
       local_description: "Uses zvec's DefaultLocalReRanker via the Python bridge. The model is downloaded automatically on first use (~80 MB).",
       local_model: "Model",
       local_model_hint: "Requires the zvec Python package to be installed and the runtime to be available.",
+      model_source_label: "Model Download Source",
+      model_source_hint: "Choose where to download the reranker model from.",
       remote_title: "Remote Reranker",
       remote_description: "Uses an OpenAI-compatible rerank API endpoint. Configure rerank channels in the Providers tab.",
       no_channels: "No rerank channels configured. Go to Providers tab to add one.",

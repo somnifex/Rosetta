@@ -529,6 +529,8 @@ export default {
       local_description: "通过 Python Bridge 使用 zvec 的 DefaultLocalReRanker。模型在首次使用时自动下载（约 80 MB）。",
       local_model: "模型",
       local_model_hint: "需要已安装 zvec Python 包且运行环境可用。",
+      model_source_label: "模型下载来源",
+      model_source_hint: "选择重排模型的下载来源。国内用户建议选择 ModelScope。",
       remote_title: "远程重排序器",
       remote_description: "使用兼容 OpenAI API 的重排序接口。请在「LLM 服务商」标签页中配置 Rerank 渠道。",
       no_channels: "未配置 Rerank 渠道，请前往「LLM 服务商」标签页添加。",

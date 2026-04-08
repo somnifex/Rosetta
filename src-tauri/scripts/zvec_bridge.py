@@ -168,6 +168,7 @@ def cmd_rerank(payload):
 
 def cmd_download_reranker_model(payload):
     model_name = payload.get("model", "cross-encoder/ms-marco-MiniLM-L6-v2")
+    model_source = payload.get("model_source", "huggingface")
 
     try:
         import sentence_transformers  # type: ignore  # noqa: F401
@@ -178,12 +179,24 @@ def cmd_download_reranker_model(payload):
             code=1,
         )
 
-    sys.stderr.write(f"Downloading reranker model: {model_name}\n")
+    sys.stderr.write(f"Downloading reranker model: {model_name} (source: {model_source})\n")
     sys.stderr.flush()
 
-    from sentence_transformers import CrossEncoder  # type: ignore
-
-    CrossEncoder(model_name)
+    if model_source == "modelscope":
+        try:
+            from modelscope import snapshot_download  # type: ignore
+            cache_dir = snapshot_download(model_name)
+            sys.stderr.write(f"Model downloaded via ModelScope to: {cache_dir}\n")
+            sys.stderr.flush()
+        except Exception as exc:
+            emit(
+                {"success": False, "message": f"ModelScope download failed: {exc}"},
+                ok=False,
+                code=1,
+            )
+    else:
+        from sentence_transformers import CrossEncoder  # type: ignore
+        CrossEncoder(model_name)
 
     sys.stderr.write("Model download complete\n")
     sys.stderr.flush()

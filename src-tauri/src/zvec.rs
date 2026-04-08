@@ -119,7 +119,7 @@ pub fn default_collections_dir(app_dir: &Path) -> PathBuf {
 }
 
 pub fn platform_supported() -> bool {
-    cfg!(target_os = "linux") || cfg!(target_os = "macos")
+    cfg!(target_os = "linux") || cfg!(target_os = "macos") || cfg!(target_os = "windows")
 }
 
 pub struct ZvecAvailabilityCache {
@@ -878,6 +878,9 @@ pub async fn download_reranker_model(
         .reranker_model_manager
         .set_status("downloading", "Starting reranker model download...");
 
+    let model_source =
+        get_setting(&app_dir, "rag.reranker_model_source").unwrap_or_else(|| "huggingface".to_string());
+
     let manager = std::sync::Arc::clone(&state.reranker_model_manager);
     let app_dir_clone = app_dir.clone();
 
@@ -894,6 +897,7 @@ pub async fn download_reranker_model(
 
         let payload = json!({
             "model": "cross-encoder/ms-marco-MiniLM-L6-v2",
+            "model_source": model_source,
         });
 
         let mut child = tokio::process::Command::new(&python_path);

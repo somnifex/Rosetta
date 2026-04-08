@@ -537,6 +537,8 @@ export default {
       local_description: "يستخدم DefaultLocalReRanker من zvec عبر جسر Python. يتم تنزيل النموذج تلقائياً عند الاستخدام الأول (~80 ميجابايت).",
       local_model: "النموذج",
       local_model_hint: "يتطلب تثبيت حزمة Python zvec وتوفر بيئة التشغيل.",
+      model_source_label: "Model Download Source",
+      model_source_hint: "Choose where to download the reranker model from.",
       remote_title: "معيد ترتيب عن بُعد",
       remote_description: "يستخدم واجهة API لإعادة الترتيب متوافقة مع OpenAI. قم بتكوين قنوات إعادة الترتيب في علامة تبويب الموفرين.",
       no_channels: "لم يتم تكوين قنوات إعادة الترتيب. انتقل إلى علامة تبويب الموفرين لإضافة واحدة.",
