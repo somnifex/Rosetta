@@ -4,53 +4,51 @@
 
 # Rosetta
 
-**解析每一份文档，连接每一种语言。**
+**一张本地优先的桌面文档工作台，适合那些你会反复回看的文档。**
 
-一款本地优先的开源桌面应用，提供结构化 PDF 解析、AI 翻译、语义检索与带来源问答能力。
+一款本地优先的开源桌面应用，用来阅读、翻译、索引和追问长文档。
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 [![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-ffc131)]()
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-ffc131)
 
-[下载](https://github.com/somnifex/Rosetta/releases) | [快速开始](#快速开始) | [适用场景](#适用场景) | [参与贡献](#参与贡献)
+[下载](https://github.com/somnifex/Rosetta/releases) | [快速开始](#快速开始) | [从源码构建](#从源码构建) | [参与贡献](#参与贡献)
 
 </div>
 
-## Rosetta 是什么
+## 为什么是 Rosetta
 
-Rosetta 面向长期处理多语言复杂文档的用户，不是一次性“上传-翻译-下载”工具。
+很多文档工具只适合做一次性转换：上传，翻译，导出，然后结束。Rosetta 更适合那些你还会继续使用的文档。
 
-它把文档转化为可持续复用的知识资产：
+它把长篇 PDF 和文本文件放回一个持续可用的工作流里：文档库、阅读器、翻译流程、索引和带来源的对话都在同一个桌面应用里。导入一次，之后的解析、翻译、检索、回看和追问都围绕同一份材料展开。
 
-- 导入并管理文档库
-- 进行结构化 PDF 解析
-- 通过可配置 AI 通道翻译
-- 建立语义索引与检索能力
-- 基于来源进行问答
-- 备份与跨设备同步
+## 设计取向
 
-## 为什么选择 Rosetta
+- 本地优先。文档、索引、提示词和生成产物都保存在你的机器上，位于系统应用数据目录。
+- 尊重结构。Rosetta 会尽量先保留版面和内容层次，而不是一开始就把 PDF 压平成纯文本。
+- 该可配的地方都能配。`chat`、`translate`、`embed`、`rerank` 可以分别使用不同的服务、模型和运行参数。
+- 面向重复使用。文档导入后，不是“处理完就结束”，而是可以继续翻译、索引、检索、抽取字段和对话。
 
-多数文档翻译工具偏向快速转换。
-Rosetta 更关注持续性的知识工作流。
+## 它能做什么
 
-你可以在这些场景中受益：
+- 建立可长期维护的文档库，支持文件夹、分类、标签和字段抽取模板。
+- 通过内置 MinerU、外部服务或官方 API 解析 PDF。
+- 在原文、译文和对照阅读之间切换。
+- 把 `chat`、`translate`、`embed`、`rerank` 拆成独立通道来管理。
+- 调整翻译提示词、切片策略、并发、限速和失败切换。
+- 用直接匹配和语义检索搜索自己的文档库。
+- 对文档发问，并回看支撑答案的来源片段。
+- 在任务中心追踪解析、翻译和索引进度。
+- 导出本地备份，或通过 WebDAV 同步工作区数据。
 
-- 长期阅读与翻译科研论文
-- 维护多语言技术文档与报告
-- 复用历史处理结果进行检索和问答
-- 自主控制模型通道、提示词与存储位置
+## 适合什么场景
 
-## 核心能力
-
-- 基于 MinerU 的结构化 PDF 解析
-- `chat`、`translate`、`embed`、`rerank` 多通道 AI 路由
-- 面向个人文档库的语义检索与 RAG 问答
-- 任务中心统一管理解析、翻译、索引进度
-- 本地备份与 WebDAV 同步
-- 跨平台桌面体验与多语言界面
+- 长期阅读论文、手册、标准和技术报告
+- 需要多语言对照的内部资料
+- 想把零散 PDF 变成可检索、可回查的个人知识库
+- 重视术语一致性、来源可追溯和后续复用的翻译工作流
 
 ## 快速开始
 
@@ -64,61 +62,29 @@ Rosetta 更关注持续性的知识工作流。
 | macOS   | `.dmg`                |
 | Linux   | `.deb`、`.AppImage` |
 
-### 2. 3 分钟上手
+### 2. 首次启动
 
 1. 安装并启动 Rosetta。
-2. 在 `Settings` 中至少配置一个 AI 通道。
-3. 连接外部 MinerU 服务，或初始化内置 MinerU 环境。
+2. 在 `Settings` 中至少配置一个模型服务通道。
+3. 选择 MinerU 模式：内置、外部，或官方 API。
 4. 导入文档到文档库。
-5. 执行 解析 -> 翻译 -> 索引。
-6. 通过搜索或对话继续使用结果。
+5. 执行 `Parse -> Translate -> Index`。
+6. 在 `Search`、`Chat` 或阅读器里继续工作。
 
 ### 3. 典型流程
 
 ```text
-导入 -> 解析 -> 翻译 -> 索引 -> 搜索 / 对话 -> 备份
+导入 -> 解析 -> 翻译 -> 索引 -> 阅读 / 搜索 / 对话 -> 备份
 ```
 
-## 适用场景
-
-- 双语科研阅读与知识沉淀
-- 技术手册翻译与术语一致性维护
-- 团队内部知识资料归档与可检索化
-- 个人文档知识库与 AI 辅助问答
-
-## 数据与隐私
-
-Rosetta 采用本地优先设计。
-运行时数据存储在系统应用数据目录，而不是仓库目录。
-
-常见数据包括：
-
-- 导入后的文档副本
-- SQLite 元数据与索引
-- MinerU 运行环境相关文件
-- 本地缓存和生成产物
-
-你可以自主决定连接哪些外部 AI 服务，以及发送哪些内容。
-
-## 参与贡献
-
-欢迎在产品体验、稳定性、翻译质量、跨平台支持等方向提交贡献。
-
-提交 Pull Request 前，建议先执行：
-
-```bash
-npm run build
-cd src-tauri && cargo check
-```
-
-### 从源码运行（可选）
+## 从源码构建
 
 环境要求：
 
 - Node.js 18+
 - Rust stable
 - Tauri 2 prerequisites
-- Python 3.x（仅在使用内置 MinerU 或可选 zvec 后端时需要）
+- Python 3.x，用于内置 MinerU 运行时或可选的 zvec 后端
 
 ```bash
 git clone https://github.com/somnifex/Rosetta.git
@@ -127,17 +93,41 @@ npm install
 npm run tauri:dev
 ```
 
+## 数据与隐私
+
+Rosetta 默认采用本地优先设计。运行时数据存储在系统应用数据目录，而不是仓库目录。
+
+常见数据包括：
+
+- 导入后的文档副本
+- SQLite 元数据与索引
+- MinerU 运行时文件与下载的模型
+- 本地缓存、生成产物和备份文件
+
+Rosetta 只会连接你显式配置的外部服务。哪些服务可以访问文档内容，由你自己决定。
+
 ## 路线图
 
-- [X] 文档库管理
-- [X] MinerU 集成
-- [X] 多通道 LLM 翻译工作流
-- [X] 搜索与 RAG 问答
-- [X] WebDAV 同步与本地备份
-- [X] 多语言界面
+- [x] 文档库管理
+- [x] MinerU 集成
+- [x] 多通道模型路由
+- [x] 搜索与带来源对话
+- [x] WebDAV 同步与本地备份
+- [x] 多语言界面
 - [ ] 批量翻译工作流
 - [ ] 更丰富的批注与审阅能力
 - [ ] 更多导出与协作能力
+
+## 参与贡献
+
+欢迎在产品体验、稳定性、解析质量、翻译质量、文档和跨平台支持等方向提交贡献。
+
+提交 Pull Request 前，建议先执行：
+
+```bash
+npm run build
+cd src-tauri && cargo check
+```
 
 ## 许可证
 
@@ -149,4 +139,4 @@ Rosetta 采用 [GNU General Public License v3.0](LICENSE) 许可证。
 - [MinerU](https://github.com/opendatalab/MinerU)
 - [Radix UI](https://www.radix-ui.com/)
 - [shadcn/ui](https://ui.shadcn.com/)
-- 也感谢 [GitHub](https://ww.github.com)、[Reddit](https://www.reddit.com/)、[Linux.do](https://linux.do/) 等开源与交流社区。一路上读过很多项目源码、issue、经验贴和讨论串，从中学到了非常多东西，这些分享也在潜移默化中影响了 Rosetta 的形成。
+- Rosetta 也受益于 [GitHub](https://github.com/)、[Reddit](https://www.reddit.com/) 和 [Linux.do](https://linux.do/) 上大量公开的 issue、讨论和排障记录。很多项目并不是一个人“做出来”的，通常是这样慢慢长出来的。
