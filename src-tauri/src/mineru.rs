@@ -466,11 +466,15 @@ async fn build_pdf_part(file_path: &Path) -> Result<Part, String> {
         .await
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
+    // Use a safe ASCII filename to avoid [Errno 22] on Windows when MinerU's
+    // Python backend uses the filename to construct filesystem paths.
+    // Non-ASCII chars (e.g. Chinese) and spaces in the original name can cause failures.
     let file_name = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file.pdf")
-        .to_string();
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.split('_').next()) // extract the UUID prefix
+        .map(|uuid| format!("{}.pdf", uuid))
+        .unwrap_or_else(|| "document.pdf".to_string());
 
     Part::bytes(file_bytes)
         .file_name(file_name)
