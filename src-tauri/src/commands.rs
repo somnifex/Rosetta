@@ -3208,6 +3208,26 @@ mod tests {
         assert_eq!(statuses.1, "pending");
         assert_eq!(statuses.2, "pending");
     }
+
+    #[test]
+    fn transient_parse_error_detects_errno_22_invalid_argument() {
+        assert!(is_transient_parse_error(
+            "MinerU modern endpoints failed. /tasks: [Errno 22] Invalid argument"
+        ));
+    }
+
+    #[test]
+    fn builtin_mineru_restart_hint_detects_recoverable_invalid_argument_error() {
+        assert!(should_restart_builtin_mineru_before_retry(
+            "[Errno 22] Invalid argument"
+        ));
+        assert!(should_restart_builtin_mineru_before_retry(
+            "connection refused"
+        ));
+        assert!(!should_restart_builtin_mineru_before_retry(
+            "Unsupported file type"
+        ));
+    }
 }
 
 fn restore_documents_internal(
@@ -4569,6 +4589,7 @@ const TRANSIENT_PARSE_ERROR_HINTS: &[&str] = &[
     "Connection refused",
     "error sending request",
     "502 Bad Gateway",
+    "[Errno 22] Invalid argument",
 ];
 const PARSE_JOB_MAX_RETRIES: u32 = 2;
 const PARSE_JOB_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
@@ -4577,6 +4598,10 @@ fn is_transient_parse_error(error: &str) -> bool {
     TRANSIENT_PARSE_ERROR_HINTS
         .iter()
         .any(|hint| error.contains(hint))
+}
+
+fn should_restart_builtin_mineru_before_retry(error: &str) -> bool {
+    is_connection_failure_error(error) || error.contains("[Errno 22] Invalid argument")
 }
 
 fn is_connection_failure_error(error: &str) -> bool {
@@ -4666,7 +4691,8 @@ async fn execute_parse_job(
             );
             let _ = update_parse_job_runtime_progress(state, job_id, 1.0);
 
-            if is_connection_failure_error(last_error.as_deref().unwrap_or("")) {
+            let last_error_text = last_error.as_deref().unwrap_or("");
+            if should_restart_builtin_mineru_before_retry(last_error_text) {
                 let mineru_mode = normalize_optional_string(
                     get_setting_value(state.settings.as_ref(), "mineru.mode")
                         .ok()
@@ -4674,9 +4700,15 @@ async fn execute_parse_job(
                 )
                 .unwrap_or_else(|| "builtin".to_string());
                 if mineru_mode == "builtin" {
-                    log::warn!(
-                        "MinerU appears to have crashed (connection failure). Attempting restart before retry."
-                    );
+                    if is_connection_failure_error(last_error_text) {
+                        log::warn!(
+                            "MinerU appears to have crashed (connection failure). Attempting restart before retry."
+                        );
+                    } else {
+                        log::warn!(
+                            "MinerU hit a recoverable runtime error. Attempting restart before retry."
+                        );
+                    }
                     let _ = state.mineru_manager.stop();
                     match crate::mineru_process::start_mineru_with_state(state).await {
                         Ok(port) => {

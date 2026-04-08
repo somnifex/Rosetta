@@ -434,7 +434,7 @@ impl MinerUProcessManager {
                 log::warn!("Could not resolve CUDA_PATH for lmdeploy; hybrid-auto-engine may fail on Windows without a CUDA Toolkit installation");
             }
         }
-        apply_managed_cache_env(&mut command, app_dir)?;
+        apply_managed_mineru_api_env(&mut command, app_dir)?;
 
         let child = match command.spawn() {
             Ok(c) => c,
@@ -471,8 +471,7 @@ impl MinerUProcessManager {
                     if let Some(ref cuda_path) = resolved_cuda_path {
                         fallback.env("CUDA_PATH", cuda_path);
                     }
-                    fallback.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "0");
-                    apply_managed_cache_env(&mut fallback, app_dir)?;
+                    apply_managed_mineru_api_env(&mut fallback, app_dir)?;
                     fallback.spawn().map_err(|e2| {
                         let err_msg = format!("Failed to start MinerU: {}", e2);
                         if let Ok(mut status) = self.status.lock() {
@@ -1258,6 +1257,18 @@ fn apply_managed_cache_env(command: &mut Command, app_dir: &Path) -> Result<(), 
         .env("TMP", &dirs.temp)
         .env("TEMP", &dirs.temp)
         .env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
+    Ok(())
+}
+
+fn apply_managed_mineru_api_env(command: &mut Command, app_dir: &Path) -> Result<(), String> {
+    apply_managed_cache_env(command, app_dir)?;
+
+    let output_root = crate::app_dirs::ensure_outputs_dir(app_dir)?.join("mineru_api");
+    std::fs::create_dir_all(&output_root).map_err(|e| e.to_string())?;
+
+    command
+        .env("MINERU_API_OUTPUT_ROOT", &output_root)
+        .env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "0");
     Ok(())
 }
 

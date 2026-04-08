@@ -878,8 +878,8 @@ pub async fn download_reranker_model(
         .reranker_model_manager
         .set_status("downloading", "Starting reranker model download...");
 
-    let model_source =
-        get_setting(&app_dir, "rag.reranker_model_source").unwrap_or_else(|| "huggingface".to_string());
+    let model_source = get_setting(&app_dir, "rag.reranker_model_source")
+        .unwrap_or_else(|| "huggingface".to_string());
 
     let manager = std::sync::Arc::clone(&state.reranker_model_manager);
     let app_dir_clone = app_dir.clone();
