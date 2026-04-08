@@ -3210,19 +3210,19 @@ mod tests {
     }
 
     #[test]
-    fn transient_parse_error_detects_errno_22_invalid_argument() {
-        assert!(is_transient_parse_error(
+    fn transient_parse_error_does_not_treat_errno_22_invalid_argument_as_retryable() {
+        assert!(!is_transient_parse_error(
             "MinerU modern endpoints failed. /tasks: [Errno 22] Invalid argument"
         ));
     }
 
     #[test]
-    fn builtin_mineru_restart_hint_detects_recoverable_invalid_argument_error() {
-        assert!(should_restart_builtin_mineru_before_retry(
-            "[Errno 22] Invalid argument"
-        ));
+    fn builtin_mineru_restart_hint_only_restarts_for_connection_failures() {
         assert!(should_restart_builtin_mineru_before_retry(
             "connection refused"
+        ));
+        assert!(!should_restart_builtin_mineru_before_retry(
+            "[Errno 22] Invalid argument"
         ));
         assert!(!should_restart_builtin_mineru_before_retry(
             "Unsupported file type"
@@ -4589,7 +4589,6 @@ const TRANSIENT_PARSE_ERROR_HINTS: &[&str] = &[
     "Connection refused",
     "error sending request",
     "502 Bad Gateway",
-    "[Errno 22] Invalid argument",
 ];
 const PARSE_JOB_MAX_RETRIES: u32 = 2;
 const PARSE_JOB_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
@@ -4601,7 +4600,7 @@ fn is_transient_parse_error(error: &str) -> bool {
 }
 
 fn should_restart_builtin_mineru_before_retry(error: &str) -> bool {
-    is_connection_failure_error(error) || error.contains("[Errno 22] Invalid argument")
+    is_connection_failure_error(error)
 }
 
 fn is_connection_failure_error(error: &str) -> bool {
