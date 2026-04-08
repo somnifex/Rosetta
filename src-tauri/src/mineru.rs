@@ -1,8 +1,9 @@
 use reqwest::multipart::{Form, Part};
-use reqwest::{Client, Response, StatusCode, Url};
+use reqwest::{Client, ClientBuilder, Response, StatusCode, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use zip::ZipArchive;
@@ -87,7 +88,8 @@ pub struct MinerUClient {
 
 impl MinerUClient {
     pub fn new(base_url: String) -> Self {
-        let client = Client::builder().build().unwrap_or_else(|_| Client::new());
+        let builder = build_mineru_http_client(&base_url);
+        let client = builder.build().unwrap_or_else(|_| Client::new());
 
         Self {
             base_url,
@@ -461,6 +463,32 @@ impl MinerUClient {
     }
 }
 
+fn build_mineru_http_client(base_url: &str) -> ClientBuilder {
+    let builder = Client::builder();
+    if should_disable_system_proxy(base_url) {
+        // Built-in MinerU runs on loopback. Bypass system proxies so local
+        // multipart uploads and long polling cannot be intercepted or rewritten.
+        return builder.no_proxy();
+    }
+    builder
+}
+
+fn should_disable_system_proxy(base_url: &str) -> bool {
+    let Ok(url) = Url::parse(base_url) else {
+        return false;
+    };
+
+    match url.host_str() {
+        Some(host) if host.eq_ignore_ascii_case("localhost") => true,
+        Some(host) => host
+            .trim_matches(['[', ']'])
+            .parse::<IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
 async fn build_pdf_part(file_path: &Path) -> Result<Part, String> {
     let file_bytes = tokio::fs::read(file_path)
         .await
@@ -790,7 +818,8 @@ fn parse_result_from_zip_bytes(archive_bytes: &[u8]) -> Result<ParseResult, Stri
 mod tests {
     use super::{
         looks_like_zip_response, parse_file_parse_response_bytes,
-        should_prefer_mineru_markdown_entry, ParseExecution,
+        should_disable_system_proxy, should_prefer_mineru_markdown_entry,
+        ParseExecution,
     };
     use serde_json::json;
     use std::io::{Cursor, Write};
@@ -947,5 +976,15 @@ mod tests {
             Some("nested/full.md"),
             "document.md"
         ));
+    }
+
+    #[test]
+    fn loopback_urls_bypass_system_proxy() {
+        assert!(should_disable_system_proxy("http://127.0.0.1:8765"));
+        assert!(should_disable_system_proxy("http://localhost:8765"));
+        assert!(should_disable_system_proxy("http://[::1]:8765"));
+        assert!(!should_disable_system_proxy("http://192.168.1.20:8765"));
+        assert!(!should_disable_system_proxy("https://mineru.net"));
+        assert!(!should_disable_system_proxy("not a url"));
     }
 }
