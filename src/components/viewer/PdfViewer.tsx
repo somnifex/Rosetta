@@ -107,7 +107,7 @@ function readStoredHighlights(storageKey: string): PersistedHighlights {
     if (!raw) return { version: 1, highlights: [] }
     const parsed = JSON.parse(raw)
 
-    // Legacy payload from previous annotation engine used an array root shape.
+    // Older highlight data used an array at the root.
     if (Array.isArray(parsed)) {
       window.localStorage.setItem(`${storageKey}:legacy-backup`, raw)
       const migrated: PersistedHighlights = { version: 1, highlights: [] }

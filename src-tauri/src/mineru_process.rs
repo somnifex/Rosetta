@@ -400,9 +400,6 @@ impl MinerUProcessManager {
 
         hide_console_window!(command);
 
-        // At runtime, use "local" when mineru.json already has valid model
-        // paths so that MinerU loads the pre-downloaded models directly
-        // instead of trying to re-download via HuggingFace / ModelScope.
         let runtime_model_source = if model_source != "local" && mineru_json_has_valid_model_paths()
         {
             log::info!(
@@ -427,7 +424,6 @@ impl MinerUProcessManager {
                 command.env("MINERU_MODEL_DIR", models_dir);
             }
         }
-        // lmdeploy turbomind on Windows requires CUDA_PATH to locate CUDA DLLs.
         let resolved_cuda_path = resolve_cuda_path_for_lmdeploy(python_path, app_dir);
         match resolved_cuda_path {
             Some(ref cuda_path) => {
@@ -438,10 +434,6 @@ impl MinerUProcessManager {
                 log::warn!("Could not resolve CUDA_PATH for lmdeploy; hybrid-auto-engine may fail on Windows without a CUDA Toolkit installation");
             }
         }
-        // MINERU_API_SHUTDOWN_ON_STDIN_EOF is intentionally NOT set because
-        // piping stdin causes lmdeploy/turbomind to deadlock during CUDA
-        // initialization on Windows.  Rosetta uses kill_process_tree() for
-        // shutdown instead.
         apply_managed_cache_env(&mut command, app_dir)?;
 
         let child = match command.spawn() {
@@ -551,7 +543,7 @@ impl MinerUProcessManager {
                             *proc = None;
                             Some(exit_status)
                         }
-                        Ok(None) => None, // Still running
+                        Ok(None) => None,
                         Err(e) => {
                             log::warn!("Error checking MinerU process status: {}", e);
                             None
@@ -1144,17 +1136,10 @@ fn bytes_to_gib(bytes: u64) -> f64 {
     bytes as f64 / 1024_f64 / 1024_f64 / 1024_f64
 }
 
-/// On Windows, lmdeploy's turbomind requires `CUDA_PATH` to be set so it can
-/// locate CUDA DLLs via `CUDA_PATH/bin`.  Many users only have the NVIDIA
-/// driver installed (no standalone CUDA Toolkit), so `CUDA_PATH` is empty.
-///
-/// When `CUDA_PATH` is unset we try to derive a compatible path from the CUDA
-/// DLLs bundled inside PyTorch (`torch/lib/`).  We create a directory junction
-/// `<app_dir>/cuda_compat/bin  ->  <venv>/Lib/site-packages/torch/lib` and
-/// return the `cuda_compat` directory as the effective `CUDA_PATH`.
+/// Derives a usable `CUDA_PATH` for Windows lmdeploy installs.
+/// If no toolkit is installed, reuse PyTorch's bundled CUDA DLLs.
 #[cfg(target_os = "windows")]
 fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<String> {
-    // Honour an existing CUDA_PATH (from the system or user environment).
     if let Ok(existing) = std::env::var("CUDA_PATH") {
         let existing = existing.trim().to_string();
         if !existing.is_empty() && Path::new(&existing).is_dir() {
@@ -1163,7 +1148,6 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
         }
     }
 
-    // Ask the Python that will run MinerU for the torch lib directory.
     let mut cmd = std::process::Command::new(python_cmd);
     cmd.args([
         "-c",
@@ -1179,27 +1163,30 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
     };
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        log::warn!("CUDA_PATH probe: Python exited with error: {}", stderr.chars().take(200).collect::<String>());
+        log::warn!(
+            "CUDA_PATH probe: Python exited with error: {}",
+            stderr.chars().take(200).collect::<String>()
+        );
         return None;
     }
     let torch_lib = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if torch_lib.is_empty() || !Path::new(&torch_lib).is_dir() {
-        log::warn!("CUDA_PATH probe: torch lib dir not found or empty: '{}'", torch_lib);
+        log::warn!(
+            "CUDA_PATH probe: torch lib dir not found or empty: '{}'",
+            torch_lib
+        );
         return None;
     }
 
-    // Only useful when torch ships CUDA DLLs.
     let has_cuda_dll = std::fs::read_dir(&torch_lib)
         .ok()
         .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .any(|e| {
-                    e.file_name()
-                        .to_str()
-                        .map(|n| n.starts_with("cudart64") && n.ends_with(".dll"))
-                        .unwrap_or(false)
-                })
+            entries.filter_map(|e| e.ok()).any(|e| {
+                e.file_name()
+                    .to_str()
+                    .map(|n| n.starts_with("cudart64") && n.ends_with(".dll"))
+                    .unwrap_or(false)
+            })
         })
         .unwrap_or(false);
     if !has_cuda_dll {
@@ -1210,18 +1197,22 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
     let compat_dir = app_dir.join("cuda_compat");
     let bin_junction = compat_dir.join("bin");
 
-    // If the junction already points to the right place we're done.
     if bin_junction.is_dir() {
-        log::info!("CUDA_PATH resolved via existing junction: {}", compat_dir.display());
+        log::info!(
+            "CUDA_PATH resolved via existing junction: {}",
+            compat_dir.display()
+        );
         return Some(compat_dir.to_str()?.to_string());
     }
 
-    // Create the junction: cuda_compat/bin  ->  torch/lib
     let _ = std::fs::create_dir_all(&compat_dir);
     let torch_lib_win = torch_lib.replace('/', "\\");
     let bin_junction_win = bin_junction.to_str()?.replace('/', "\\");
     let mut mklink = std::process::Command::new("cmd");
-    mklink.args(["/C", &format!("mklink /J \"{}\" \"{}\"", bin_junction_win, torch_lib_win)]);
+    mklink.args([
+        "/C",
+        &format!("mklink /J \"{}\" \"{}\"", bin_junction_win, torch_lib_win),
+    ]);
     hide_console_window!(mklink);
     let link_result = mklink.status();
     if link_result.map(|s| s.success()).unwrap_or(false) && bin_junction.is_dir() {
@@ -1243,7 +1234,7 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
 
 #[cfg(not(target_os = "windows"))]
 fn resolve_cuda_path_for_lmdeploy(_python_cmd: &str, _app_dir: &Path) -> Option<String> {
-    None // Only needed on Windows.
+    None
 }
 
 fn build_pip_index_args(index_url: &str) -> Vec<String> {
@@ -1655,12 +1646,7 @@ fn collect_model_paths_from_value(
     }
 }
 
-/// Returns `true` when `mineru.json` already contains at least one `models-dir`
-/// entry pointing to a directory that holds recognisable model files.
-///
-/// When this is true the runtime should be started with
-/// `MINERU_MODEL_SOURCE=local` so that MinerU loads the already-downloaded
-/// models instead of trying to re-download them via HuggingFace / ModelScope.
+/// Returns whether `mineru.json` already points at downloaded model files.
 fn mineru_json_has_valid_model_paths() -> bool {
     for config_path in candidate_mineru_json_paths() {
         let raw = match std::fs::read_to_string(&config_path) {
@@ -2789,13 +2775,10 @@ pub async fn download_mineru_models(
         } else {
             &model_source
         };
-        // hybrid-auto-engine (triggered by parse_backend="vlm") needs both VLM and Pipeline models
-        let model_type = if parse_backend == "vlm" || parse_backend == "auto" {
-            "all"
-        } else if parse_backend == "pipeline" {
+        let model_type = if parse_backend == "pipeline" {
             "pipeline"
         } else {
-            "all" // safe default: download both model types
+            "all"
         };
         command.args(["--source", effective_source, "--model_type", model_type]);
 

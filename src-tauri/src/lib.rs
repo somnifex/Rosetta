@@ -379,7 +379,6 @@ pub fn run() {
                     if is_healthy {
                         let _ = manager_for_health.reset_consecutive_health_failures();
 
-                        // Idle unload: stop MinerU if no parse jobs and idle too long
                         if active_parse_jobs == 0 {
                             let idle_minutes = settings_for_health
                                 .get("mineru.idle_unload_minutes")
@@ -442,7 +441,6 @@ pub fn run() {
                         continue;
                     }
 
-                    // Process is alive but not responding to health checks.
                     let failures = match manager_for_health.increment_consecutive_health_failures() {
                         Ok(f) => f,
                         Err(_) => continue,

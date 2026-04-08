@@ -12,7 +12,7 @@ function detectFileType(filePath: string): string {
   const ext = filePath.split(".").pop()?.toLowerCase() || ""
   if (ext === "markdown") return "md"
   if (SUPPORTED_EXTENSIONS.includes(ext)) return ext
-  return "pdf" // fallback
+  return "pdf"
 }
 
 export function ImportButton() {
@@ -74,8 +74,12 @@ export function ImportButton() {
           variant: "destructive",
         })
       }
-    } catch (error) {
-      console.error("Import error:", error)
+    } catch (error: any) {
+      toast({
+        title: t("toast.import_error.title"),
+        description: error?.message || t("toast.import_error.description"),
+        variant: "destructive",
+      })
     }
   }
 

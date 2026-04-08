@@ -20,7 +20,6 @@ pub struct RuntimeLogger {
 impl RuntimeLogger {
     const fn new() -> Self {
         Self {
-            // default info
             level: AtomicU8::new(level_filter_to_u8(LevelFilter::Info)),
             sink: Mutex::new(None),
         }
@@ -104,7 +103,6 @@ fn normalize_level_filter(level: &str) -> Option<LevelFilter> {
         "warn" | "warning" => Some(LevelFilter::Warn),
         "info" => Some(LevelFilter::Info),
         "debug" => Some(LevelFilter::Debug),
-        // Keep trace internal; UI does not expose it.
         "trace" => Some(LevelFilter::Trace),
         _ => None,
     }

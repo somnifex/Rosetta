@@ -4622,7 +4622,6 @@ async fn execute_parse_job(
     };
     let file_path = PathBuf::from(file_path);
 
-    // Auto-start MinerU if it was idle-stopped
     {
         let mineru_mode = normalize_optional_string(
             get_setting_value(state.settings.as_ref(), "mineru.mode")

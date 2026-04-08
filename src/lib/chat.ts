@@ -766,9 +766,7 @@ export async function* streamRagChat(
   const cancelBackendRequest = async () => {
     try {
       await invoke("cancel_rag_chat", { requestId })
-    } catch {
-      // ignore cancellation cleanup failures
-    }
+    } catch {}
   }
 
   const handleAbort = () => {

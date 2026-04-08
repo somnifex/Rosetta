@@ -80,11 +80,8 @@ impl WebDAVClient {
             .await
             .map_err(|e| format!("MKCOL failed: {}", e))?;
 
-        // 201 Created or 405 Method Not Allowed (already exists) are both OK
-        if response.status().is_success()
-            || response.status().as_u16() == 405
-            || response.status().as_u16() == 301
-        {
+        let status = response.status().as_u16();
+        if response.status().is_success() || matches!(status, 301 | 405) {
             Ok(())
         } else {
             Err(format!(

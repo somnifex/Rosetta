@@ -306,9 +306,7 @@ export default function Chat() {
       } else {
         sessionStorage.removeItem("rosetta:chat-active-id")
       }
-    } catch {
-      // ignore storage errors
-    }
+    } catch {}
   }, [activeId])
 
   useEffect(() => {
@@ -486,16 +484,12 @@ export default function Chat() {
       try {
         const parsed = await api.getParsedContent(documentId)
         if (parsed?.markdown_content?.trim()) return parsed.markdown_content
-      } catch {
-        // ignore parsed-content fetch failures
-      }
+      } catch {}
 
       try {
         const translated = await api.getTranslatedContent(documentId)
         if (translated?.content?.trim()) return translated.content
-      } catch {
-        // ignore translated-content fetch failures
-      }
+      } catch {}
 
       return ""
     }

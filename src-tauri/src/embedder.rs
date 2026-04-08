@@ -374,7 +374,7 @@ impl Embedder {
                         EmbedResult {
                             chunk_index: chunk.index,
                             text: chunk.text.clone(),
-                            embedding: Vec::new(), // 返回空向量表示失败
+                            embedding: Vec::new(),
                             start_pos: chunk.start_pos,
                             end_pos: chunk.end_pos,
                         }

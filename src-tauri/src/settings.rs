@@ -33,7 +33,7 @@ impl SettingsManager {
         }
 
         if !self.path.exists() {
-            let _ = self.save(); // create empty JSON file
+            let _ = self.save();
             return;
         }
 

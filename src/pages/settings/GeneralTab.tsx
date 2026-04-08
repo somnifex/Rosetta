@@ -97,9 +97,7 @@ export default function GeneralTab() {
         try {
           const enabled = await isAutostartEnabled()
           setAutostart(enabled)
-        } catch {
-          // autostart plugin may not be available in dev/browser mode
-        }
+        } catch {}
 
         setModelBehaviorDescription(settings.modelBehaviorDescription)
         setDocumentAppendPrompt(settings.documentAppendPrompt)
@@ -149,9 +147,7 @@ export default function GeneralTab() {
         } else {
           await disableAutostart()
         }
-      } catch {
-        // autostart plugin may not be available in dev/browser mode
-      }
+      } catch {}
 
       await api.setAppSetting("general.start_silent", startSilent ? "true" : "false")
       await api.setAppSetting(
