@@ -393,7 +393,7 @@ impl MinerUProcessManager {
         let mut command = Command::new(&cmd);
         command
             .args(&args)
-            .stdin(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(false);
@@ -429,10 +429,19 @@ impl MinerUProcessManager {
         }
         // lmdeploy turbomind on Windows requires CUDA_PATH to locate CUDA DLLs.
         let resolved_cuda_path = resolve_cuda_path_for_lmdeploy(python_path, app_dir);
-        if let Some(ref cuda_path) = resolved_cuda_path {
-            command.env("CUDA_PATH", cuda_path);
+        match resolved_cuda_path {
+            Some(ref cuda_path) => {
+                log::info!("Setting CUDA_PATH={} for MinerU process", cuda_path);
+                command.env("CUDA_PATH", cuda_path);
+            }
+            None => {
+                log::warn!("Could not resolve CUDA_PATH for lmdeploy; hybrid-auto-engine may fail on Windows without a CUDA Toolkit installation");
+            }
         }
-        command.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
+        // MINERU_API_SHUTDOWN_ON_STDIN_EOF is intentionally NOT set because
+        // piping stdin causes lmdeploy/turbomind to deadlock during CUDA
+        // initialization on Windows.  Rosetta uses kill_process_tree() for
+        // shutdown instead.
         apply_managed_cache_env(&mut command, app_dir)?;
 
         let child = match command.spawn() {
@@ -449,7 +458,7 @@ impl MinerUProcessManager {
                             "--port",
                             &port_str,
                         ])
-                        .stdin(std::process::Stdio::piped())
+                        .stdin(std::process::Stdio::null())
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::piped())
                         .kill_on_drop(false);
@@ -470,7 +479,7 @@ impl MinerUProcessManager {
                     if let Some(ref cuda_path) = resolved_cuda_path {
                         fallback.env("CUDA_PATH", cuda_path);
                     }
-                    fallback.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "1");
+                    fallback.env("MINERU_API_SHUTDOWN_ON_STDIN_EOF", "0");
                     apply_managed_cache_env(&mut fallback, app_dir)?;
                     fallback.spawn().map_err(|e2| {
                         let err_msg = format!("Failed to start MinerU: {}", e2);
@@ -1149,6 +1158,7 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
     if let Ok(existing) = std::env::var("CUDA_PATH") {
         let existing = existing.trim().to_string();
         if !existing.is_empty() && Path::new(&existing).is_dir() {
+            log::info!("Using existing CUDA_PATH={}", existing);
             return Some(existing);
         }
     }
@@ -1160,26 +1170,40 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
         "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))",
     ]);
     hide_console_window!(cmd);
-    let output = cmd.output().ok()?;
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            log::warn!("CUDA_PATH probe: failed to run Python: {}", e);
+            return None;
+        }
+    };
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::warn!("CUDA_PATH probe: Python exited with error: {}", stderr.chars().take(200).collect::<String>());
         return None;
     }
     let torch_lib = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if torch_lib.is_empty() || !Path::new(&torch_lib).is_dir() {
+        log::warn!("CUDA_PATH probe: torch lib dir not found or empty: '{}'", torch_lib);
         return None;
     }
 
     // Only useful when torch ships CUDA DLLs.
     let has_cuda_dll = std::fs::read_dir(&torch_lib)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .any(|e| {
-            e.file_name()
-                .to_str()
-                .map(|n| n.starts_with("cudart64") && n.ends_with(".dll"))
-                .unwrap_or(false)
-        });
+        .ok()
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| {
+                    e.file_name()
+                        .to_str()
+                        .map(|n| n.starts_with("cudart64") && n.ends_with(".dll"))
+                        .unwrap_or(false)
+                })
+        })
+        .unwrap_or(false);
     if !has_cuda_dll {
+        log::warn!("CUDA_PATH probe: no cudart64*.dll found in {}", torch_lib);
         return None;
     }
 
@@ -1188,6 +1212,7 @@ fn resolve_cuda_path_for_lmdeploy(python_cmd: &str, app_dir: &Path) -> Option<St
 
     // If the junction already points to the right place we're done.
     if bin_junction.is_dir() {
+        log::info!("CUDA_PATH resolved via existing junction: {}", compat_dir.display());
         return Some(compat_dir.to_str()?.to_string());
     }
 
