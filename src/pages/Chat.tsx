@@ -65,6 +65,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { useResizableRightPanel } from "@/hooks/useResizableRightPanel"
 import { cn } from "@/lib/utils"
+import { SK_CHAT_ACTIVE_ID, SK_CHAT_PREVIEW_PANEL_WIDTH } from "@/lib/storage-keys"
 
 function dedupeAttachments(attachments: ChatAttachment[]) {
   const seen = new Set<string>()
@@ -192,7 +193,7 @@ export default function Chat() {
   )
   const [activeId, setActiveId] = useState<string | null>(() => {
     try {
-      return sessionStorage.getItem("rosetta:chat-active-id") ?? null
+      return sessionStorage.getItem(SK_CHAT_ACTIVE_ID) ?? null
     } catch {
       return null
     }
@@ -302,9 +303,9 @@ export default function Chat() {
   useEffect(() => {
     try {
       if (activeId) {
-        sessionStorage.setItem("rosetta:chat-active-id", activeId)
+        sessionStorage.setItem(SK_CHAT_ACTIVE_ID, activeId)
       } else {
-        sessionStorage.removeItem("rosetta:chat-active-id")
+        sessionStorage.removeItem(SK_CHAT_ACTIVE_ID)
       }
     } catch {}
   }, [activeId])
@@ -822,7 +823,7 @@ export default function Chat() {
     defaultWidth: 460,
     minWidth: 340,
     maxWidth: 860,
-    storageKey: "rosetta:chat-preview-panel-width",
+    storageKey: SK_CHAT_PREVIEW_PANEL_WIDTH,
   })
   const mindmapNodes =
     previewCodeRenderKind === "mindmap" && previewCodeBlock

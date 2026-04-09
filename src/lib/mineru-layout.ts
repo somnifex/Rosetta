@@ -90,7 +90,7 @@ function scaleBBox([x0, y0, x1, y1]: BBox, scaleX: number, scaleY: number): BBox
   return normalizeBBox([x0 * scaleX, y0 * scaleY, x1 * scaleX, y1 * scaleY])
 }
 
-function linesFromText(text: string | null | undefined, fragmentType = "text"): MineruLayoutTextLine[] {
+export function linesFromText(text: string | null | undefined, fragmentType = "text"): MineruLayoutTextLine[] {
   if (typeof text !== "string" || text.length === 0) return []
 
   return text.split(/\r?\n/).map((line) => ({

@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge"
 import { ConversationSettingsDialog } from "@/components/chat/ConversationSettingsDialog"
 import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import { cn } from "@/lib/utils"
+import { SK_READER_ASK_PANEL_WIDTH } from "@/lib/storage-keys"
 import { useToast } from "@/hooks/use-toast"
 import { useResizableRightPanel } from "@/hooks/useResizableRightPanel"
 import {
@@ -365,7 +366,7 @@ export function ReaderAskPanel({
     defaultWidth: 400,
     minWidth: 320,
     maxWidth: 760,
-    storageKey: "rosetta:reader-ask-panel-width",
+    storageKey: SK_READER_ASK_PANEL_WIDTH,
   })
 
   return (

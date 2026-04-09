@@ -13,6 +13,7 @@ import { relaunch } from "@tauri-apps/plugin-process"
 import { type Update as TauriUpdate } from "@tauri-apps/plugin-updater"
 import { useTranslation } from "react-i18next"
 import { ConfirmActionDialog } from "@/components/shared/ConfirmActionDialog"
+import { isTauri as isTauriRuntime } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import { api } from "@/lib/api"
 
@@ -47,10 +48,6 @@ interface CheckForUpdatesOptions {
 const AppUpdaterContext = createContext<AppUpdaterContextValue | null>(null)
 
 let startupUpdateCheckHandled = false
-
-function isTauriRuntime() {
-  return Boolean((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
-}
 
 function readBooleanSetting(
   settings: Array<{ key: string; value: string }> | undefined,

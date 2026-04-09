@@ -9,22 +9,34 @@ import type {
   ExtractionTemplate,
   ExtractionTemplateInput,
   Folder,
+  IndexJob,
   LlmSamplingConfig,
   MineruProcessedFile,
   ParseJob,
+  ParseJobWithTitle,
   ParsedContent,
   PermanentDeleteReport,
   Provider,
   ProviderModelConfig,
   ProviderModelType,
+  SearchHit,
   Tag,
   TranslatedContent,
   TranslationJob,
+  TranslationJobWithTitle,
 } from "../../packages/types"
 import { invoke } from "@tauri-apps/api/core"
 import { Update as TauriUpdate } from "@tauri-apps/plugin-updater"
-
-const isTauri = () => Boolean((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
+import { isTauri, loadJSON, saveJSON } from "./utils"
+import {
+  SK_CHAT_CHANNELS,
+  SK_TRANSLATE_CHANNELS,
+  SK_EMBED_CHANNELS,
+  SK_RERANK_CHANNELS,
+  SK_FAILOVER_ENABLED,
+  SK_TRANSLATE_PROMPT,
+  SK_PROVIDERS_MIGRATED,
+} from "./storage-keys"
 
 async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
@@ -32,14 +44,6 @@ async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
   }
   return invoke(cmd, args) as Promise<T>
 }
-
-const STORAGE_KEY_CHAT = "pdf-translate:chat-channels"
-const STORAGE_KEY_TRANSLATE = "pdf-translate:translate-channels"
-const STORAGE_KEY_EMBED = "pdf-translate:embed-channels"
-const STORAGE_KEY_RERANK = "pdf-translate:rerank-channels"
-const STORAGE_KEY_FAILOVER = "pdf-translate:failover-enabled"
-const STORAGE_KEY_TRANSLATE_PROMPT = "pdf-translate:translate-prompt"
-const STORAGE_KEY_PROVIDER_MIGRATED = "pdf-translate:providers-migrated-v2"
 
 export interface TranslatePromptConfig {
   systemPrompt: string
@@ -128,43 +132,38 @@ type LegacyChannelType = ProviderModelType
 type LegacyProviderGroup = ProviderUpsertInput
 
 function loadChannels(key: string): ChannelConfig[] {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
+  return loadJSON<ChannelConfig[]>(key, [])
 }
 
 function saveChannels(key: string, channels: ChannelConfig[]) {
-  localStorage.setItem(key, JSON.stringify(channels))
+  saveJSON(key, channels)
 }
 
 export const channelStore = {
-  getChatChannels: (): ChannelConfig[] => loadChannels(STORAGE_KEY_CHAT),
-  saveChatChannels: (channels: ChannelConfig[]) => saveChannels(STORAGE_KEY_CHAT, channels),
-  getTranslateChannels: (): ChannelConfig[] => loadChannels(STORAGE_KEY_TRANSLATE),
-  saveTranslateChannels: (channels: ChannelConfig[]) => saveChannels(STORAGE_KEY_TRANSLATE, channels),
-  getEmbedChannels: (): ChannelConfig[] => loadChannels(STORAGE_KEY_EMBED),
-  saveEmbedChannels: (channels: ChannelConfig[]) => saveChannels(STORAGE_KEY_EMBED, channels),
-  getRerankChannels: (): ChannelConfig[] => loadChannels(STORAGE_KEY_RERANK),
-  saveRerankChannels: (channels: ChannelConfig[]) => saveChannels(STORAGE_KEY_RERANK, channels),
+  getChatChannels: (): ChannelConfig[] => loadChannels(SK_CHAT_CHANNELS),
+  saveChatChannels: (channels: ChannelConfig[]) => saveChannels(SK_CHAT_CHANNELS, channels),
+  getTranslateChannels: (): ChannelConfig[] => loadChannels(SK_TRANSLATE_CHANNELS),
+  saveTranslateChannels: (channels: ChannelConfig[]) => saveChannels(SK_TRANSLATE_CHANNELS, channels),
+  getEmbedChannels: (): ChannelConfig[] => loadChannels(SK_EMBED_CHANNELS),
+  saveEmbedChannels: (channels: ChannelConfig[]) => saveChannels(SK_EMBED_CHANNELS, channels),
+  getRerankChannels: (): ChannelConfig[] => loadChannels(SK_RERANK_CHANNELS),
+  saveRerankChannels: (channels: ChannelConfig[]) => saveChannels(SK_RERANK_CHANNELS, channels),
   getFailoverEnabled: (): boolean => {
-    const val = localStorage.getItem(STORAGE_KEY_FAILOVER)
+    const val = localStorage.getItem(SK_FAILOVER_ENABLED)
     return val === null ? true : val === "true"
   },
   setFailoverEnabled: (enabled: boolean) => {
-    localStorage.setItem(STORAGE_KEY_FAILOVER, String(enabled))
+    localStorage.setItem(SK_FAILOVER_ENABLED, String(enabled))
   },
   getTranslatePrompt: (): TranslatePromptConfig => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_TRANSLATE_PROMPT)
+      const raw = localStorage.getItem(SK_TRANSLATE_PROMPT)
       if (raw) return JSON.parse(raw)
     } catch {}
     return { systemPrompt: DEFAULT_SYSTEM_PROMPT, userPrompt: DEFAULT_USER_PROMPT }
   },
   saveTranslatePrompt: (config: TranslatePromptConfig) => {
-    localStorage.setItem(STORAGE_KEY_TRANSLATE_PROMPT, JSON.stringify(config))
+    localStorage.setItem(SK_TRANSLATE_PROMPT, JSON.stringify(config))
   },
 }
 
@@ -225,20 +224,20 @@ let legacyProviderMigrationPromise: Promise<void> | null = null
 async function ensureLegacyProviderMigration() {
   if (!isTauri()) return
 
-  const alreadyMigrated = localStorage.getItem(STORAGE_KEY_PROVIDER_MIGRATED) === "true"
+  const alreadyMigrated = localStorage.getItem(SK_PROVIDERS_MIGRATED) === "true"
   if (alreadyMigrated) return
 
   if (!legacyProviderMigrationPromise) {
     legacyProviderMigrationPromise = (async () => {
       const groups = groupLegacyChannels()
       if (groups.length === 0) {
-        localStorage.setItem(STORAGE_KEY_PROVIDER_MIGRATED, "true")
+        localStorage.setItem(SK_PROVIDERS_MIGRATED, "true")
         return
       }
 
       const existingProviders = await safeInvoke<Provider[]>("get_providers")
       if (existingProviders.length > 0) {
-        localStorage.setItem(STORAGE_KEY_PROVIDER_MIGRATED, "true")
+        localStorage.setItem(SK_PROVIDERS_MIGRATED, "true")
         return
       }
 
@@ -246,7 +245,7 @@ async function ensureLegacyProviderMigration() {
         await safeInvoke<Provider>("create_provider", { input })
       }
 
-      localStorage.setItem(STORAGE_KEY_PROVIDER_MIGRATED, "true")
+      localStorage.setItem(SK_PROVIDERS_MIGRATED, "true")
     })().finally(() => {
       legacyProviderMigrationPromise = null
     })
@@ -453,12 +452,7 @@ export const api = {
   cancelParseJob: (jobId: string) => safeInvoke<void>("cancel_parse_job", { jobId }),
   deleteParseJob: (jobId: string) => safeInvoke<void>("delete_parse_job", { jobId }),
   getParseJob: (jobId: string) => safeInvoke<ParseJob>("get_parse_job", { jobId }),
-  getAllParseJobs: () => safeInvoke<Array<{
-    id: string; document_id: string; document_title: string; status: string;
-    progress: number; error_message: string | null;
-    started_at: string | null; completed_at: string | null;
-    created_at: string; updated_at: string;
-  }>>("get_all_parse_jobs"),
+  getAllParseJobs: () => safeInvoke<ParseJobWithTitle[]>("get_all_parse_jobs"),
   getParsedContent: (documentId: string) => safeInvoke<ParsedContent>("get_parsed_content", { documentId }),
   getMineruProcessedFiles: (documentId: string) =>
     safeInvoke<MineruProcessedFile[]>("get_mineru_processed_files", { documentId }),
@@ -478,13 +472,7 @@ export const api = {
   cancelTranslationJob: (jobId: string) => safeInvoke<void>("cancel_translation_job", { jobId }),
   deleteTranslationJob: (jobId: string) => safeInvoke<void>("delete_translation_job", { jobId }),
   getTranslationJob: (jobId: string) => safeInvoke<TranslationJob>("get_translation_job", { jobId }),
-  getAllTranslationJobs: () => safeInvoke<Array<{
-    id: string; document_id: string; document_title: string; provider_id: string;
-    status: string; progress: number; total_chunks: number; completed_chunks: number;
-    failed_chunks: number; error_message: string | null; config: string;
-    started_at: string | null; completed_at: string | null;
-    created_at: string; updated_at: string;
-  }>>("get_all_translation_jobs"),
+  getAllTranslationJobs: () => safeInvoke<TranslationJobWithTitle[]>("get_all_translation_jobs"),
   resumeTranslationJob: (jobId: string) => safeInvoke<TranslationJob>("resume_translation_job", { jobId }),
   retryFailedTranslationChunks: (jobId: string) => safeInvoke<TranslationJob>("retry_failed_translation_chunks", { jobId }),
   getTranslatedContent: (documentId: string) => safeInvoke<TranslatedContent>("get_translated_content", { documentId }),
@@ -498,18 +486,12 @@ export const api = {
 
   startIndexJob: (documentId: string, providerId: string) => safeInvoke<string>("start_index_job", { documentId, providerId }),
   cancelIndexJob: (documentId: string) => safeInvoke<void>("cancel_index_job", { documentId }),
-  getAllIndexJobs: () => safeInvoke<Array<{
-    id: string; document_id: string; document_title: string; provider_id: string;
-    status: string; progress: number; total_chunks: number; completed_chunks: number;
-    error_message: string | null; config: string | null;
-    started_at: string | null; completed_at: string | null;
-    created_at: string; updated_at: string;
-  }>>("get_all_index_jobs"),
+  getAllIndexJobs: () => safeInvoke<IndexJob[]>("get_all_index_jobs"),
   deleteIndexJob: (jobId: string) => safeInvoke<void>("delete_index_job", { jobId }),
   resumeIndexJob: (jobId: string) => safeInvoke<string>("resume_index_job", { jobId }),
   retryFailedIndexChunks: (jobId: string) => safeInvoke<string>("retry_failed_index_chunks", { jobId }),
   searchDocuments: (query: string, providerId: string, limit: number) =>
-    safeInvoke<Array<{ chunk_id: string; document_id: string; content: string; score: number }>>(
+    safeInvoke<SearchHit[]>(
       "search_documents",
       { query, providerId, limit }
     ),

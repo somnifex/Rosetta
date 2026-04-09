@@ -64,6 +64,10 @@ export interface ParseJob {
   updated_at: string
 }
 
+export interface ParseJobWithTitle extends ParseJob {
+  document_title: string
+}
+
 export interface TranslationJob {
   id: string
   document_id: string
@@ -79,6 +83,12 @@ export interface TranslationJob {
   completed_at?: string
   created_at: string
   updated_at: string
+}
+
+export interface TranslationJobWithTitle extends Omit<TranslationJob, 'config'> {
+  document_title: string
+  failed_chunks: number
+  config: string
 }
 
 export interface IndexJob {
@@ -341,6 +351,13 @@ export interface SearchResult {
   score: number
   content: string
   metadata: Record<string, any>
+}
+
+export interface SearchHit {
+  chunk_id: string
+  document_id: string
+  content: string
+  score: number
 }
 
 export interface SearchFilters {

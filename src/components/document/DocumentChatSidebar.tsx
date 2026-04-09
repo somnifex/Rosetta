@@ -4,7 +4,8 @@ import { streamRagChat, genId, type ChatMessage } from "@/lib/chat"
 import { Button } from "@/components/ui/button"
 import { ChatMarkdown } from "@/components/chat/ChatMarkdown"
 import { MessageSquare, X, SendHorizonal, Square, Bot, User } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, loadJSON, saveJSON } from "@/lib/utils"
+import { SK_DOCUMENT_CHAT_PREFIX, SK_DOCUMENT_CHAT_SIDEBAR_WIDTH } from "@/lib/storage-keys"
 import { useToast } from "@/hooks/use-toast"
 import { useResizableRightPanel } from "@/hooks/useResizableRightPanel"
 
@@ -18,19 +19,12 @@ interface DocumentChatSidebarProps {
   onPrefillConsumed?: () => void
 }
 
-const STORAGE_PREFIX = "pdf-translate:document-chat:"
-
 function loadMessages(docId: string): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + docId)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
+  return loadJSON<ChatMessage[]>(SK_DOCUMENT_CHAT_PREFIX + docId, [])
 }
 
 function saveMessages(docId: string, messages: ChatMessage[]) {
-  localStorage.setItem(STORAGE_PREFIX + docId, JSON.stringify(messages))
+  saveJSON(SK_DOCUMENT_CHAT_PREFIX + docId, messages)
 }
 
 export function DocumentChatSidebar({
@@ -58,7 +52,7 @@ export function DocumentChatSidebar({
     defaultWidth: 380,
     minWidth: 320,
     maxWidth: 760,
-    storageKey: "rosetta:document-chat-sidebar-width",
+    storageKey: SK_DOCUMENT_CHAT_SIDEBAR_WIDTH,
   })
 
   useEffect(() => {
@@ -167,7 +161,7 @@ export function DocumentChatSidebar({
 
   const handleClear = () => {
     setMessages([])
-    localStorage.removeItem(STORAGE_PREFIX + documentId)
+    localStorage.removeItem(SK_DOCUMENT_CHAT_PREFIX + documentId)
   }
 
   if (!isOpen) {

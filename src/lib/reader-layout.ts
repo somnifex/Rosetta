@@ -1,22 +1,14 @@
 import type {
   MineruLayoutBlock,
   MineruLayoutPage,
-  MineruLayoutTextLine,
 } from "@/lib/mineru-layout"
+import { linesFromText } from "@/lib/mineru-layout"
 
 const NON_TRANSLATABLE_BLOCK_TYPES = new Set(["header", "footer"])
 
 interface MarkdownSegment {
   raw: string
   weight: number
-}
-
-function linesFromText(text: string): MineruLayoutTextLine[] {
-  if (!text.trim()) return []
-
-  return text.split(/\r?\n/).map((line) => ({
-    fragments: [{ type: "text", content: line }],
-  }))
 }
 
 function getBlockText(block: MineruLayoutBlock) {

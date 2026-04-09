@@ -1,8 +1,9 @@
 import { api } from "./api"
+import { SK_THEME } from "./storage-keys"
 
 export type AppTheme = "light" | "dark" | "system"
 
-export const THEME_STORAGE_KEY = "pdf-translate:theme"
+export const THEME_STORAGE_KEY = SK_THEME
 export const THEME_CHANGE_EVENT = "rosetta:theme-change"
 
 export function getSystemTheme(): "light" | "dark" {

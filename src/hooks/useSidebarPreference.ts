@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react"
-
-const SIDEBAR_COLLAPSED_KEY = "rosetta:sidebar-collapsed"
+import { SK_SIDEBAR_COLLAPSED } from "@/lib/storage-keys"
 
 function readInitialValue() {
   if (typeof window === "undefined") {
     return false
   }
 
-  return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true"
+  return window.localStorage.getItem(SK_SIDEBAR_COLLAPSED) === "true"
 }
 
 export function useSidebarPreference() {
@@ -18,7 +17,7 @@ export function useSidebarPreference() {
       return
     }
 
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed))
+    window.localStorage.setItem(SK_SIDEBAR_COLLAPSED, String(collapsed))
   }, [collapsed])
 
   return {

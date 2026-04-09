@@ -2,6 +2,7 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { mergeLocale } from './mergeLocale'
+import { SK_LOCALE } from '../lib/storage-keys'
 
 import zhCNCommon from './locales/zh-CN/common'
 import zhCNDashboard from './locales/zh-CN/dashboard'
@@ -70,7 +71,7 @@ export const SUPPORTED_LOCALES = [
 
 export type LocaleCode = typeof SUPPORTED_LOCALES[number]['code']
 
-const LOCALE_STORAGE_KEY = 'pdf-translate:locale'
+const LOCALE_STORAGE_KEY = SK_LOCALE
 
 i18n
   .use(LanguageDetector)

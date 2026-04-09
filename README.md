@@ -56,10 +56,10 @@ It keeps long-form PDFs and text files inside one continuous workflow: library, 
 
 Get the latest release from [GitHub Releases](https://github.com/somnifex/Rosetta/releases).
 
-| Platform | Package formats         |
-| -------- | ----------------------- |
+| Platform | Package formats     |
+| -------- | ------------------- |
 | Windows  | `.msi`, `.exe`      |
-| macOS    | `.dmg`                |
+| macOS    | `.dmg`              |
 | Linux    | `.deb`, `.AppImage` |
 
 ### 2. First Run

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
+import { clamp } from "@/lib/utils"
+import { SK_READER_STATE_PREFIX } from "@/lib/storage-keys"
 
 export type ReaderBaseMode = "original" | "translated" | "compare"
 export type ReaderMode = ReaderBaseMode | "ask" | "compare-ask"
@@ -32,7 +34,7 @@ const DEFAULT_STATE: ReaderPersistedState = {
 }
 
 function getStorageKey(documentId: string) {
-  return `rosetta:reader-state:${documentId}`
+  return `${SK_READER_STATE_PREFIX}${documentId}`
 }
 
 function sanitizeMode(mode: string | null | undefined): ReaderMode | null {
@@ -65,15 +67,15 @@ function clampPage(value: number) {
 }
 
 function clampScale(value: number) {
-  return Math.min(3, Math.max(0.5, Number.isFinite(value) ? value : 1))
+  return clamp(Number.isFinite(value) ? value : 1, 0.5, 3)
 }
 
 function clampTextScale(value: number) {
-  return Math.min(1.8, Math.max(0.8, Number.isFinite(value) ? value : 1))
+  return clamp(Number.isFinite(value) ? value : 1, 0.8, 1.8)
 }
 
 function clampRatio(value: number) {
-  return Math.min(0.75, Math.max(0.25, Number.isFinite(value) ? value : 0.5))
+  return clamp(Number.isFinite(value) ? value : 0.5, 0.25, 0.75)
 }
 
 function readInitialState(documentId: string): ReaderPersistedState {

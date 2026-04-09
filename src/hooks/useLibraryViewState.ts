@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { SK_LIBRARY_VIEW_STATE } from "@/lib/storage-keys"
 
 export type LibraryStatusKey = "all" | "completed" | "pending" | "processing" | "failed" | "deleted"
 export type LibraryViewMode = "grid" | "list"
@@ -15,7 +16,7 @@ export interface LibraryViewState {
   activeSection: "library" | "trash"
 }
 
-const STORAGE_KEY = "rosetta:library-view-state"
+const STORAGE_KEY = SK_LIBRARY_VIEW_STATE
 
 const DEFAULT_STATE: LibraryViewState = {
   viewMode: "grid",

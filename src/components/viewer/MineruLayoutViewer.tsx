@@ -4,6 +4,7 @@ import {
   resolveMarkdownAssetPath,
   resolveMarkdownAssetUrl,
 } from "@/lib/markdown-assets"
+import { clamp } from "@/lib/utils"
 import type {
   MineruLayoutBlock,
   MineruLayoutPage,
@@ -226,7 +227,7 @@ function FittedTextBlock({
       const widthRatio = width / naturalWidth
       const heightRatio = height / naturalHeight
       const nextScale = Math.min(1, widthRatio, heightRatio)
-      const clamped = Number.isFinite(nextScale) ? Math.max(0.48, nextScale) : 1
+      const clamped = Number.isFinite(nextScale) ? clamp(nextScale, 0.48, 1) : 1
 
       if (Math.abs(clamped - scale) > 0.01) {
         setScale(clamped)

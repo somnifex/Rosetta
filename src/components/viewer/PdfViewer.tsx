@@ -5,7 +5,8 @@ import "react-pdf/dist/Page/TextLayer.css"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Check, CornerDownLeft, Loader2, RotateCcw, RotateCw, Save, ZoomIn, ZoomOut } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, clamp } from "@/lib/utils"
+import { SK_PDF_ANNOTATIONS_PREFIX } from "@/lib/storage-keys"
 import { useToast } from "@/hooks/use-toast"
 
 interface PdfViewerProps {
@@ -65,7 +66,7 @@ interface PendingSelection {
 }
 
 function getAnnotationStorageKey(fileUrl: string) {
-  return `rosetta:pdf-annotations:${encodeURIComponent(fileUrl)}`
+  return `${SK_PDF_ANNOTATIONS_PREFIX}${encodeURIComponent(fileUrl)}`
 }
 
 function getThemeMode(): "light" | "dark" {
@@ -76,11 +77,11 @@ function getThemeMode(): "light" | "dark" {
 }
 
 function clampZoom(value: number) {
-  return Math.min(3, Math.max(0.5, value))
+  return clamp(value, 0.5, 3)
 }
 
 function clampNorm(value: number) {
-  return Math.min(1, Math.max(0, value))
+  return clamp(value, 0, 1)
 }
 
 function toPersistedShape(value: unknown): PersistedHighlights {

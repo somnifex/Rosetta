@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { clamp } from "@/lib/utils"
 
 interface UseResizableRightPanelOptions {
   defaultWidth: number
   minWidth: number
   maxWidth: number
   storageKey?: string
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
 }
 
 function getViewportSafeMax(minWidth: number, configuredMax: number) {

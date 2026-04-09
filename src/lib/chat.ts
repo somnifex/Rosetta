@@ -4,6 +4,12 @@ import { listen } from "@tauri-apps/api/event"
 import { readFile } from "@tauri-apps/plugin-fs"
 import i18n from "../i18n"
 import { api } from "./api"
+import { clamp, isTauri } from "./utils"
+import {
+  SK_CHAT_CONVERSATIONS,
+  SK_DOCUMENT_CHAT_PREFIX,
+  SK_READER_CHAT_PREFIX,
+} from "./storage-keys"
 import {
   getActiveProviderForType,
   getPrimaryModelForType,
@@ -65,10 +71,10 @@ export type ChatStreamEvent =
   | { type: "delta"; delta: string }
   | { type: "done"; sources: ChatSource[] }
 
-const CONVERSATIONS_KEY = "rosetta:chat-conversations:v2"
+const CONVERSATIONS_KEY = SK_CHAT_CONVERSATIONS
 const LEGACY_CONVERSATIONS_KEY = "pdf-translate:chat-conversations"
-export const LEGACY_READER_CHAT_PREFIX = "rosetta:reader-chat:"
-export const LEGACY_DOCUMENT_CHAT_PREFIX = "pdf-translate:document-chat:"
+export const LEGACY_READER_CHAT_PREFIX = SK_READER_CHAT_PREFIX
+export const LEGACY_DOCUMENT_CHAT_PREFIX = SK_DOCUMENT_CHAT_PREFIX
 
 const EVENT_CHAT_CHUNK = "rag-chat-chunk"
 const EVENT_CHAT_DONE = "rag-chat-done"
@@ -104,7 +110,7 @@ function cleanString(value: unknown) {
 
 function clampNumber(value: unknown, min: number, max: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined
-  return Math.min(max, Math.max(min, value))
+  return clamp(value, min, max)
 }
 
 function normalizeSamplingConfig(value: unknown): LlmSamplingConfig | undefined {
@@ -560,10 +566,6 @@ export function ensureDocumentConversation(
 
 export function clearDocumentConversationLegacyStorage(documentId: string) {
   removeLegacyDocumentConversationStorage(documentId)
-}
-
-function isTauri() {
-  return !!(window as any).__TAURI_INTERNALS__
 }
 
 function mergeSampling(

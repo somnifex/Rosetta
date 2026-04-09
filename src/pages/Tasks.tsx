@@ -46,9 +46,9 @@ interface UnifiedTask {
   totalChunks: number
   completedChunks: number
   failedChunks: number
-  errorMessage: string | null
-  startedAt: string | null
-  completedAt: string | null
+  errorMessage: string | null | undefined
+  startedAt: string | null | undefined
+  completedAt: string | null | undefined
   createdAt: string
 }
 
@@ -97,7 +97,7 @@ function TypeIcon({ type }: { type: "parse" | "translation" | "index" }) {
   }
 }
 
-function formatDuration(startedAt: string | null, completedAt: string | null, now: number): string {
+function formatDuration(startedAt: string | null | undefined, completedAt: string | null | undefined, now: number): string {
   if (!startedAt) return "-"
   const start = new Date(startedAt).getTime()
   const end = completedAt ? new Date(completedAt).getTime() : now

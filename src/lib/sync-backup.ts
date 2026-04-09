@@ -1,5 +1,12 @@
 import { api } from "./api"
 import { getStoredTheme, setStoredTheme } from "./theme"
+import { loadJSON, saveJSON } from "./utils"
+import {
+  SK_WEBDAV_CONFIG,
+  SK_LAST_SYNC,
+  SK_SYNC_DEFAULTS,
+  BACKUP_STORAGE_KEYS,
+} from "./storage-keys"
 
 export type SyncScope = "full" | "config"
 export type SyncMode = "auto" | "upload" | "download"
@@ -30,13 +37,9 @@ export interface BackupSummary {
   document_count: number
 }
 
-const STORAGE_KEY_WEBDAV_CONFIG = "pdf-translate:webdav-config"
-const STORAGE_KEY_LAST_SYNC = "pdf-translate:last-sync"
-const STORAGE_KEY_SYNC_DEFAULTS = "pdf-translate:sync-defaults"
-
 export function loadWebDAVConfig(): WebDAVConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_WEBDAV_CONFIG)
+    const raw = localStorage.getItem(SK_WEBDAV_CONFIG)
     if (raw) {
       const parsed = JSON.parse(raw)
       return {
@@ -51,7 +54,7 @@ export function loadWebDAVConfig(): WebDAVConfig {
 }
 
 export function saveWebDAVConfig(config: WebDAVConfig) {
-  localStorage.setItem(STORAGE_KEY_WEBDAV_CONFIG, JSON.stringify(config))
+  localStorage.setItem(SK_WEBDAV_CONFIG, JSON.stringify(config))
 }
 
 export function isWebDAVConfigured(): boolean {
@@ -60,45 +63,24 @@ export function isWebDAVConfigured(): boolean {
 }
 
 export function loadLastSyncInfo(): LastSyncInfo | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_LAST_SYNC)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
+  return loadJSON<LastSyncInfo | null>(SK_LAST_SYNC, null)
 }
 
 export function saveLastSyncInfo(info: LastSyncInfo) {
-  localStorage.setItem(STORAGE_KEY_LAST_SYNC, JSON.stringify(info))
+  saveJSON(SK_LAST_SYNC, info)
 }
 
 export function loadSyncDefaults(): { mode: SyncMode; scope: SyncScope } {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_SYNC_DEFAULTS)
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return { mode: "auto", scope: "full" }
+  return loadJSON(SK_SYNC_DEFAULTS, { mode: "auto" as SyncMode, scope: "full" as SyncScope })
 }
 
 export function saveSyncDefaults(mode: SyncMode, scope: SyncScope) {
-  localStorage.setItem(STORAGE_KEY_SYNC_DEFAULTS, JSON.stringify({ mode, scope }))
+  saveJSON(SK_SYNC_DEFAULTS, { mode, scope })
 }
 
 function collectLocalConfig(): Record<string, string> {
-  const keys = [
-    "pdf-translate:chat-channels",
-    "pdf-translate:translate-channels",
-    "pdf-translate:embed-channels",
-    "pdf-translate:rerank-channels",
-    "pdf-translate:failover-enabled",
-    "pdf-translate:translate-prompt",
-    "pdf-translate:locale",
-    "pdf-translate:theme",
-    "pdf-translate:webdav-config",
-    "pdf-translate:sync-defaults",
-  ]
   const config: Record<string, string> = {}
-  for (const key of keys) {
+  for (const key of BACKUP_STORAGE_KEYS) {
     const val = localStorage.getItem(key)
     if (val !== null) config[key] = val
   }
@@ -107,7 +89,7 @@ function collectLocalConfig(): Record<string, string> {
 
 function applyLocalConfig(config: Record<string, string>) {
   for (const [key, value] of Object.entries(config)) {
-    if (key.startsWith("pdf-translate:")) {
+    if (key.startsWith("rosetta:") || key.startsWith("pdf-translate:")) {
       localStorage.setItem(key, value)
     }
   }

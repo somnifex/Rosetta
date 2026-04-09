@@ -3,7 +3,7 @@ import rehypeKatex from "rehype-katex"
 import rehypeRaw from "rehype-raw"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
-import { cn } from "@/lib/utils"
+import { cn, isTauri } from "@/lib/utils"
 import {
   resolveMarkdownAssetPath,
   resolveMarkdownAssetUrl,
@@ -27,11 +27,7 @@ export function MarkdownRenderer({
   const directUrlPattern = /^[A-Za-z][A-Za-z\d+.-]*:/
 
   const openLinkTarget = async (target: string) => {
-    const isTauri = Boolean(
-      (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
-    )
-
-    if (isTauri) {
+    if (isTauri()) {
       const shell = await import("@tauri-apps/plugin-shell")
       await shell.open(target)
       return
