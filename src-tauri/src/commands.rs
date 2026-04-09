@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 use zip::ZipArchive;
@@ -3217,6 +3218,16 @@ mod tests {
     }
 
     #[test]
+    fn builtin_python_parse_fallback_only_triggers_for_errno_22() {
+        assert!(should_try_builtin_python_parse_fallback(
+            "MinerU modern endpoints failed. /tasks: [Errno 22] Invalid argument"
+        ));
+        assert!(!should_try_builtin_python_parse_fallback(
+            "Built-in MinerU is not running. Start it in Settings first."
+        ));
+    }
+
+    #[test]
     fn builtin_mineru_restart_hint_only_restarts_for_connection_failures() {
         assert!(should_restart_builtin_mineru_before_retry(
             "connection refused"
@@ -4493,6 +4504,7 @@ async fn execute_parse_job_with_official_api(
 
 async fn execute_parse_job_with_selected_backend(
     state: &AppState,
+    app_dir: &Path,
     job_id: &str,
     document_id: &str,
     file_path: &Path,
@@ -4532,11 +4544,207 @@ async fn execute_parse_job_with_selected_backend(
     let crate::mineru::ParseExecution {
         parse_result,
         archive_bytes,
-    } = client.parse_pdf(file_path).await?;
+    } = match client.parse_pdf(file_path).await {
+        Ok(execution) => execution,
+        Err(error)
+            if mineru_mode == "builtin" && should_try_builtin_python_parse_fallback(&error) =>
+        {
+            log::warn!(
+                "MinerU API parse failed with a local runtime error; retrying via direct Python pipeline fallback: {}",
+                error
+            );
+            match execute_parse_job_with_builtin_python_fallback(state, app_dir, file_path).await {
+                Ok(execution) => {
+                    log::info!(
+                        "Direct Python MinerU fallback succeeded for parse job {}.",
+                        job_id
+                    );
+                    execution
+                }
+                Err(fallback_error) => {
+                    return Err(format!(
+                        "{}; direct Python MinerU fallback failed: {}",
+                        error, fallback_error
+                    ))
+                }
+            }
+        }
+        Err(error) => return Err(error),
+    };
     Ok(MinerUParseExecution {
         parse_result,
         archive_bytes,
     })
+}
+
+fn should_try_builtin_python_parse_fallback(error: &str) -> bool {
+    error.contains("[Errno 22] Invalid argument")
+}
+
+fn resolve_builtin_mineru_python_path(
+    settings: &crate::settings::SettingsManager,
+    app_dir: &Path,
+) -> String {
+    let use_venv = normalize_optional_string(
+        get_setting_value(settings, "mineru.use_venv")
+            .ok()
+            .flatten(),
+    )
+    .unwrap_or_else(|| "false".to_string())
+        == "true";
+
+    if use_venv {
+        let venv_dir = crate::app_dirs::mineru_venv_dir(app_dir);
+        let python_path = if cfg!(windows) {
+            venv_dir.join("Scripts").join("python.exe")
+        } else {
+            venv_dir.join("bin").join("python")
+        };
+        return python_path.to_string_lossy().to_string();
+    }
+
+    normalize_optional_string(
+        get_setting_value(settings, "mineru.python_path")
+            .ok()
+            .flatten(),
+    )
+    .unwrap_or_else(|| {
+        if cfg!(windows) {
+            "python".to_string()
+        } else {
+            "python3".to_string()
+        }
+    })
+}
+
+fn derive_builtin_mineru_task_stem(file_path: &Path) -> String {
+    file_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.split('_').next())
+        .map(str::trim)
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("document")
+        .to_string()
+}
+
+async fn execute_parse_job_with_builtin_python_fallback(
+    state: &AppState,
+    app_dir: &Path,
+    file_path: &Path,
+) -> Result<crate::mineru::ParseExecution, String> {
+    let python_path = resolve_builtin_mineru_python_path(state.settings.as_ref(), app_dir);
+    let file_path_str = file_path
+        .to_str()
+        .ok_or("File path contains invalid characters")?
+        .to_string();
+
+    let cache_root = crate::app_dirs::cache_root_dir(app_dir);
+    let temp_root = crate::app_dirs::temp_dir(app_dir);
+    fs::create_dir_all(&cache_root).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&temp_root).map_err(|e| e.to_string())?;
+
+    let fallback_root = temp_root.join(format!("mineru-direct-{}", Uuid::new_v4()));
+    let output_dir = fallback_root.join("output");
+    let archive_path = fallback_root.join("result.zip");
+    fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+
+    let output_dir_str = output_dir
+        .to_str()
+        .ok_or("Fallback output path contains invalid characters")?
+        .to_string();
+    let archive_path_str = archive_path
+        .to_str()
+        .ok_or("Fallback archive path contains invalid characters")?
+        .to_string();
+    let task_stem = derive_builtin_mineru_task_stem(file_path);
+
+    let script = r#"
+from pathlib import Path
+import sys
+import zipfile
+
+from mineru.cli.common import do_parse, read_fn
+
+file_path = Path(sys.argv[1])
+output_dir = Path(sys.argv[2])
+archive_path = Path(sys.argv[3])
+task_stem = sys.argv[4]
+lang = sys.argv[5]
+
+output_dir.mkdir(parents=True, exist_ok=True)
+pdf_bytes = read_fn(file_path)
+do_parse(
+    str(output_dir),
+    [task_stem],
+    [pdf_bytes],
+    [lang],
+    backend="pipeline",
+    parse_method="auto",
+    formula_enable=True,
+    table_enable=True,
+    f_draw_layout_bbox=False,
+    f_draw_span_bbox=False,
+    f_dump_md=True,
+    f_dump_middle_json=True,
+    f_dump_model_output=True,
+    f_dump_orig_pdf=False,
+    f_dump_content_list=True,
+    start_page_id=0,
+    end_page_id=99999,
+)
+with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    for path in output_dir.rglob("*"):
+        if path.is_file():
+            zf.write(path, path.relative_to(output_dir).as_posix())
+"#;
+
+    let mut command = tokio::process::Command::new(&python_path);
+    command
+        .args([
+            "-c",
+            script,
+            &file_path_str,
+            &output_dir_str,
+            &archive_path_str,
+            &task_stem,
+            "ch",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .env("XDG_CACHE_HOME", &cache_root)
+        .env("TMPDIR", &temp_root)
+        .env("TMP", &temp_root)
+        .env("TEMP", &temp_root)
+        .env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
+
+    let output = command
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run direct MinerU Python fallback: {}", e))?;
+
+    let cleanup_root = fallback_root.clone();
+    let result = (|| -> Result<crate::mineru::ParseExecution, String> {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if stderr.is_empty() {
+                format!(
+                    "Direct MinerU Python fallback exited with {}",
+                    output.status
+                )
+            } else {
+                stderr
+            });
+        }
+
+        let archive_bytes = fs::read(&archive_path)
+            .map_err(|e| format!("Failed to read direct MinerU fallback archive: {}", e))?;
+        crate::mineru::parse_file_parse_response_bytes(&archive_bytes, "application/zip")
+    })();
+
+    let _ = fs::remove_dir_all(cleanup_root);
+    result
 }
 
 fn resolve_builtin_parse_backend(
@@ -4723,7 +4931,14 @@ async fn execute_parse_job(
             tokio::time::sleep(delay).await;
         }
 
-        match execute_parse_job_with_selected_backend(state, job_id, document_id, &file_path).await
+        match execute_parse_job_with_selected_backend(
+            state,
+            app_dir.ok_or("App dir is required for MinerU fallback")?,
+            job_id,
+            document_id,
+            &file_path,
+        )
+        .await
         {
             Ok(execution) => {
                 state.mineru_manager.touch_activity();

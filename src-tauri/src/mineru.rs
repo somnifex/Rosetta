@@ -676,7 +676,7 @@ fn looks_like_zip_response(bytes: &[u8], content_type: &str) -> bool {
     content_type.contains("zip") || bytes.starts_with(b"PK\x03\x04")
 }
 
-fn parse_file_parse_response_bytes(
+pub(crate) fn parse_file_parse_response_bytes(
     bytes: &[u8],
     content_type: &str,
 ) -> Result<ParseExecution, String> {
@@ -817,9 +817,8 @@ fn parse_result_from_zip_bytes(archive_bytes: &[u8]) -> Result<ParseResult, Stri
 #[cfg(test)]
 mod tests {
     use super::{
-        looks_like_zip_response, parse_file_parse_response_bytes,
-        should_disable_system_proxy, should_prefer_mineru_markdown_entry,
-        ParseExecution,
+        looks_like_zip_response, parse_file_parse_response_bytes, should_disable_system_proxy,
+        should_prefer_mineru_markdown_entry, ParseExecution,
     };
     use serde_json::json;
     use std::io::{Cursor, Write};
