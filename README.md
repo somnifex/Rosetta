@@ -139,4 +139,4 @@ Rosetta is licensed under the [GNU General Public License v3.0](LICENSE).
 - [MinerU](https://github.com/opendatalab/MinerU)
 - [Radix UI](https://www.radix-ui.com/)
 - [shadcn/ui](https://ui.shadcn.com/)
-- Rosetta also owes a quiet debt to the issue threads, forum posts, and troubleshooting notes shared across [GitHub](https://github.com/), [Reddit](https://www.reddit.com/), and [Linux.do](https://linux.do/). Projects like this are rarely built alone.
+- Rosetta also owes a quiet debt to the issue threads, forum posts, and troubleshooting notes shared across [GitHub](https://github.com/), [Reddit](https://www.reddit.com/), and [Linux.do](https://linux.do/). 
